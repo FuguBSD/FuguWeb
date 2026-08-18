@@ -3,5 +3,6 @@
 dist.name     App-FuguWeb
 dist.module   App::FuguWeb
 dist.abstract build a documentation website for a Perl project
+dist.author   Dick Olsson <hi@senzilla.io>
 dist.exe      bin/fuguweb
 dist.testdir  t/fuguweb
