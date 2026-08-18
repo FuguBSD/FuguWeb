@@ -1,0 +1,5 @@
+runtime dist https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.gz
+runtime pkg lowdown
+
+test pkg p5-Perl-Critic
+test pkg p5-Perl-Tidy
