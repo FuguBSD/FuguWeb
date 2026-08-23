@@ -21,3 +21,6 @@ SCRATCHPAD*.md
 
 # External projects
 external/
+
+# Website build
+web/build/
