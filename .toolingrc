@@ -1,5 +1,7 @@
 # Per-repo configuration for the shared FuguBSD tooling. The synced
 # scripts read their identity keys here. See FuguBSD/Tooling.
+sync.pack org
+sync.pack perl
 dist.name     App-FuguWeb
 dist.module   App::FuguWeb
 dist.abstract build a documentation website for a Perl project
