@@ -63,7 +63,9 @@ sub pages ($self)
 #	class never fetches one.
 sub external ($self)
 {
-	return sort keys %{ $self->{external} };
+	my @links = sort keys %{ $self->{external} };
+
+	return @links;
 }
 
 # $self->run:
