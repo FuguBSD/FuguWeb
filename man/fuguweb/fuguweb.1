@@ -145,16 +145,19 @@ and
 also refuse the root of the filesystem,
 the home directory,
 the project root,
-any directory that holds the project,
-the source directory,
-and any directory of the source directory.
+and any directory that holds the project.
+They refuse the source directory as well,
+and the key directory,
+and any directory of the key directory.
 .Pp
-The source directory holds the key files under the names that the
-inventory carries.
+The source directory reads like a built site.
+The key directory needs a rule of its own,
+because the default output directory is
+.Pa web/build
+and sits inside the source.
 Each key file sits at the top level of the key directory,
 where the clean takes a plain file.
-A clean of the source would take the trust anchor of every release
-with it.
+A clean of it would take the trust anchor of every release.
 .Pp
 With
 .Fl Fl out

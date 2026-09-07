@@ -183,9 +183,9 @@ The declared fingerprint of an OpenPGP key equals the computed one.
 
 =item *
 
-C<SHA256.sig> takes the shape of a signify signature: two lines, an
-C<untrusted comment: > line, and 100 base64 characters that decode to
-74 bytes whose first two bytes spell C<Ed>.
+C<SHA256.sig> takes the shape of a signify signature. It holds two
+lines: an C<untrusted comment: > line, and 100 base64 characters. Those
+characters decode to 74 bytes, and the first two spell C<Ed>.
 
 =back
 

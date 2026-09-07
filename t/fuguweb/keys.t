@@ -1547,7 +1547,7 @@ subtest 'the build reports a stray directory' => sub {
 		'and it reports the file' );
 
 	# An empty directory below the key directory is nobody's
-	# build, so it gets the report and it stays.
+	# build, so it stays. The report of it has its own subtest.
 	mkdir "$out/keys/stale" or die "Cannot make the directory: $!";
 	ok( site( $config, $out )->build, 'a third build succeeds' );
 	ok( -d "$out/keys/stale", 'and it keeps an empty one' );
@@ -1723,12 +1723,17 @@ subtest 'a description with no keys block owns no well-known path' => sub {
 	spew( "$out/.well-known/openpgpkey/hu/ybndrfg8ejkmcpqxot1uwisza345h769",
 		"mine\n" );
 
+	my $hash = '.well-known/openpgpkey/hu/'
+	    . 'ybndrfg8ejkmcpqxot1uwisza345h769';
+
 	ok( site( $config, $out )->build, 'a second build succeeds' );
 	ok( -e "$out/.well-known/security.txt",      'it keeps security.txt' );
 	ok( -e "$out/.well-known/openpgpkey/policy", 'and the policy' );
+	ok( -e "$out/$hash",                         'and the key of a hash' );
 
 	ok( !site( $config, $out )->clean, 'the clean refuses the tree' );
 	ok( -e "$out/.well-known/security.txt", 'and removes nothing' );
+	ok( -e "$out/$hash",                    'the key of a hash as well' );
 };
 
 subtest 'a keyless description takes no foreign well-known tree' => sub {
@@ -1807,15 +1812,70 @@ subtest 'the clean refuses a directory of the source' => sub {
 	my ( $config, $reason ) = load($root);
 	ok( $config, 'the description loads' ) or diag $reason;
 
-	for my $target (qw(web web/keys)) {
-		my ($exit) = cli( $root, 'clean', '--out', $target );
+	for my $target (qw(web web/keys web/keys/deep)) {
+		my ( $exit, $err ) = cli( $root, 'clean', '--out', $target );
 		isnt( $exit, 0, "the clean refuses $target" );
+		like( $err, qr{is the (?:source|key) directory},
+			"and the target guard is the reason for $target" );
 	}
 
 	ok( -e "$root/web/keys/fugubsd-1-release.pub", 'the key survives' );
 	ok( -e "$root/web/keys/SHA256",       'the manifest survives' );
 	ok( -e "$root/web/keys/SHA256.sig",   'the signature survives' );
 	ok( -e "$root/web/index.body.html",   'the source survives' );
+
+	# The default output directory sits inside the source
+	# directory, so the rule stops at the source itself.
+	my ($exit) = cli( $root, 'build', '--out', 'web/build' );
+	is( $exit, 0, 'the build takes the default output directory' );
+};
+
+subtest 'a broken description takes no key directory' => sub {
+	# The clean is the command an operator reaches for when a
+	# description is broken, so this path is the real one. A
+	# description that did not load names nothing, and a key
+	# directory reads like a flat directory of plain files.
+	my $root = project();
+	spew( "$root/.fuguwebrc", "site = Example\nnav \"index.html\" {\n" );
+
+	my ( $config, $reason ) = load($root);
+	ok( !$config, 'the description does not load' );
+
+	for my $target (qw(web/keys web)) {
+		my ($exit) = cli( $root, 'clean', '--out', $target );
+		isnt( $exit, 0, "the clean refuses $target" );
+	}
+
+	ok( -e "$root/web/keys/fugubsd-1-release.pub", 'the key survives' );
+	ok( -e "$root/web/keys/SHA256",     'the manifest survives' );
+	ok( -e "$root/web/keys/SHA256.sig", 'the signature survives' );
+	ok( -e "$root/web/index.body.html", 'the source survives' );
+
+	# The output of a real build still goes. Every build writes
+	# the stylesheet, and that is the whole test.
+	my ($exit) = cli( $root, 'clean', '--out', 'out' );
+	is( $exit, 0, 'and the clean takes the output of a build' );
+	ok( !-e "$root/out", 'which is gone' );
+};
+
+subtest 'the build refuses a staging tree that no build made' => sub {
+	# A build writes one flat directory of plain files into the
+	# staging directory. The clean refuses anything else there,
+	# so WEB-OUTPUT-6 says the build must keep it.
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	my $staging = "$out/" . App::FuguWeb::STAGING_DIR();
+	make_path("$staging/sub");
+	spew( "$staging/sub/mine.txt", "mine\n" );
+
+	ok( !site( $config, $out )->clean, 'the clean refuses the tree' );
+	ok( !site( $config, $out )->build, 'and a second build refuses it' );
+	ok( -e "$staging/sub/mine.txt",    'and removes nothing' );
 };
 
 subtest 'the prune and the clean answer alike' => sub {
@@ -1836,10 +1896,12 @@ subtest 'the prune and the clean answer alike' => sub {
 		'.well-known/security.txt',
 		'.well-known/openpgpkey/policy',
 		'.well-known/notes.txt',
+		'.well-known/openpgpkey/hu/ybndrfg8ejkmcpqxot1uwisza345h769',
 		'.well-known/openpgpkey/hu/short',
 		'.well-known/openpgpkey/hu/deep/f',
 		'sub/page.html',
 		'stale.html',
+		App::FuguWeb::STAGING_DIR() . '/mine/notes.txt',
 	);
 
 	# A directory answers the same rule, and an empty one is the
@@ -1850,6 +1912,7 @@ subtest 'the prune and the clean answer alike' => sub {
 		'photos/2024/raw',
 		'keys/stale',
 		'.well-known/acme-challenge',
+		App::FuguWeb::STAGING_DIR() . '/mine',
 	);
 
 	# The clean reads the description that it can load, so a
@@ -1894,8 +1957,13 @@ subtest 'the prune and the clean answer alike' => sub {
 		}
 	}
 
-	# A filter that dropped every name would prove nothing.
-	cmp_ok( $tested, '>=', 20, 'the test reached most of the names' );
+	# The test compares two answers, so it passes when both refuse.
+	# It cannot catch a refusal that is too wide on its own: the
+	# subtests above hold each side to the answer that it owes.
+	#
+	# A filter that dropped a name would prove less than it says,
+	# so the count is the one that the loop reaches today.
+	is( $tested, 39, 'the test reached every name of both makers' );
 };
 
 subtest 'the shape of a Web Key Directory name' => sub {

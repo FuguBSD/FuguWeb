@@ -73,9 +73,9 @@ and no rule before one: an empty footer is a gap, not chrome.
 
 A page with a non-empty C<base> carries no footer either. The prose is
 the project's own, and this class copies it in unchanged. A relative
-link inside it would resolve against the directory of that page, so it
-would name a file of the key directory, or no file at all. The writer
-of the fragment named neither.
+link inside it would resolve against the directory of that page. It
+would then name a file of the key directory, or no file at all. The
+writer of the fragment named neither.
 
 =head1 SEE ALSO
 

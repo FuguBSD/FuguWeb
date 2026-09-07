@@ -137,7 +137,7 @@ sub build ($self)
 
 	# Staging is a build detail. A published tree that carries it
 	# would serve the mdoc sources beside the pages made from them.
-	remove_tree( $self->staging, { safe => 0 } );
+	$self->_drop_staging or return;
 
 	return $self->_prune_output;
 }
@@ -154,6 +154,8 @@ sub clean ($self)
 	$self->_check_target or return;
 	return 1 unless -d $self->{out};
 
+	$self->_built_here or return;
+
 	my $stranger = $self->_stranger;
 	if ( defined $stranger ) {
 		$self->{log}->error(
@@ -166,6 +168,33 @@ sub clean ($self)
 	remove_tree( $self->{out}, { safe => 0 } );
 
 	return -e $self->{out} ? undef : 1;
+}
+
+# $self->_built_here:
+#	Whether the output directory can be the output of any build.
+#
+#	A description that did not load names nothing, so the rules
+#	of _stranger fall back to "a flat directory of plain files".
+#	A key directory reads exactly like that, and so does a source
+#	directory. The clean is the command an operator reaches for
+#	when a description is broken, so that fallback runs on the
+#	real path and not on an edge.
+#
+#	Every build writes the stylesheet, whatever the description
+#	holds. A target without it is therefore the output of no
+#	build, and the clean refuses it.
+sub _built_here ($self)
+{
+	return 1 if defined $self->{config}->path;
+
+	my $sheet = App::FuguWeb::STYLESHEET;
+	return 1 if -f "$self->{out}/$sheet";
+
+	$self->{log}->error(
+		'%s holds no %s, so no build made it; refusing to remove it',
+		$self->{out}, $sheet );
+
+	return;
 }
 
 # $self->_stranger:
@@ -318,18 +347,26 @@ sub _check_target ($self)
 	my $root   = _absolute( $self->{config}->root );
 	my $home   = defined $ENV{HOME} ? _absolute( $ENV{HOME} ) : undef;
 
-	# The source directory holds the key files under the same names
-	# that the inventory carries, and a flat directory of files
+	# The source directory holds a flat directory of files, which
 	# reads like a built site. A clean of it would take the
 	# content of the project with it.
 	#
-	# The rule reaches every directory below it, and the key
-	# directory is why. Its files are the trust anchor of every
-	# release, and each one sits at the top level of that
-	# directory, where the clean takes a plain file.
+	# The rule stops at the directory itself. The default output
+	# directory is web/build, which sits inside the default source
+	# directory web, so a rule that reached every directory below
+	# would refuse the layout that the tool ships.
 	my $source =
 	    defined $self->{config}->source_dir
 	    ? _absolute( $self->{config}->source_path )
+	    : undef;
+
+	# The key directory is the one part below the source that
+	# needs the rule of its own. Its files are the trust anchor of
+	# every release, and each one sits at the top level of that
+	# directory, where the clean takes a plain file.
+	my $keys =
+	    defined $self->{config}->keys_dir
+	    ? _absolute( $self->{config}->keys_path )
 	    : undef;
 
 	my $why;
@@ -337,11 +374,12 @@ sub _check_target ($self)
 	$why = 'the home directory'
 	    if !$why && defined $home && $target eq $home;
 	$why = 'the project root' if !$why && $target eq $root;
-	$why = 'the source directory, or a directory of it'
+	$why = 'the source directory'
+	    if !$why && defined $source && $target eq $source;
+	$why = 'the key directory, or a directory of it'
 	    if !$why
-	    && defined $source
-	    && ( $target eq $source
-		|| App::FuguWeb::path_below( $target, $source ) );
+	    && defined $keys
+	    && App::FuguWeb::path_below( $target, $keys );
 	$why = 'above the project'
 	    if !$why && App::FuguWeb::path_below( $root, $target );
 
@@ -415,10 +453,14 @@ sub _prune_output ($self)
 }
 
 # $self->_prune_dirs:
-#	Remove each empty directory that the build owns. A key
-#	directory that the description dropped leaves its own
-#	directory behind, and the next check would report a tree that
-#	no site holds.
+#	Remove each empty directory that the build owns: one that the
+#	site holds a name below, and one of the key tree. A renamed
+#	manual can empty a directory of the site, and the build takes
+#	that one.
+#
+#	A description that drops its keys block owns no directory of
+#	the key tree any more, so the build keeps that tree and the
+#	checks report it. Remove it by hand, or name the block again.
 #
 #	The clean reads the same two tests, so the build can never
 #	remove a directory that the clean refuses. An operator
@@ -564,9 +606,48 @@ sub _prepare_output ($self)
 
 	# A staging directory left by an interrupted build would leak
 	# stale sources into this one.
-	remove_tree( $self->staging, { safe => 0 } ) if -d $self->staging;
+	$self->_drop_staging or return;
 
 	return Fugu::File->ensure_dir( $self->staging );
+}
+
+# $self->_drop_staging:
+#	Remove the staging directory, and refuse one that no build
+#	made.
+#
+#	A build writes one flat directory of plain files there, so
+#	anything else is somebody else's. The clean refuses such a
+#	tree, and WEB-OUTPUT-6 holds that the build must never remove
+#	what the clean refuses.
+#
+#	The whole removal goes through here. A build that ran to the
+#	end calls it again, and the directory then holds what this
+#	build itself staged.
+sub _drop_staging ($self)
+{
+	my $staging = $self->staging;
+	return 1 unless -d $staging && !-l $staging;
+
+	my $names = App::FuguWeb::list_dir($staging);
+	unless ($names) {
+		$self->{log}->error( 'Cannot read %s: %s', $staging, $! );
+		return;
+	}
+
+	for my $name (@$names) {
+		next if -f "$staging/$name" && !-l "$staging/$name";
+
+		$self->{log}->error(
+			'%s holds %s, which no build made; refusing to'
+			    . ' remove it',
+			$staging, $name
+		);
+		return;
+	}
+
+	remove_tree( $staging, { safe => 0 } );
+
+	return 1;
 }
 
 # $self->_check_links:

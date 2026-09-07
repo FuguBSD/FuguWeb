@@ -17,7 +17,7 @@ MANDOC		?= mandoc
 PERL_SRC_DIRS	= lib bin scripts
 
 # The full test tier set of make test
-TEST_GLOBS	= t/fuguweb/*.t t/scripts/*.t t/ci/*.t
+TEST_GLOBS	= t/fuguweb/*.t t/web/*.t t/scripts/*.t t/ci/*.t
 
 MAN1		= man/fuguweb/fuguweb.1
 CATMAN1		= man/fuguweb/fuguweb.cat1

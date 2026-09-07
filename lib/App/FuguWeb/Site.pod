@@ -105,10 +105,11 @@ right. A manual that was renamed leaves its old page behind, and a site
 that carried both would fail its own check. The build owns the output
 directory, so it owns the removal too.
 
-The build owns a plain file at the top level of the output, and a plain
-file below the root that the site names or that takes a shape of the
-key directory. It keeps every other entry and reports it, so an
-operator directory in the output survives a build, empty or not.
+The build owns a plain file at the top level of the output. Below the
+root it owns a file that the site names, and one that takes a shape of
+the key directory. It keeps every other entry and reports it. An
+operator directory in the output therefore survives a build, empty or
+not.
 
 A description with no C<keys> block owns no shape of the key directory
 and no directory of the key tree. A site of another maker holds
@@ -141,9 +142,9 @@ A plain file of the top level is one that a build writes, whatever the
 description names today. A renamed manual leaves its old page there. A
 file below the root must be one that the site names, or one of the
 shapes that the key directory takes. A directory must hold a name of
-the site, or be a directory of the key tree, and a symlink is never a
-thing that a build wrote. The clean refuses every other entry, and it
-names it.
+the site, or be a directory of the key tree. A symlink is never a thing
+that a build wrote. The clean refuses every other entry, and it names
+it.
 
 The clean and the prune read one predicate, so a build can never remove
 a file that the clean refuses.
@@ -164,18 +165,20 @@ block again.
 
 =head2 THE OUTPUT DIRECTORY
 
-Both C<build> and C<clean> refuse a target that no build may own: the
-root of the filesystem, the home directory, the project root, any
-directory that holds the project, the source directory, and any
-directory of the source directory. C<--out> reaches them both, and the
+Both C<build> and C<clean> refuse a target that no build may own. The
+refused targets are the root of the filesystem, the home directory, the
+project root, and any directory that holds the project. The source
+directory and the key directory are refused as well, and so is any
+directory of the key directory. C<--out> reaches both commands, and the
 C<out_dir> setting it overrides is checked in the description, so the
 guard has to sit here as well.
 
 The source directory needs the rule because it reads like a built site:
-a flat directory of files, and the key directory below it. Each key
-file sits at the top level of that directory, where the clean takes a
-plain file, so a clean of the source would take the trust anchor of
-every release with it.
+a flat directory of files. The key directory needs a rule of its own,
+because the default output directory is F<web/build> and sits inside
+the source. Each key file sits at the top level of the key directory,
+where the clean takes a plain file. A clean of it would take the trust
+anchor of every release.
 
 The rule is deliberately not "inside the project". The tests and the CI
 both build into a temporary directory outside it.

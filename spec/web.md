@@ -160,8 +160,7 @@ it, so the build keeps it and the clean refuses the tree.
   - `.well-known/security.txt`;
   - `.well-known/openpgpkey/policy`;
   - `.well-known/openpgpkey/hu/<hash>`, where the hash holds 32 characters of
-    the z-base-32 alphabet;
-  - a file of the staging directory, which the build removes at the end.
+    the z-base-32 alphabet.
 
   A stale key file needs this shape set. The inventory names what the site holds
   today, so it cannot answer for a key that the description dropped.
@@ -173,6 +172,15 @@ it, so the build keeps it and the clean refuses the tree.
   rule WEB-OUTPUT-10, and no directory of the key tree. A site of another maker
   holds `security.txt` too, and the clean must not delete that site.
 - **WEB-OUTPUT-13** — The build and the clean must refuse an output directory
-  that no build may own. The refused targets are the root of the filesystem, the
-  home directory, the project root, any directory that holds the project, the
-  source directory, and any directory of the source directory.
+  that no build may own. The refused targets are these: the root of the
+  filesystem, the home directory, the project root, and any directory that holds
+  the project. The source directory is refused too. The key directory and each
+  directory of it are refused as well. The rule stops at the source directory
+  itself, because the default output directory sits inside it.
+- **WEB-OUTPUT-14** — The staging directory holds one flat directory of plain
+  files. The build must refuse a staging directory of another shape, and must
+  not remove it. The clean must refuse the same one.
+- **WEB-OUTPUT-15** — The clean must refuse a target that holds no stylesheet,
+  when the description does not load. Every build writes the stylesheet, so a
+  target without it is the output of no build. A key directory and a source
+  directory both read like one flat directory of plain files.

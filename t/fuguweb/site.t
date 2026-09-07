@@ -346,7 +346,7 @@ subtest 'the build refuses an output directory it must not own' => sub {
 
 	my @bad = (
 		$root, '/', "$root/..", File::Spec->rootdir,
-		$home, "$root/web", "$root/web/man",
+		$home, "$root/web",
 	);
 
 	for my $bad (@bad) {
@@ -365,6 +365,15 @@ subtest 'the build refuses an output directory it must not own' => sub {
 	# into a temporary directory outside it.
 	my $good = tempdir( CLEANUP => 1 ) . '/out';
 	ok( site( $root, $good )->build, "the build takes $good" );
+
+	# The default output directory sits inside the default source
+	# directory, so a rule that reached every directory below the
+	# source would refuse the layout that the tool ships.
+	ok( site( $root, "$root/web/build" )->build,
+		'the build takes the default output directory' );
+	ok( site( $root, "$root/web/build" )->clean,
+		'and the clean takes it too' );
+	ok( -e "$root/web/index.body.html", 'the source is untouched' );
 };
 
 subtest 'clean refuses a directory that no build made' => sub {
