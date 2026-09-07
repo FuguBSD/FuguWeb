@@ -79,11 +79,6 @@ my %NOT_A_KEY = map { $_ => 1 } ( MANIFEST, SIGNATURE );
 my %GENERATED_NAME =
     map { $_ => 1 } ( MANIFEST, SIGNATURE, KEYS_FILE, INDEX_PAGE );
 
-# The key directory that a description with no name takes. A clean
-# reads it when a description did not load, and the site of this
-# organization uses it.
-use constant DEFAULT_KEYS_DIR => 'keys';
-
 # A Web Key Directory name is the z-base-32 form of the SHA-1 of an
 # address local part. SHA-1 holds 20 bytes, and z-base-32 writes 32
 # characters of its own alphabet for them.
@@ -142,15 +137,12 @@ sub shaped ( $class, $config, $path )
 	# trap: a site of another maker holds security.txt too, and a
 	# clean that took it would delete that site.
 	#
-	# A description that did not load is another thing. It names
-	# no block of any kind, so it proves nothing, and the clean
-	# then reads the shape alone. WEB-OUTPUT-15 is the guard of
-	# that case: the target must hold the stylesheet.
+	# A description that did not load names the block all the
+	# same: App::FuguWeb::Config reads that one name out of the
+	# file that failed. A description that truly names none owns
+	# no path here, whether it loaded or not.
 	my $dir = $config->keys_dir;
-	unless ( defined $dir ) {
-		return 0 if defined $config->path;
-		$dir = DEFAULT_KEYS_DIR;
-	}
+	return 0 unless defined $dir;
 
 	return 1 if $path eq SECURITY_TXT;
 	return 1 if $path eq WKD_POLICY;
@@ -164,9 +156,9 @@ sub shaped ( $class, $config, $path )
 	return 0 unless defined $name;
 	return 1 if $GENERATED_NAME{$name};
 
-	# A description that did not load names no org, so the name
-	# gives its own. Fugu::KeyDir then holds the whole shape, and
-	# the org of the name matches by construction.
+	# A description that did not load names no org, and the key
+	# files of the output carry it. The name gives its own, and
+	# Fugu::KeyDir then holds the whole shape.
 	my $org = $config->keys_org // ( $name =~ /\A([a-z][a-z0-9]*)-/ )[0];
 	return 0 unless defined $org;
 

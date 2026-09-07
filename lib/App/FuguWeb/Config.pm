@@ -151,11 +151,42 @@ sub load ( $class, %args )
 #	description is the thing that is broken.
 sub anonymous ( $class, $root )
 {
-	# The object holds a root and no more. A default here would
-	# make a clean of the default output directory believe that a
-	# description named it. The clean would then remove a tree
-	# that it read no description for.
-	return bless { root => $root }, $class;
+	# The object holds no page, no manual and no key block, so the
+	# inventory is empty and the clean accepts one flat directory
+	# of files and no more. A default of a content setting here
+	# would make a clean believe that a description named a tree.
+	#
+	# It does read four names of the file that did not load: the
+	# source directory, the output directory, and the name and org
+	# of the keys block. Fugu::Config keeps every setting and
+	# block that it parsed before the fault, and a broken block is
+	# usually the last one. Those names decide which target the
+	# guard refuses, and a guard that read a default instead would
+	# refuse the wrong directory of the project.
+	#
+	# A fault above the keys block hides it. The clean then
+	# refuses the key tree of its own output, which is the safe
+	# answer, and the operator removes that tree by hand.
+	my $self = bless { root => $root }, $class;
+
+	my $path = "$root/" . App::FuguWeb::CONFIG_FILE;
+	return $self unless -f $path;
+
+	my $file = Fugu::Config->new( file => $path );
+	$file->load;
+
+	$self->{source_dir} = $file->get( 'source_dir', DEFAULT_SOURCE_DIR );
+	$self->{out_dir}    = $file->get( 'out_dir',    DEFAULT_OUT_DIR );
+
+	# The org as well as the name. The org pins a key file to this
+	# organization, so a guard without it would take the published
+	# key of another one.
+	if ( my ($keys) = $file->blocks('keys') ) {
+		$self->{keys_dir} = $keys->{name};
+		$self->{keys_org} = $keys->{settings}{org};
+	}
+
+	return $self;
 }
 
 # $self->root, $self->path:

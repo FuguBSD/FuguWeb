@@ -1916,44 +1916,179 @@ subtest 'the clean refuses a foreign target with no stylesheet' => sub {
 	ok( !-e $victim, 'which is gone' );
 };
 
-subtest 'a broken description takes no key directory' => sub {
-	# The build renders, so the skip comes before the first
-	# assertion. A plan that arrives after one is not a plan.
-	plan skip_all => 'a renderer is not installed' unless renderers();
-
-	# The clean is the command an operator reaches for when a
-	# description is broken, so this path is the real one. A
-	# description that did not load names nothing, and a key
-	# directory reads like a flat directory of plain files.
-	my $root = project();
-	spew( "$root/.fuguwebrc", "site = Example\nnav \"index.html\" {\n" );
+# break($root):
+#	Break the description of a project, as a description usually
+#	breaks: a fault in the last block that somebody edited.
+#	Fugu::Config keeps every setting and block that it read before
+#	the fault, so the names above it survive.
+sub break ($root)
+{
+	open my $fh, '>>', "$root/.fuguwebrc"
+	    or die "Cannot append to the description: $!";
+	print {$fh} "\nnav \"stray.html\" {\n";
+	close $fh;
 
 	my ( $config, $reason ) = load($root);
 	ok( !$config, 'the description does not load' );
 
+	return;
+}
+
+subtest 'a broken description guards its own directories' => sub {
+	# The clean is the command an operator reaches for when a
+	# description is broken, so this path is the real one. The
+	# guard must still answer for the directories of that project.
+	my $root = project();
+	break($root);
+
 	for my $target (qw(web/keys web)) {
-		my ($exit) = cli( $root, 'clean', '--out', $target );
+		my ( $exit, $err ) = cli( $root, 'clean', '--out', $target );
 		isnt( $exit, 0, "the clean refuses $target" );
+		like( $err, qr{is the source directory},
+			"and the target guard is the reason for $target" );
 	}
 
 	ok( -e "$root/web/keys/fugubsd-1-release.pub", 'the key survives' );
 	ok( -e "$root/web/keys/SHA256",     'the manifest survives' );
 	ok( -e "$root/web/keys/SHA256.sig", 'the signature survives' );
 	ok( -e "$root/web/index.body.html", 'the source survives' );
+};
 
-	# The output of a real build still goes. Every build writes
-	# the stylesheet, and that is the whole test. A clean of a
-	# directory that is not there returns success without a walk,
-	# so the build has to run first.
-	my $built = project();
-	my ($code) = cli( $built, 'build' );
+subtest 'a broken description reads its own directory names' => sub {
+	# A project of no default name at all. A guard that read a
+	# default instead would refuse the wrong directory, and it
+	# would miss the source key directory of this one.
+	my $root = tempdir( CLEANUP => 1 );
+	spew( "$root/site/index.body.html", "<h1>H</h1>\n" );
+	spew( "$root/site/pubkeys/fugubsd-1-release.pub", $SIGNIFY );
+	spew( "$root/site/pubkeys/SHA256",
+		manifest( 'fugubsd-1-release.pub' => $SIGNIFY ) );
+	spew( "$root/site/pubkeys/SHA256.sig", $SIGNATURE );
+	spew( "$root/.fuguwebrc", <<'RC' );
+site       = Example
+source_dir = site
+out_dir    = site/build
+
+nav "index.html" {
+	label = Home
+}
+
+page "index.html" {
+	title = Home
+	body  = index.body.html
+}
+
+keys "pubkeys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+
+	# The output that this description names sits inside the
+	# source, as the default layout does. The build runs first,
+	# because a broken description renders nothing.
+	my $built = 0;
+	SKIP: {
+		skip 'a renderer is not installed', 2 unless renderers();
+
+		my ($code) = cli( $root, 'build' );
+		is( $code, 0, 'the build succeeds into site/build' );
+		ok( -d "$root/site/build/pubkeys",
+			'and it writes the key directory' );
+		$built = 1;
+	}
+
+	break($root);
+
+	# The source of this project, and the key directory in it.
+	for my $target (qw(site site/pubkeys)) {
+		my ( $exit, $err ) = cli( $root, 'clean', '--out', $target );
+		isnt( $exit, 0, "the clean refuses $target" );
+		like( $err, qr{is the source directory},
+			"and the target guard is the reason for $target" );
+	}
+	ok( -e "$root/site/pubkeys/fugubsd-1-release.pub", 'the key survives' );
+	ok( -e "$root/site/index.body.html",               'the source too' );
+
+	# A guard that read a default output directory would refuse
+	# this one, and a guard that read a default key directory
+	# name would refuse the tree inside it.
+	SKIP: {
+		skip 'a renderer is not installed', 2 unless $built;
+
+		my ($took) = cli( $root, 'clean', '--out', 'site/build' );
+		is( $took, 0, 'the clean takes that output' );
+		ok( !-e "$root/site/build", 'which is gone' );
+	}
+
+	# A directory of no build at all. The target guard says
+	# nothing about it, so the stylesheet rule answers.
+	spew( "$root/web/build/notes.txt", "mine\n" );
+
+	my ( $exit, $err ) = cli( $root, 'clean', '--out', 'web/build' );
+	isnt( $exit, 0, 'the clean refuses a directory of no build' );
+	like( $err, qr{holds no style\.css},
+		'and the stylesheet is the reason' );
+	ok( -e "$root/web/build/notes.txt", 'and removes nothing' );
+};
+
+subtest 'a broken description cleans its own output' => sub {
+	# The build renders, so the skip comes before the first
+	# assertion. A plan that arrives after one is not a plan.
+	plan skip_all => 'a renderer is not installed' unless renderers();
+
+	# A clean of a directory that is not there returns success
+	# without a walk, so the build has to run first.
+	my $root = project();
+	my ($code) = cli( $root, 'build' );
 	is( $code, 0, 'a build of a whole description succeeds' );
-	ok( -d "$built/out", 'and it writes the output' );
+	ok( -d "$root/out/keys", 'and it writes the key directory' );
 
-	spew( "$built/.fuguwebrc", "site = Example\nnav \"index.html\" {\n" );
-	my ($exit) = cli( $built, 'clean', '--out', 'out' );
-	is( $exit, 0, 'and the clean takes the output of a build' );
-	ok( !-e "$built/out", 'which is gone' );
+	break($root);
+
+	my ($exit) = cli( $root, 'clean', '--out', 'out' );
+	is( $exit, 0, 'the clean takes the output of a build' );
+	ok( !-e "$root/out", 'which is gone' );
+};
+
+subtest 'a broken description keeps the org of its keys block' => sub {
+	# The org pins a key file to this organization. A description
+	# that did not load names it all the same, so the published
+	# key of another organization stays refused.
+	my $root = project();
+	break($root);
+
+	my $victim = tempdir( CLEANUP => 1 ) . '/victim';
+	spew( "$victim/style.css",  "body{}\n" );
+	spew( "$victim/index.html", "<h1>Theirs</h1>\n" );
+	spew( "$victim/keys/otherorg-1-release.pub", $SIGNIFY );
+
+	my ($exit) = cli( $root, 'clean', '--out', $victim );
+	isnt( $exit, 0, 'the clean refuses it' );
+	ok( -e "$victim/keys/otherorg-1-release.pub",
+		'and the key of another org survives' );
+};
+
+subtest 'a keyless description keeps its guard when it breaks' => sub {
+	# A description that names no keys block owns no key shape,
+	# and a break must not give it one. Another maker's site holds
+	# security.txt and a key directory too.
+	my $root = keyless();
+	break($root);
+
+	my $victim = tempdir( CLEANUP => 1 ) . '/victim';
+	spew( "$victim/style.css",  "body{}\n" );
+	spew( "$victim/index.html", "<h1>Theirs</h1>\n" );
+	spew( "$victim/.well-known/security.txt", "Contact: theirs\n" );
+	spew( "$victim/keys/fugubsd-1-release.pub", $SIGNIFY );
+
+	my ($exit) = cli( $root, 'clean', '--out', $victim );
+	isnt( $exit, 0, 'the clean refuses it' );
+	ok( -e "$victim/.well-known/security.txt", 'and security.txt survives' );
+	ok( -e "$victim/keys/fugubsd-1-release.pub", 'and the key with it' );
 };
 
 subtest 'the build refuses a staging tree that no build made' => sub {

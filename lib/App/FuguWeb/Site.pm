@@ -300,17 +300,13 @@ sub _key_dir ( $self, $path )
 	# it owns no directory of one. A .well-known directory alone
 	# would otherwise make any tree read like a built site.
 	#
-	# A description that did not load names no block of any kind,
-	# so it proves nothing. The clean must still take the output
-	# of a build: it is the command an operator reaches for when a
-	# description is broken. WEB-OUTPUT-15 is the guard of that
-	# case.
-	my $config = $self->{config};
-	my $dir    = $config->keys_dir;
-	unless ( defined $dir ) {
-		return 0 if defined $config->path;
-		$dir = App::FuguWeb::Keys::DEFAULT_KEYS_DIR;
-	}
+	# A description that did not load names the block all the
+	# same: App::FuguWeb::Config reads that one name out of the
+	# file that failed. The clean must still take the output of a
+	# build, because it is the command an operator reaches for
+	# when a description is broken.
+	my $dir = $self->{config}->keys_dir;
+	return 0 unless defined $dir;
 
 	return 1 if $path eq $dir;
 
@@ -369,21 +365,15 @@ sub _check_target ($self)
 	# names that path, so a build owns it. Nothing else below the
 	# source is a build's.
 	#
-	# A description that did not load names neither directory, so
-	# the two defaults answer for it. The clean is the command an
-	# operator reaches for when a description is broken, and the
-	# key directory of the default layout must survive that.
+	# A description that did not load names both directories all
+	# the same: App::FuguWeb::Config reads the two settings out of
+	# the file that failed. The clean is the command an operator
+	# reaches for when a description is broken, so the guard has
+	# to answer for the real directories of that project.
 	my $config = $self->{config};
 
-	my $source = _absolute(
-		defined $config->source_dir
-		? $config->source_path
-		: "$root/" . App::FuguWeb::Config::DEFAULT_SOURCE_DIR() );
-
-	my $owned = _absolute(
-		defined $config->out_dir
-		? "$root/" . $config->out_dir
-		: "$root/" . App::FuguWeb::Config::DEFAULT_OUT_DIR() );
+	my $source = _absolute( $config->source_path );
+	my $owned  = _absolute( "$root/" . $config->out_dir );
 
 	my $why;
 	$why = 'the root of the filesystem' if $target eq '/';

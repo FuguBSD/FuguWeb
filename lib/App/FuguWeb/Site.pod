@@ -163,6 +163,13 @@ must hold the stylesheet. Every build writes it, so a target without it
 is the output of no build. The target guard is the first line, and this
 is the second.
 
+A description that does not load still names three things: the source
+directory, the output directory, and the name and org of its C<keys>
+block. L<Fugu::Config> keeps every setting and block that it read
+before the fault, so each guard answers for the real directories of
+that project. A fault above the C<keys> block hides it, and C<clean>
+then refuses the key tree of its own output. Remove that tree by hand.
+
 A description that drops its C<keys> block strands the published tree.
 The site names nothing there any more, so the build keeps it, C<clean>
 refuses it and the checks report it. Remove the directory, or name the
