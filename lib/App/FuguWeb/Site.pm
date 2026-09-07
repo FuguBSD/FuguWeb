@@ -299,8 +299,18 @@ sub _key_dir ( $self, $path )
 	# A description with no keys block publishes no key tree, so
 	# it owns no directory of one. A .well-known directory alone
 	# would otherwise make any tree read like a built site.
-	my $dir = $self->{config}->keys_dir;
-	return 0 unless defined $dir;
+	#
+	# A description that did not load names no block of any kind,
+	# so it proves nothing. The clean must still take the output
+	# of a build: it is the command an operator reaches for when a
+	# description is broken. WEB-OUTPUT-15 is the guard of that
+	# case.
+	my $config = $self->{config};
+	my $dir    = $config->keys_dir;
+	unless ( defined $dir ) {
+		return 0 if defined $config->path;
+		$dir = App::FuguWeb::Keys::DEFAULT_KEYS_DIR;
+	}
 
 	return 1 if $path eq $dir;
 
@@ -458,9 +468,13 @@ sub _prune_output ($self)
 
 # $self->_prune_dirs:
 #	Remove each empty directory that the build owns: one that the
-#	site holds a name below, and one of the key tree. A renamed
-#	manual can empty a directory of the site, and the build takes
-#	that one.
+#	site holds a name below, and one of the key tree.
+#
+#	The two tests answer alike today. Every name of the inventory
+#	is one path segment but a key path, so the key tree holds
+#	every directory that the inventory implies. The first test
+#	reads the inventory, which is the rule, and it stays right if
+#	a deeper name ever reaches the list.
 #
 #	A description that drops its keys block owns no directory of
 #	the key tree any more, so the build keeps that tree and the
@@ -623,6 +637,11 @@ sub _prepare_output ($self)
 #	anything else is somebody else's. The clean refuses such a
 #	tree, and WEB-OUTPUT-6 holds that the build must never remove
 #	what the clean refuses.
+#
+#	_check_links runs first and refuses a link on this path, so
+#	the link test here never fires today. It stays because this
+#	method removes a tree, and a method that removes a tree reads
+#	its own rule.
 #
 #	The whole removal goes through here. A build that ran to the
 #	end calls it again, and the directory then holds what this

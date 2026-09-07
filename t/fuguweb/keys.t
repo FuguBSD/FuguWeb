@@ -3,9 +3,14 @@
 # App::FuguWeb::Keys: the description blocks, the published tree, and
 # every rule of the check.
 #
-# The test builds each key directory in a File::Temp directory. It
-# never reads the repository, and it runs no command: the key material
-# is a fixture, so the test needs neither signify(1) nor gpg(1).
+# The test builds each key directory in a File::Temp directory, and it
+# never reads the repository. The key material is a fixture, so the
+# test needs neither signify(1) nor gpg(1).
+#
+# A few subtests drive the real command through App::FuguWeb::CLI,
+# which renders. Those need the renderers, so each one skips without
+# them. The skip sits inside the subtest, and never after an
+# assertion.
 
 use v5.36;
 use Test::More;
@@ -1585,6 +1590,19 @@ subtest 'list_tree walks the leaves and no symlink' => sub {
 		undef, 'a directory that it cannot read gives undef' );
 };
 
+# renderers():
+#	Whether every renderer of a page is installed. A subtest that
+#	drives the real command needs them, and the rest of this file
+#	needs none.
+sub renderers ()
+{
+	for my $tool (qw(mandoc lowdown pod2man)) {
+		return 0 unless system("command -v $tool >/dev/null 2>&1") == 0;
+	}
+
+	return 1;
+}
+
 # cli($root, @argv):
 #	Run one command of the tool from the project root, with the
 #	output captured, and return the exit code.
@@ -1805,6 +1823,10 @@ subtest 'the build names the stray directory that it keeps' => sub {
 };
 
 subtest 'the clean refuses a directory of the source' => sub {
+	# The build renders, so the skip comes before the first
+	# assertion. A plan that arrives after one is not a plan.
+	plan skip_all => 'a renderer is not installed' unless renderers();
+
 	# The key files are the trust anchor of every release, and
 	# each one sits at the top level of the key directory, where
 	# the clean takes a plain file.
@@ -1895,6 +1917,10 @@ subtest 'the clean refuses a foreign target with no stylesheet' => sub {
 };
 
 subtest 'a broken description takes no key directory' => sub {
+	# The build renders, so the skip comes before the first
+	# assertion. A plan that arrives after one is not a plan.
+	plan skip_all => 'a renderer is not installed' unless renderers();
+
 	# The clean is the command an operator reaches for when a
 	# description is broken, so this path is the real one. A
 	# description that did not load names nothing, and a key
@@ -1916,10 +1942,18 @@ subtest 'a broken description takes no key directory' => sub {
 	ok( -e "$root/web/index.body.html", 'the source survives' );
 
 	# The output of a real build still goes. Every build writes
-	# the stylesheet, and that is the whole test.
-	my ($exit) = cli( $root, 'clean', '--out', 'out' );
+	# the stylesheet, and that is the whole test. A clean of a
+	# directory that is not there returns success without a walk,
+	# so the build has to run first.
+	my $built = project();
+	my ($code) = cli( $built, 'build' );
+	is( $code, 0, 'a build of a whole description succeeds' );
+	ok( -d "$built/out", 'and it writes the output' );
+
+	spew( "$built/.fuguwebrc", "site = Example\nnav \"index.html\" {\n" );
+	my ($exit) = cli( $built, 'clean', '--out', 'out' );
 	is( $exit, 0, 'and the clean takes the output of a build' );
-	ok( !-e "$root/out", 'which is gone' );
+	ok( !-e "$built/out", 'which is gone' );
 };
 
 subtest 'the build refuses a staging tree that no build made' => sub {
@@ -2343,12 +2377,18 @@ subtest 'the build refuses a symlink in the output' => sub {
 	# The same rule guards the key directory, where a link would
 	# take the published key material with it.
 	unlink "$out/index.html";
+	# The link points at a directory that is there, so the write
+	# would succeed and _check_links is the only thing that stops
+	# it. A dangling link would fail at the write instead, and
+	# prove nothing about the guard.
 	remove_tree("$out/.well-known");
-	my $elsewhere = tempdir( CLEANUP => 1 ) . '/keys';
+	my $elsewhere = tempdir( CLEANUP => 1 );
 	symlink $elsewhere, "$out/.well-known" or die "Cannot link: $!";
 
 	ok( !site( $config, $out )->build, 'a build with a linked tree fails' );
-	ok( !-e $elsewhere, 'and it writes no key through the link' );
+	is_deeply( App::FuguWeb::list_tree($elsewhere), [],
+		'and it writes no key through the link' );
+	ok( -l "$out/.well-known", 'and it keeps the link' );
 };
 
 subtest 'the build refuses a symlink at the staging directory' => sub {
@@ -2374,6 +2414,36 @@ subtest 'the build refuses a symlink at the staging directory' => sub {
 	ok( !site( $config, $out )->build, 'a second build refuses' );
 	ok( -l "$out/" . App::FuguWeb::STAGING_DIR(), 'and it keeps the link' );
 	ok( -d $target, 'and the target as well' );
+};
+
+subtest 'the build keeps a symlink of the top level' => sub {
+	# The skip comes before the first assertion. A plan that
+	# arrives after one turns a failed assertion into a pass.
+	my $probe = tempdir( CLEANUP => 1 );
+	plan skip_all => 'cannot make a symlink here'
+	    unless symlink '/nonexistent', "$probe/link";
+
+	# The prune reads _build_made as well as _owns, and a name of
+	# the top level passes _owns whatever it is. A link there is
+	# never a thing that a build wrote, so the prune must keep it
+	# and the clean must refuse it.
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	my $target = tempdir( CLEANUP => 1 ) . '/elsewhere.html';
+	spew( $target, "theirs\n" );
+	symlink $target, "$out/stale.html" or die "Cannot link: $!";
+
+	ok( site( $config, $out )->build, 'a second build succeeds' );
+	ok( -l "$out/stale.html", 'and it keeps the link' );
+	ok( -e $target,           'and the target as well' );
+
+	ok( !site( $config, $out )->clean, 'the clean refuses the link' );
+	ok( -l "$out/stale.html", 'and removes nothing' );
 };
 
 subtest 'the build keeps a symlink it never writes through' => sub {
