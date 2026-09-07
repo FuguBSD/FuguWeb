@@ -20,6 +20,7 @@ use v5.36;
 package App::FuguWeb::Check;
 
 use App::FuguWeb;
+use App::FuguWeb::Keys;
 use Fugu::File;
 
 # App::FuguWeb::Check - what a built site must be true of.
@@ -82,6 +83,25 @@ sub run ($self)
 		push @problems, $self->_check_page($page);
 	}
 	push @problems, $self->_check_reachable;
+	push @problems, $self->_check_keys;
+
+	return @problems;
+}
+
+# $self->_check_keys:
+#	Hold the key directory to the design. A description with no
+#	keys block has no key directory, and the checks then find
+#	nothing to say.
+#
+#	The rules read the source directory and not the output, so the
+#	answer does not depend on a build having run. A stray key file
+#	and a stale digest are faults of the checkout.
+sub _check_keys ($self)
+{
+	my @problems =
+	    defined $self->{config}->keys_dir
+	    ? App::FuguWeb::Keys->new( config => $self->{config} )->problems
+	    : ();
 
 	return @problems;
 }
@@ -106,7 +126,10 @@ sub _check_inventory ($self)
 		push @problems, "$name: empty" if -e $path && !-s $path;
 	}
 
-	my $entries = App::FuguWeb::list_dir( $self->{out} )
+	# The walk reads the whole tree. A site is one flat directory,
+	# and the key directory is the one part below it. A walk of one
+	# level would take every published key for a stray file.
+	my $entries = App::FuguWeb::list_tree( $self->{out} )
 	    or return "$self->{out}: cannot read the output directory: $!";
 
 	my %expected = map { $_ => 1 } @expected;

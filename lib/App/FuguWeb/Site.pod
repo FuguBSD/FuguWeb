@@ -82,15 +82,20 @@ copy the base stylesheet and every asset;
 
 =item 7.
 
-render each C<page> block;
+write the key directory, when the description names one;
 
 =item 8.
 
-render one page for each manual in each group;
+render each C<page> block;
 
 =item 9.
 
-remove the staging directory, and every file the site no longer holds.
+render one page for each manual in each group;
+
+=item 10.
+
+remove the staging directory, every file the site no longer holds, and
+every directory that is then empty.
 
 =back
 
@@ -99,6 +104,11 @@ right. A manual that was renamed leaves its old page behind, and a site
 that carried both would fail its own check. The build owns the output
 directory, so it owns the removal too; it removes a plain file and
 never a tree.
+
+A key directory that the description no longer names leaves its own
+directory behind. C<rmdir> refuses a directory that still holds a
+name, so the walk needs no second test. A directory that the site
+still uses stays, and the output directory itself always stays.
 
 The method returns true on success, and C<undef> with a message in the
 log otherwise.
@@ -114,9 +124,9 @@ is gone, whether or not it was there to begin with.
 
 C<clean> removes a built site and refuses anything else. It deletes a
 tree without asking, so the one thing it must never do is delete a tree
-that no build made. A build writes one flat directory of files, plus
-the staging directory while it runs; a target that holds anything else
-is refused by name.
+that no build made. A build writes plain files: one flat directory of
+them, the key directory tree below it, and the staging directory while
+it runs. A target that holds anything else is refused by name.
 
 =head2 THE OUTPUT DIRECTORY
 
@@ -151,6 +161,21 @@ The directory lives inside the output directory, under F<.man>, and the
 build removes it. Staging is a build detail: a published tree that
 carried it would serve the mdoc sources beside the pages made from them.
 
+=head1 THE KEY DIRECTORY
+
+A description with a C<keys> block publishes the public keys of an
+organization. The build copies each key file and the manifest pair as
+they stand. It generates the C<KEYS> file, the human page, the Web Key
+Directory tree and F<security.txt>. L<App::FuguWeb::Keys> holds the
+wiring, and the Fugu modules hold every generic part.
+
+The site build cannot sign, so the manifest pair is a source file. A
+build that signed would prove that the builder holds the key, and
+never that the release does.
+
+A description with no C<keys> block writes no key directory, so every
+site that predates it keeps its output.
+
 =head1 ASSETS
 
 An asset is any file directly in the source directory that the build
@@ -174,7 +199,7 @@ site with no stylesheet must not look like a success.
 
 =head1 SEE ALSO
 
-L<App::FuguWeb>, L<App::FuguWeb::Config>, L<App::FuguWeb::Render>,
+L<App::FuguWeb>, L<App::FuguWeb::Config>, L<App::FuguWeb::Keys>, L<App::FuguWeb::Render>,
 L<App::FuguWeb::Page>, L<App::FuguWeb::Index>, L<Fugu::File>
 
 =head1 AUTHOR

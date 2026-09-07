@@ -93,6 +93,40 @@ sub list_dir ($dir)
 	return \@names;
 }
 
+# list_tree($dir, $prefix):
+#	Every entry below the directory that is not a directory, as
+#	paths relative to it. The function returns an array reference,
+#	or undef with the reason in $!.
+#
+#	The function recurses into a plain directory, and never
+#	through a symlink. A symlinked directory is one entry: the
+#	build owns neither the target of the link nor what sits under
+#	it.
+#
+#	A site is one flat directory of files, and the key directory
+#	is the one part below it. The output therefore needs a walk of
+#	the tree wherever a walk of one level served before.
+sub list_tree ( $dir, $prefix = '' )
+{
+	my $names = list_dir($dir) or return;
+
+	my @paths;
+	for my $name (@$names) {
+		my $path     = "$dir/$name";
+		my $relative = "$prefix$name";
+
+		if ( -d $path && !-l $path ) {
+			my $below = list_tree( $path, "$relative/" ) or return;
+			push @paths, @$below;
+			next;
+		}
+
+		push @paths, $relative;
+	}
+
+	return \@paths;
+}
+
 # path_below($path, $root):
 #	Report whether $path is $root or lies below it. A trailing
 #	slash on either does not change the answer. Both paths must be

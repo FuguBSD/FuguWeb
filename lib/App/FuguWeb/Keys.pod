@@ -1,0 +1,172 @@
+=head1 NAME
+
+App::FuguWeb::Keys - the key directory of a site
+
+=head1 SYNOPSIS
+
+    use App::FuguWeb::Keys;
+
+    my $keys = App::FuguWeb::Keys->new(config => $config);
+
+    my @paths     = $keys->paths;
+    my $generated = $keys->generated;
+    my @problems  = $keys->problems;
+
+=head1 DESCRIPTION
+
+An organization publishes its public keys under one prefix, so a
+consumer install can fetch a key and verify a release with it. This
+class is the wiring of that directory. It reads the description
+blocks and calls the Fugu modules. It answers with paths, with bytes,
+and with the problems of a check.
+
+Every generic part lives in Fugu. L<Fugu::KeyDir> holds the name
+pattern, the publication order, and the text of the C<KEYS> file and
+of F<security.txt>. L<Fugu::OpenPGP> decodes an armored key and
+computes a fingerprint and a Web Key Directory hash. L<Fugu::Signify>
+parses the manifest. Nothing generic lives here.
+
+The class runs no command. A site build neither signs nor verifies, so
+the manifest pair is a source file and not a generated one.
+
+A description with no C<keys> block has no key directory. A caller
+tests C<< $config->keys_dir >> first, and this class dies without one.
+
+=head1 THE DESCRIPTION
+
+One C<keys> block names the source directory below the source
+directory, and the organization word:
+
+    keys "keys" {
+    	org     = fugubsd
+    	contact = mailto:security@fugubsd.org
+    	expires = 2027-09-07T00:00:00Z
+    	url     = https://www.fugubsd.org/keys
+    }
+
+    key "fugubsd-1-release" {
+    	status = current
+    	since  = 2026-09-07
+    }
+
+The block name of a C<key> block is the stem of the key file. The
+extension of the file on disk decides the type: C<.pub> is a signify
+key, and C<.asc> is an armored OpenPGP key. The status is C<current>,
+C<next> or C<retired>.
+
+L<App::FuguWeb::Config> reads and validates both blocks. It resolves
+each block to its file, so this class repeats no name pattern.
+
+=head1 THE PUBLISHED TREE
+
+    keys/<stem>.pub          each key file, byte for byte
+    keys/<stem>.asc
+    keys/SHA256              the manifest pair, copied as it stands
+    keys/SHA256.sig
+    keys/KEYS                every OpenPGP key, in the Apache form
+    keys/index.html          the human page
+
+    .well-known/openpgpkey/hu/<hash>    the Web Key Directory
+    .well-known/openpgpkey/policy
+    .well-known/security.txt            RFC 9116
+
+The two well-known paths sit at the site root, because a reader asks
+for the registered path and never for one below the key directory.
+
+=head1 METHODS
+
+=head2 new
+
+    App::FuguWeb::Keys->new(config => $config)
+
+C<config> is an L<App::FuguWeb::Config> and is required. The method
+dies when the description holds no C<keys> block.
+
+=head2 error
+
+    $keys->error
+
+The reason of the most recent failure, or C<undef> after a success.
+
+=head2 paths
+
+    $keys->paths
+
+Every path that the key directory adds to the output, relative to the
+output directory. The method reads no file: the description and the
+file names decide the list.
+
+=head2 copies
+
+    $keys->copies
+
+Every file that the build copies as it stands, as a list of hash
+references with C<from> and C<to>.
+
+=head2 generated
+
+    $keys->generated
+
+Every file that the build writes itself, as a hash reference of output
+path to bytes. The method returns C<undef> on a failure, and C<error>
+holds the reason.
+
+=head2 key_set
+
+    $keys->key_set
+
+The key set for L<Fugu::KeyDir>: every key block of the description,
+with the armored body of each OpenPGP key read from its file.
+
+=head2 problems
+
+    $keys->problems
+
+What the key directory of the checkout is not true of, each one a
+sentence that names the file. An empty list means the directory is
+good.
+
+The checks read the source directory and not the output. A stray file
+and a stale digest are faults of the checkout, so the answer must not
+depend on a build having run.
+
+=head1 THE CHECKS
+
+=over 4
+
+=item *
+
+Every key file has a block, and every block has a file.
+
+=item *
+
+Every name matches the pattern of L<Fugu::KeyDir>.
+
+=item *
+
+Every purpose holds exactly one C<current> key.
+
+=item *
+
+C<SHA256> names every key file, with the digest that the file has, and
+it names nothing else.
+
+=item *
+
+The declared fingerprint of an OpenPGP key equals the computed one.
+
+=back
+
+The class verifies no signature. That is the work of a consumer
+install: the site build cannot sign, so a site that verified its own
+manifest would prove nothing.
+
+=head1 SEE ALSO
+
+L<App::FuguWeb>, L<App::FuguWeb::Config>, L<App::FuguWeb::Check>,
+L<App::FuguWeb::Site>, L<Fugu::KeyDir>, L<Fugu::OpenPGP>,
+L<Fugu::Signify>
+
+=head1 AUTHOR
+
+Dick Olsson <hi@senzilla.io>

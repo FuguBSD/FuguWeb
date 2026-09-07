@@ -96,14 +96,19 @@ editor backup, no stray source.
 
 =back
 
+A description with a C<keys> block adds the checks of
+L<App::FuguWeb::Keys/THE CHECKS>. They read the source key directory
+and not the output. A stray key file and a stale digest are therefore
+found whether or not a build has run.
+
 =head2 external
 
 The external links that the last C<run> collected, sorted.
 
 =head1 SEE ALSO
 
-L<App::FuguWeb>, L<App::FuguWeb::Config>, L<App::FuguWeb::Site>,
-L<fuguweb(1)>
+L<App::FuguWeb>, L<App::FuguWeb::Config>, L<App::FuguWeb::Keys>,
+L<App::FuguWeb::Site>, L<fuguweb(1)>
 
 =head1 AUTHOR
 

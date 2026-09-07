@@ -21,8 +21,10 @@ package App::FuguWeb::Site;
 
 use App::FuguWeb;
 use App::FuguWeb::Index;
+use App::FuguWeb::Keys;
 use App::FuguWeb::Page;
 use App::FuguWeb::Render;
+use File::Find ();
 use File::Path qw(remove_tree);
 use File::Spec;
 use Fugu::File;
@@ -117,6 +119,7 @@ sub build ($self)
 	$self->_stage_mdoc      or return;
 	$self->_copy_stylesheet or return;
 	$self->_copy_assets     or return;
+	$self->_write_keys      or return;
 	$self->_render_pages    or return;
 	$self->_render_manuals  or return;
 
@@ -139,22 +142,11 @@ sub clean ($self)
 	$self->_check_target or return;
 	return 1 unless -d $self->{out};
 
-	# A build writes one flat directory of files, plus the staging
-	# directory while it runs. Anything else in there means the
-	# caller named a directory that is not a site.
-	my $names = App::FuguWeb::list_dir( $self->{out} );
-	unless ($names) {
-		$self->{log}->error( 'Cannot read %s: %s', $self->{out}, $! );
-		return;
-	}
-
-	for my $name (@$names) {
-		next if $name eq STAGING_DIR;
-		next if $self->_build_made($name);
-
+	my $stranger = $self->_stranger;
+	if ( defined $stranger ) {
 		$self->{log}->error(
 '%s holds %s, which no build made; refusing to remove it',
-			$self->{out}, $name
+			$self->{out}, $stranger
 		);
 		return;
 	}
@@ -162,6 +154,73 @@ sub clean ($self)
 	remove_tree( $self->{out}, { safe => 0 } );
 
 	return -e $self->{out} ? undef : 1;
+}
+
+# $self->_stranger:
+#	The first entry of the output directory that no build makes,
+#	or undef when every entry is one.
+#
+#	A build writes plain files: one flat directory of them, the
+#	key directory tree below it, and the staging directory while
+#	it runs. A directory that the description does not name is
+#	therefore not part of a site, and so is anything below it.
+#
+#	The rule is stricter than the one the prune reads. A prune
+#	runs after a build of this description, which establishes what
+#	the output holds. A clean runs on a directory that the caller
+#	named. It deletes the tree without asking, so it must refuse
+#	whatever it cannot account for.
+sub _stranger ($self)
+{
+	my $owned = $self->_owned_dirs;
+
+	my @found;
+	File::Find::find( {
+			no_chdir => 1,
+			wanted   => sub { push @found, $File::Find::name },
+		},
+		$self->{out} );
+
+	for my $path ( sort @found ) {
+		next if $path eq $self->{out};
+
+		my $relative = substr $path, 1 + length $self->{out};
+		next if _in_staging($relative);
+
+		if ( -d $path && !-l $path ) {
+			next if $owned->{$relative};
+			return $relative;
+		}
+
+		my ($dir) = $relative =~ m{\A(.*)/[^/]+\z};
+		return $relative if defined $dir && !$owned->{$dir};
+		return $relative unless $self->_build_made($relative);
+	}
+
+	return;
+}
+
+# $self->_owned_dirs:
+#	Every directory below the output that a build writes into: the
+#	staging directory, and each directory of the key directory
+#	tree. The set comes from the description, so a site with no
+#	key directory owns one flat directory of files and no more.
+sub _owned_dirs ($self)
+{
+	my %owned = ( STAGING_DIR, 1 );
+
+	for my $path ( $self->{config}->key_paths ) {
+		my @parts = split m{/}, $path;
+		pop @parts;
+
+		my $prefix = '';
+		for my $part (@parts) {
+			$prefix = length $prefix ? "$prefix/$part" : $part;
+			$owned{$prefix} = 1;
+		}
+	}
+
+	return \%owned;
 }
 
 # $self->_check_target:
@@ -211,33 +270,64 @@ sub _prune_output ($self)
 {
 	my %expected = map { $_ => 1 } $self->{config}->inventory;
 
-	my $names = App::FuguWeb::list_dir( $self->{out} );
-	unless ($names) {
+	my $paths = App::FuguWeb::list_tree( $self->{out} );
+	unless ($paths) {
 		$self->{log}->error( 'Cannot read %s: %s', $self->{out}, $! );
 		return;
 	}
 
-	for my $name (@$names) {
-		next if $expected{$name};
+	for my $path (@$paths) {
+		next if $expected{$path};
 
 		# A plain file only, and never a tree. The build writes
-		# one flat directory of files, so a file is the only
-		# thing it can have left behind. Anything else belongs
-		# to whoever put it there, and the check reports it.
-		unless ( $self->_build_made($name) ) {
+		# files, so a file is the only thing it can have left
+		# behind. Anything else belongs to whoever put it
+		# there, and the check reports it.
+		unless ( $self->_build_made($path) ) {
 			$self->{log}->warning(
 				'%s is in the output and no build made it',
-				$name );
+				$path );
 			next;
 		}
 
 		$self->{log}
 		    ->info( 'Removing %s, which the site no longer holds',
-			$name );
-		unlink "$self->{out}/$name"
+			$path );
+		unlink "$self->{out}/$path"
 		    or
-		    $self->{log}->warning( 'Cannot remove %s: %s', $name, $! );
+		    $self->{log}->warning( 'Cannot remove %s: %s', $path, $! );
 	}
+
+	return $self->_prune_dirs;
+}
+
+# $self->_prune_dirs:
+#	Remove every empty directory of the output. A key directory
+#	that the description no longer names leaves its own directory
+#	behind. The next check would then report a tree that no site
+#	holds.
+#
+#	rmdir refuses a directory that still holds a name, so the walk
+#	needs no second test: a directory that the site still uses
+#	stays. The deepest path comes last from the walk, so the
+#	reverse order removes a tree from the leaves up.
+sub _prune_dirs ($self)
+{
+	my @dirs;
+	File::Find::find( {
+			no_chdir => 1,
+			wanted   => sub {
+				push @dirs, $File::Find::name
+				    if -d $File::Find::name
+				    && !-l $File::Find::name;
+			},
+		},
+		$self->{out} );
+
+	# The output directory itself stays. A site with no page is a
+	# build that failed, and a removed output directory would hide
+	# that from every check that reads it.
+	rmdir $_ for grep { $_ ne $self->{out} } reverse sort @dirs;
 
 	return 1;
 }
@@ -252,6 +342,15 @@ sub _build_made ( $self, $name )
 	my $path = "$self->{out}/$name";
 
 	return -f $path && !-l $path ? 1 : 0;
+}
+
+# _in_staging($path):
+#	Report whether an output path belongs to the mdoc staging
+#	directory. The staging is a build detail: a clean removes it
+#	with the site, and it is never something the caller put there.
+sub _in_staging ($path)
+{
+	return App::FuguWeb::path_below( $path, STAGING_DIR );
 }
 
 # _absolute($path):
@@ -412,6 +511,72 @@ sub _copy_assets ($self)
 	}
 
 	return 1;
+}
+
+# $self->_write_keys:
+#	Write the key directory. The build copies each key file and
+#	the manifest pair as they stand. It generates the KEYS file,
+#	the human page, the Web Key Directory tree and security.txt
+#	through the Fugu modules.
+#
+#	A description with no keys block writes no key directory, so
+#	every site that predates it keeps its output.
+#
+#	The site build cannot sign, so the manifest pair is a source
+#	file. A build that signed would prove that the builder holds
+#	the key, and never that the release does.
+sub _write_keys ($self)
+{
+	my $config = $self->{config};
+	return 1 unless defined $config->keys_dir;
+
+	my $keys = App::FuguWeb::Keys->new( config => $config );
+
+	for my $copy ( $keys->copies ) {
+		$self->_write_out(
+			$copy->{to},
+			sub {
+				my $bytes = Fugu::File->read( $copy->{from} );
+				$self->{log}
+				    ->error( 'Cannot read %s', $copy->{from} )
+				    unless defined $bytes;
+				return $bytes;
+			} ) or return;
+	}
+
+	my $generated = $keys->generated;
+	unless ($generated) {
+		$self->{log}->error( 'The key directory is not usable: %s',
+			$keys->error );
+		return;
+	}
+
+	for my $path ( sort keys %$generated ) {
+		$self->_write_out( $path, sub { return $generated->{$path} } )
+		    or return;
+	}
+
+	return 1;
+}
+
+# $self->_write_out($path, $bytes):
+#	Write one file of the key directory, at a path below the
+#	output directory. Fugu::File->write opens the file and creates
+#	no parent, and the Web Key Directory sits three directories
+#	down, so the parent comes first.
+#
+#	The bytes arrive through a code reference, so a read that
+#	fails reports its own path and this method reports none.
+sub _write_out ( $self, $path, $bytes )
+{
+	my $target = $self->{out} . "/$path";
+
+	my $dir = $target =~ s{/[^/]+\z}{}r;
+	Fugu::File->ensure_dir($dir) or return;
+
+	my $data = $bytes->() // return;
+
+	return Fugu::File->write( $target, $data );
 }
 
 # $self->_render_pages:

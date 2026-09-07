@@ -110,6 +110,9 @@ in the source directory that the build does not render is an asset, and
 the build copies it; L<App::FuguWeb::Site/ASSETS> says exactly which
 those are.
 
+A C<keys> block and its C<key> blocks describe the published key
+directory of an organization. L<App::FuguWeb::Keys> documents them.
+
 L<App::FuguWeb::Config> documents every setting and every default.
 
 =head1 FUNCTIONS
@@ -142,6 +145,22 @@ read.
 
 The sort compares bytes and never reads the locale of the builder: a
 site must not depend on the machine that built it.
+
+=head2 list_tree
+
+    my $paths = App::FuguWeb::list_tree($dir) or die "cannot read: $!";
+
+Every entry below the directory that is not a directory, as paths
+relative to it. The function returns an array reference, or C<undef>
+with the reason in C<$!>.
+
+The function recurses into a plain directory, and never through a
+symlink. A symlinked directory is one entry: the build owns neither the
+target of the link nor what sits under it.
+
+A site is one flat directory of files, and the key directory is the
+one part below it. The output therefore needs a walk of the tree
+wherever a walk of one level served before.
 
 =head2 path_below
 

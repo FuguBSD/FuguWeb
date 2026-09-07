@@ -21,8 +21,11 @@ package App::FuguWeb::Config;
 
 use App::FuguWeb;
 use App::FuguWeb::Manual;
+use App::FuguWeb::Keys;
 use File::Find ();
 use Fugu::Config;
+use Fugu::KeyDir;
+use Fugu::OpenPGP;
 
 # App::FuguWeb::Config - the site description over Fugu::Config.
 #
@@ -55,6 +58,17 @@ my @PATH_SETTINGS = qw(out_dir source_dir module_root stylesheet);
 # The three ways a page block names its content. Exactly one of them
 # must appear.
 my @PAGE_SOURCES = qw(body markdown index);
+
+# The settings that each block of the key directory takes. A setting
+# that neither list names is a typo, and a typo that the parser
+# swallows is a setting that silently does not apply.
+my %KEYS_SETTING = map { $_ => 1 } qw(org contact expires url);
+my %KEY_SETTING =
+    map { $_ => 1 } qw(status since until email fingerprint);
+
+# The statuses that a key block may name. Fugu::KeyDir holds the
+# vocabulary, so the two can never disagree.
+my %KEY_STATUS = map { $_ => 1 } Fugu::KeyDir::STATUSES;
 
 # App::FuguWeb::Config->load(%args):
 #	root  => $dir		the project root (default: discover)
@@ -102,6 +116,7 @@ sub load ( $class, %args )
 		nav   => [],
 		page  => [],
 		group => [],
+		key   => [],
 	}, $class;
 
 	$self->_apply_settings;
@@ -110,6 +125,7 @@ sub load ( $class, %args )
 	$self->_read_groups($reason) or return;
 	$self->_check_paths($reason) or return;
 	$self->_check_pages($reason) or return;
+	$self->_read_keys($reason)   or return;
 
 	return $self;
 }
@@ -142,6 +158,41 @@ sub module_root ($self) { return $self->{module_root}; }
 sub mandoc_os   ($self) { return $self->{mandoc_os}; }
 sub man_url     ($self) { return $self->{man_url}; }
 sub stylesheet  ($self) { return $self->{stylesheet}; }
+
+# The key directory. Each accessor answers undef when the description
+# holds no keys block, so keys_dir is the test for one.
+sub keys_dir     ($self) { return $self->{keys_dir}; }
+sub keys_org     ($self) { return $self->{keys_org}; }
+sub keys_contact ($self) { return $self->{keys_contact}; }
+sub keys_expires ($self) { return $self->{keys_expires}; }
+sub keys_url     ($self) { return $self->{keys_url}; }
+
+# $self->keys_path($name):
+#	The path of a file in the source key directory, or of the
+#	directory itself when the caller names nothing. The method
+#	answers undef when the description holds no keys block.
+sub keys_path ( $self, $name = undef )
+{
+	return unless defined $self->{keys_dir};
+
+	my $dir = $self->source_path( $self->{keys_dir} );
+
+	return defined $name ? "$dir/$name" : $dir;
+}
+
+# $self->site_keys:
+#	The key blocks, in file order. Each entry is a hash reference
+#	with name, stem, type, serial, purpose, status, since, until,
+#	email and fingerprint. The name is the key file, and the stem
+#	is the block name.
+#
+#	The list is named site_keys and not keys, because a method
+#	named keys in this package makes every call of the builtin
+#	ambiguous.
+sub site_keys ($self)
+{
+	return @{ $self->{key} };
+}
 
 # $self->source_path($name):
 #	The path of a file in the source directory, or of the
@@ -206,7 +257,22 @@ sub inventory ($self)
 {
 	return ( map { $_->{file} } $self->pages ),
 	    ( map { $_->page } map { $_->manuals } $self->groups ),
-	    App::FuguWeb::STYLESHEET, $self->assets;
+	    App::FuguWeb::STYLESHEET, $self->assets, $self->key_paths;
+}
+
+# $self->key_paths:
+#	Every path of the key directory in the output, relative to the
+#	output directory, or the empty list when the description holds
+#	no keys block. The paths hold a solidus: the key directory is
+#	the one part of a site that is not one flat directory.
+sub key_paths ($self)
+{
+	my @paths =
+	    defined $self->{keys_dir}
+	    ? App::FuguWeb::Keys->new( config => $self )->paths
+	    : ();
+
+	return @paths;
 }
 
 # $self->groups:
@@ -412,6 +478,277 @@ sub _read_groups ( $self, $reason )
 	}
 
 	return $self;
+}
+
+# $self->_read_keys($reason):
+#	Read the keys block and its key blocks. A description with no
+#	keys block builds a site with no key directory, so every
+#	description that predates the key directory keeps its
+#	behavior.
+#
+#	The method resolves each block to the key file that it names.
+#	The build and the checks then read one list, and neither one
+#	repeats the file name pattern.
+sub _read_keys ( $self, $reason )
+{
+	my @blocks = $self->{file}->blocks('keys');
+	return $self if !@blocks;
+
+	if ( @blocks > 1 ) {
+		return $self->_fail( $reason,
+			      'the description holds '
+			    . scalar(@blocks)
+			    . ' keys blocks, and a site publishes one key'
+			    . ' directory' );
+	}
+
+	$self->_read_keys_block( $reason, $blocks[0] ) or return;
+
+	return $self->_read_key_blocks($reason);
+}
+
+# $self->_read_keys_block($reason, $block):
+#	Read the settings of the keys block, and hold the source
+#	directory to the rules of a path in the output.
+sub _read_keys_block ( $self, $reason, $block )
+{
+	my $name     = $block->{name};
+	my $settings = $block->{settings};
+
+	for my $key ( sort keys %$settings ) {
+		next if $KEYS_SETTING{$key};
+		return $self->_fail( $reason,
+			"keys \"$name\" names the unknown setting $key" );
+	}
+
+	# The block name becomes a directory in the source tree and in
+	# the output. It is a path, so it gets the guard that a page
+	# name gets. It is also one segment: the published prefix is
+	# one directory, and the index page links its keys beside it.
+	if ( my $why = _unsafe_output_name($name) ) {
+		return $self->_fail( $reason, "keys \"$name\" $why" );
+	}
+	if ( $name =~ m{/} ) {
+		return $self->_fail( $reason,
+			      "keys \"$name\" holds a solidus, and the key"
+			    . ' directory is one segment below the source'
+			    . ' directory' );
+	}
+
+	my $org = $settings->{org};
+	unless ( defined $org && length $org ) {
+		return $self->_fail( $reason, "keys \"$name\" has no org" );
+	}
+
+	# Fugu::KeyDir dies for an org word that no key name can hold,
+	# because a site build reads the word from its own description.
+	# This is that description, so the failure is a reason and not
+	# a death.
+	my $dir = eval { Fugu::KeyDir->new( org => $org ) };
+	unless ($dir) {
+		my $why = $@ // 'the org is not usable';
+		$why =~ s/\s+\z//;
+		return $self->_fail( $reason, "keys \"$name\": $why" );
+	}
+
+	# RFC 9116 makes Expires a necessary field, so a contact with
+	# no expiry writes no security.txt. An expiry with no contact
+	# is a setting that nothing reads, which is a typo.
+	my $contact = $settings->{contact};
+	my $expires = $settings->{expires};
+	if ( defined $contact && !defined $expires ) {
+		return $self->_fail( $reason,
+			      "keys \"$name\" names a contact and no expires;"
+			    . ' RFC 9116 makes both necessary' );
+	}
+	if ( defined $expires && !defined $contact ) {
+		return $self->_fail( $reason,
+			"keys \"$name\" names expires and no contact" );
+	}
+
+	# The url is the published prefix of the directory. The
+	# Encryption field of security.txt needs an absolute URL, and
+	# a site that names none writes no such field.
+	my $url = $settings->{url};
+	if ( defined $url && $url !~ m{\A[a-z][a-z0-9+.-]*://\S+\z} ) {
+		return $self->_fail( $reason,
+			      "keys \"$name\" url is $url, which is not an"
+			    . ' absolute URL' );
+	}
+	$url =~ s{/+$}{} if defined $url;
+
+	unless ( -d $self->source_path($name) ) {
+		return $self->_fail( $reason,
+			      "keys \"$name\" names $self->{source_dir}/$name,"
+			    . ' which is not a directory' );
+	}
+
+	$self->{keys_dir}     = $name;
+	$self->{keys_org}     = $org;
+	$self->{keys_contact} = $contact;
+	$self->{keys_expires} = $expires;
+	$self->{keys_url}     = $url;
+	$self->{keys_keydir}  = $dir;
+
+	return $self;
+}
+
+# $self->_read_key_blocks($reason):
+#	Read each key block, and resolve it to the one file that it
+#	names. The block name is the stem, and the extension of the
+#	file on disk decides the type, so the description repeats the
+#	type nowhere.
+sub _read_key_blocks ( $self, $reason )
+{
+	my $keydir = $self->{keys_keydir};
+	my $dir    = $self->keys_path;
+
+	my $names = App::FuguWeb::list_dir($dir)
+	    or return $self->_fail( $reason, "cannot read $dir: $!" );
+
+	my @blocks = $self->{file}->blocks('key');
+	unless (@blocks) {
+		return $self->_fail( $reason,
+			      "keys \"$self->{keys_dir}\" holds no key block,"
+			    . ' and a key directory publishes at least one'
+			    . ' key' );
+	}
+
+	my %seen;
+	for my $block (@blocks) {
+		my $stem     = $block->{name};
+		my $settings = $block->{settings};
+
+		for my $key ( sort keys %$settings ) {
+			next if $KEY_SETTING{$key};
+			return $self->_fail( $reason,
+				"key \"$stem\" names the unknown setting $key"
+			);
+		}
+
+		if ( $seen{$stem}++ ) {
+			return $self->_fail( $reason,
+				"key \"$stem\" is declared twice" );
+		}
+
+		my @files = grep { /\A\Q$stem\E\.[^.]+\z/ } @$names;
+		unless (@files) {
+			return $self->_fail( $reason,
+				      "key \"$stem\" names no file in"
+				    . " $self->{source_dir}/$self->{keys_dir}"
+			);
+		}
+
+		# Fugu::KeyDir holds one current key for each purpose,
+		# so a signify key and an OpenPGP key take two
+		# purposes. Two files under one stem would be one
+		# purpose with two types.
+		if ( @files > 1 ) {
+			return $self->_fail( $reason,
+				      "key \"$stem\" names "
+				    . join( ' and ', sort @files )
+				    . ', and one key block names one file' );
+		}
+
+		my $parts = $keydir->parse_name( $files[0] );
+		unless ($parts) {
+			return $self->_fail( $reason,
+				"key \"$stem\": " . $keydir->error );
+		}
+
+		my $entry =
+		    $self->_key_entry( $reason, $files[0], $parts, $settings )
+		    or return;
+
+		push @{ $self->{key} }, $entry;
+	}
+
+	# The rotation workflow writes the manifest pair, and the build
+	# copies it as it stands. A directory with no manifest
+	# publishes keys that a consumer cannot verify, which is the
+	# one thing a key directory exists to prevent.
+	for my $needed ( App::FuguWeb::Keys::MANIFEST,
+		App::FuguWeb::Keys::SIGNATURE )
+	{
+		next if -f $self->keys_path($needed);
+		return $self->_fail( $reason,
+			      "keys \"$self->{keys_dir}\" holds no $needed in"
+			    . " $self->{source_dir}/$self->{keys_dir}" );
+	}
+
+	return $self;
+}
+
+# $self->_key_entry($reason, $name, $parts, $settings):
+#	One entry of the key list, with the settings of its block
+#	checked against the type that the file name gave.
+sub _key_entry ( $self, $reason, $name, $parts, $settings )
+{
+	my $stem = $parts->{stem};
+
+	my $status = $settings->{status};
+	unless ( defined $status && $KEY_STATUS{$status} ) {
+		return $self->_fail( $reason,
+			      "key \"$stem\" holds the status "
+			    . ( $status // '(undef)' )
+			    . ', and the vocabulary is '
+			    . join( ', ', Fugu::KeyDir::STATUSES ) );
+	}
+
+	# The two OpenPGP settings describe an armored key. A signify
+	# key has no email address and no OpenPGP fingerprint, so
+	# either one on a signify key is a block that describes
+	# another file.
+	if ( $parts->{type} ne 'openpgp' ) {
+		for my $only (qw(email fingerprint)) {
+			next unless defined $settings->{$only};
+			return $self->_fail( $reason,
+				      "key \"$stem\" names $only, and $name"
+				    . " is a $parts->{type} key" );
+		}
+	}
+
+	# The Web Key Directory hash comes from the local part, and the
+	# published path holds it. The hash is computed here, so the
+	# inventory of a site reads no key file.
+	my $email = $settings->{email};
+	my $wkd;
+	if ( defined $email ) {
+		my ($local) = $email =~ /\A([^\@\s]+)\@[^\@\s]+\z/;
+		unless ( defined $local ) {
+			return $self->_fail( $reason,
+				"key \"$stem\" email is $email, which is not"
+				    . ' a local part and a domain' );
+		}
+
+		my ( $hash, $why ) = Fugu::OpenPGP->wkd_hash($local);
+		unless ( defined $hash ) {
+			return $self->_fail( $reason,
+				"key \"$stem\" email is $email: $why" );
+		}
+		$wkd = $hash;
+	}
+
+	# The Web Key Directory hash and the KEYS file both write the
+	# fingerprint as it stands, so the form is checked here and
+	# nowhere else.
+	my $fingerprint = $settings->{fingerprint};
+	if ( defined $fingerprint && $fingerprint !~ /\A[0-9A-Fa-f]{40}\z/ ) {
+		return $self->_fail( $reason,
+			      "key \"$stem\" fingerprint is $fingerprint,"
+			    . ' which is not 40 hexadecimal characters' );
+	}
+
+	return {
+		%$parts,
+		name        => $name,
+		status      => $status,
+		since       => $settings->{since},
+		until       => $settings->{until},
+		email       => $email,
+		wkd         => $wkd,
+		fingerprint => defined $fingerprint ? uc $fingerprint : undef,
+	};
 }
 
 # $self->_check_pages($reason):

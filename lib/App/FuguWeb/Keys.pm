@@ -1,0 +1,534 @@
+# ex:ts=8 sw=4:
+# $OpenBSD$
+#
+# Copyright (c) 2026 Dick Olsson <hi@senzilla.io>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+use v5.36;
+
+package App::FuguWeb::Keys;
+
+use App::FuguWeb;
+use App::FuguWeb::Page;
+use Digest::SHA ();
+use Fugu::File;
+use Fugu::KeyDir;
+use Fugu::OpenPGP;
+use Fugu::Signify;
+
+# App::FuguWeb::Keys - the key directory of a site.
+#
+# An organization publishes its public keys under one prefix, so a
+# consumer install can fetch a key and verify a release with it. This
+# module is the wiring of that directory. It reads the description
+# blocks and calls the Fugu modules. It answers with paths, with
+# bytes, and with the problems of a check.
+#
+# Every generic part lives in Fugu. Fugu::KeyDir holds the name
+# pattern, the publication order, and the text of the KEYS file and of
+# security.txt. Fugu::OpenPGP decodes an armored key and computes a
+# fingerprint and a Web Key Directory hash. Fugu::Signify parses the
+# manifest. Nothing generic lives here.
+#
+# The module runs no command. A site build neither signs nor verifies,
+# so the manifest pair is a source file and not a generated one.
+
+# The two files of the manifest pair. The rotation workflow writes
+# them, and the build copies them as they stand.
+use constant {
+	MANIFEST  => 'SHA256',
+	SIGNATURE => 'SHA256.sig',
+};
+
+# The generated names inside the key directory. KEYS is the Apache
+# form, which gpg --import reads, and index.html is the human page.
+use constant {
+	KEYS_FILE  => 'KEYS',
+	INDEX_PAGE => 'index.html',
+};
+
+# The well-known paths, at the site root. RFC 8615 reserves the
+# prefix, and both names are registered: openpgpkey is the Web Key
+# Directory, and security.txt is RFC 9116. Neither one sits under the
+# key directory, because a reader asks for the registered path.
+use constant {
+	WKD_DIR      => '.well-known/openpgpkey',
+	WKD_POLICY   => '.well-known/openpgpkey/policy',
+	SECURITY_TXT => '.well-known/security.txt',
+};
+
+# The two names in the source directory that name no key. The check
+# holds every other name to the key pattern.
+my %NOT_A_KEY = map { $_ => 1 } ( MANIFEST, SIGNATURE );
+
+# App::FuguWeb::Keys->new(%args):
+#	config => $config	the site description (required)
+#
+#	The method dies when the description holds no keys block. A
+#	caller tests keys_dir first, so an absent block is a
+#	programming error and not a failure of the site.
+sub new ( $class, %args )
+{
+	my $config = $args{config};
+	die 'config parameter required'
+	    unless defined $config;
+	die "the description holds no keys block\n"
+	    unless defined $config->keys_dir;
+
+	return bless {
+		config => $config,
+		keydir => Fugu::KeyDir->new( org => $config->keys_org ),
+		error  => undef,
+	}, $class;
+}
+
+# $self->error:
+#	The reason of the most recent failure, or undef after a
+#	success.
+sub error ($self)
+{
+	return $self->{error};
+}
+
+# $self->paths:
+#	Every path that the key directory adds to the output, relative
+#	to the output directory. The list holds the copied files and
+#	the generated ones. It reads no file: the description and the
+#	file names decide it. The inventory of a site therefore costs
+#	one directory listing and no more.
+sub paths ($self)
+{
+	my @keys = $self->{config}->site_keys;
+
+	my @paths = map { $self->_in_dir( $_->{name} ) } @keys;
+	push @paths, $self->_in_dir(MANIFEST), $self->_in_dir(SIGNATURE);
+	push @paths, $self->_in_dir(KEYS_FILE) if $self->_armored(@keys);
+	push @paths, $self->_in_dir(INDEX_PAGE);
+
+	my @wkd = $self->_published(@keys);
+	if (@wkd) {
+		push @paths, WKD_DIR . "/hu/$_->{wkd}" for @wkd;
+		push @paths, WKD_POLICY;
+	}
+	push @paths, SECURITY_TXT if defined $self->{config}->keys_contact;
+
+	return @paths;
+}
+
+# $self->copies:
+#	Every file that the build copies as it stands, as a list of
+#	hash references with from and to. The from is a path in the
+#	checkout, and the to is relative to the output directory.
+sub copies ($self)
+{
+	my $config = $self->{config};
+
+	my @names =
+	    ( ( map { $_->{name} } $config->site_keys ), MANIFEST, SIGNATURE );
+
+	return
+	    map { { from => $config->keys_path($_), to => $self->_in_dir($_) } }
+	    @names;
+}
+
+# $self->generated:
+#	Every file that the build writes itself, as a hash reference
+#	of output path to bytes. The method returns undef on a
+#	failure, and error holds the reason.
+#
+#	The key set reaches Fugu::KeyDir with the armored body of each
+#	OpenPGP key, because the KEYS file holds that body.
+sub generated ($self)
+{
+	$self->{error} = undef;
+
+	my $set = $self->key_set or return;
+	my %out;
+
+	if ( $self->_armored(@$set) ) {
+		my $text = $self->{keydir}->keys_file($set);
+		return $self->_fail( $self->{keydir}->error )
+		    unless defined $text;
+		$out{ $self->_in_dir(KEYS_FILE) } = $text;
+	}
+
+	my $rows = $self->{keydir}->index_data($set)
+	    or return $self->_fail( $self->{keydir}->error );
+	$out{ $self->_in_dir(INDEX_PAGE) } = $self->_index_page($rows);
+
+	my @wkd = $self->_published(@$set);
+	for my $key (@wkd) {
+		my ( $binary, $why ) =
+		    Fugu::OpenPGP->decode_armor( $key->{armor} );
+		return $self->_fail("$key->{name}: $why")
+		    unless defined $binary;
+
+		$out{ WKD_DIR . "/hu/$key->{wkd}" } = $binary;
+	}
+	$out{ WKD_POLICY() } = $self->_policy if @wkd;
+
+	if ( defined $self->{config}->keys_contact ) {
+		my $text = $self->_security_txt($set) or return;
+		$out{ SECURITY_TXT() } = $text;
+	}
+
+	return \%out;
+}
+
+# $self->key_set:
+#	The key set for Fugu::KeyDir: every key block of the
+#	description, with the armored body of each OpenPGP key read
+#	from its file. The method returns undef on a failure, and
+#	error holds the reason.
+sub key_set ($self)
+{
+	$self->{error} = undef;
+
+	my @set;
+	for my $key ( $self->{config}->site_keys ) {
+		my %entry = %$key;
+
+		if ( $key->{type} eq 'openpgp' ) {
+			my $path = $self->{config}->keys_path( $key->{name} );
+			$entry{armor} = Fugu::File->read($path);
+			return $self->_fail("cannot read $path")
+			    unless defined $entry{armor};
+		}
+
+		push @set, \%entry;
+	}
+
+	return $self->_fail('the description holds no key block')
+	    unless @set;
+
+	return \@set;
+}
+
+# $self->problems:
+#	What the key directory of the checkout is not true of, each
+#	one a sentence that names the file. An empty list means the
+#	directory is good.
+#
+#	The checks read the source directory and not the output. A
+#	stray file and a stale digest are faults of the checkout, and
+#	the answer must not depend on a build having run.
+#
+#	The method verifies no signature. That is the work of a
+#	consumer install: the site build cannot sign, so a site that
+#	verified its own manifest would prove nothing.
+sub problems ($self)
+{
+	my $config = $self->{config};
+	my $dir    = $config->keys_dir;
+
+	my @keys     = $config->site_keys;
+	my @problems = $self->_stray_files( \@keys );
+
+	# Every rule below reads the whole set, so one unreadable key
+	# would report the same fault once for each rule.
+	my $set = $self->key_set;
+	return ( @problems, "$dir: " . $self->error ) unless $set;
+
+	unless ( $self->{keydir}->check_statuses($set) ) {
+		push @problems, "$dir: " . $self->{keydir}->error;
+	}
+
+	push @problems, $self->_manifest_problems( \@keys );
+	push @problems, $self->_fingerprint_problems($set);
+
+	return @problems;
+}
+
+# $self->_stray_files($keys):
+#	Every name in the source directory that no key block names.
+#	The manifest pair names no key, and every other name must be
+#	a key file with a block. A key that the description forgot
+#	reaches no output. A reader of the directory would still take
+#	that key for published.
+sub _stray_files ( $self, $keys )
+{
+	my $config = $self->{config};
+	my $dir    = $config->keys_dir;
+
+	my $names = App::FuguWeb::list_dir( $config->keys_path )
+	    or return "$dir: cannot read the key directory: $!";
+
+	my %declared = map { $_->{name} => 1 } @$keys;
+
+	my @problems;
+	for my $name (@$names) {
+		next if $NOT_A_KEY{$name};
+		next if $declared{$name};
+
+		# The name pattern comes first, because a name that no
+		# block names and that no pattern matches is one fault
+		# and not two.
+		unless ( $self->{keydir}->parse_name($name) ) {
+			push @problems, "$dir/$name: " . $self->{keydir}->error;
+			next;
+		}
+
+		push @problems, "$dir/$name: no key block names it";
+	}
+
+	return @problems;
+}
+
+# $self->_manifest_problems($keys):
+#	The manifest names every key file, with the digest that the
+#	file has, and it names nothing else. A digest that no longer
+#	matches is the fault that the tier of scripts/deps rests on.
+#	The check therefore reads the bytes, and never the size or the
+#	time.
+sub _manifest_problems ( $self, $keys )
+{
+	my $config = $self->{config};
+	my $dir    = $config->keys_dir;
+	my $path   = $config->keys_path(MANIFEST);
+
+	my $bytes = Fugu::File->read($path);
+	return "$dir/" . MANIFEST . ': cannot read it'
+	    unless defined $bytes;
+
+	# The parser is the one of the consumer install, so the site
+	# and the install can never disagree about a line. The object
+	# needs a key file, and it runs no command for a parse.
+	my $signify = Fugu::Signify->new(
+		keys => [ map { $config->keys_path( $_->{name} ) } @$keys ] );
+
+	my $digest = $signify->parse_manifest($bytes);
+	return "$dir/" . MANIFEST . ': ' . $signify->error
+	    unless $digest;
+
+	my @problems;
+	my %named;
+	for my $key (@$keys) {
+		my $name = $key->{name};
+		$named{$name} = 1;
+
+		my $recorded = $digest->{$name};
+		unless ( defined $recorded ) {
+			push @problems,
+			    "$dir/" . MANIFEST . ": it does not name $name";
+			next;
+		}
+
+		my $found = _digest_of( $config->keys_path($name) );
+		unless ( defined $found ) {
+			push @problems, "$dir/$name: cannot read it";
+			next;
+		}
+
+		next if $found eq $recorded;
+		push @problems,
+		    "$dir/$name: the manifest records $recorded,"
+		    . " and the file digests to $found";
+	}
+
+	push @problems,
+	      "$dir/"
+	    . MANIFEST
+	    . ": it names $_, which is"
+	    . ' not a key of the description'
+	    for grep { !$named{$_} } sort keys %$digest;
+
+	return @problems;
+}
+
+# $self->_fingerprint_problems($set):
+#	The declared fingerprint of an OpenPGP key equals the one that
+#	its armored body gives. A key block that declares none is not
+#	a fault. The fingerprint is a convenience for a reader, and
+#	the digest of the manifest is what binds the bytes.
+sub _fingerprint_problems ( $self, $set )
+{
+	my $dir = $self->{config}->keys_dir;
+
+	my @problems;
+	for my $key (@$set) {
+		next unless $key->{type} eq 'openpgp';
+		next unless defined $key->{fingerprint};
+
+		my ( $binary, $why ) =
+		    Fugu::OpenPGP->decode_armor( $key->{armor} );
+		unless ( defined $binary ) {
+			push @problems, "$dir/$key->{name}: $why";
+			next;
+		}
+
+		my ( $found, $reason ) = Fugu::OpenPGP->fingerprint($binary);
+		unless ( defined $found ) {
+			push @problems, "$dir/$key->{name}: $reason";
+			next;
+		}
+
+		next if $found eq $key->{fingerprint};
+		push @problems,
+		    "$dir/$key->{name}: the description declares"
+		    . " $key->{fingerprint}, and the key gives $found";
+	}
+
+	return @problems;
+}
+
+# $self->_index_page($rows):
+#	The human page of the directory, as a whole HTML document. The
+#	page carries the chrome of the site. It sits one directory
+#	below the root, so every link of the chrome takes the step
+#	back.
+sub _index_page ( $self, $rows )
+{
+	my $page = App::FuguWeb::Page->new(
+		config => $self->{config},
+		base   => '../'
+	);
+
+	return $page->document( 'Keys', _index_body($rows) );
+}
+
+# $self->_policy:
+#	The policy file of the Web Key Directory. The file carries no
+#	flag, and the draft of the service reads a line that starts
+#	with a number sign as a comment. An empty file would pass no
+#	check of the site that tells a written file from a missing
+#	one.
+sub _policy ($self)
+{
+	return
+	      '# The Web Key Directory of '
+	    . $self->{config}->keys_org
+	    . ". It sets no policy flag.\n";
+}
+
+# $self->_security_txt($set):
+#	The text of security.txt. The Encryption field points at the
+#	current OpenPGP key. A site that publishes no such key, or
+#	that names no url, writes no such field.
+sub _security_txt ( $self, $set )
+{
+	my $config = $self->{config};
+
+	my $encryption;
+	my $url = $config->keys_url;
+	if ( defined $url ) {
+		my $ordered = $self->{keydir}->order($set)
+		    or return $self->_fail( $self->{keydir}->error );
+
+		my ($current) =
+		    grep {
+			       $_->{type} eq 'openpgp'
+			    && $_->{status} eq 'current'
+		    } @$ordered;
+		$encryption = "$url/$current->{name}" if $current;
+	}
+
+	my $text = $self->{keydir}->security_txt(
+		contact    => $config->keys_contact,
+		expires    => $config->keys_expires,
+		encryption => $encryption
+	);
+
+	return defined $text ? $text : $self->_fail( $self->{keydir}->error );
+}
+
+# $self->_in_dir($name):
+#	The path of one name of the key directory, relative to the
+#	output directory.
+sub _in_dir ( $self, $name )
+{
+	return $self->{config}->keys_dir . "/$name";
+}
+
+# $self->_armored(@keys):
+#	Report whether the set holds an OpenPGP key. The KEYS file
+#	holds those keys only, so a set with none writes no such file
+#	and the inventory names none.
+sub _armored ( $self, @keys )
+{
+	return scalar grep { $_->{type} eq 'openpgp' } @keys;
+}
+
+# $self->_published(@keys):
+#	Every OpenPGP key that the Web Key Directory serves, in the
+#	order of the description. A key with no email address has no
+#	address to answer for, so the directory holds no file for it.
+sub _published ( $self, @keys )
+{
+	return grep { $_->{type} eq 'openpgp' && defined $_->{email} } @keys;
+}
+
+# $self->_fail($reason):
+#	Record the reason and return undef, so each public method
+#	fails the same way.
+sub _fail ( $self, $reason )
+{
+	$self->{error} = $reason;
+
+	return;
+}
+
+# _index_body($rows):
+#	The body fragment of the human page: one row for each key, in
+#	publication order. Every value is escaped, and a value that
+#	the description left out becomes an empty cell.
+sub _index_body ($rows)
+{
+	my @head = (
+		'Key',    'Purpose',     'Serial', 'Type',
+		'Status', 'Fingerprint', 'Since',  'Until'
+	);
+
+	my $html = "<h1>Keys</h1>\n<table>\n<thead>\n<tr>";
+	$html .= "<th>$_</th>" for @head;
+	$html .= "</tr>\n</thead>\n<tbody>\n";
+
+	for my $row (@$rows) {
+		my $href = App::FuguWeb::escape_attr( $row->{name} );
+		my $stem = App::FuguWeb::escape_html( $row->{stem} );
+
+		$html .= qq{<tr><td><a href="$href">$stem</a></td>};
+		$html .= '<td>' . _cell( $row->{$_} ) . '</td>'
+		    for qw(purpose serial type status fingerprint since until);
+		$html .= "</tr>\n";
+	}
+
+	return $html . "</tbody>\n</table>\n";
+}
+
+# _cell($value):
+#	One table cell. A value that the description left out becomes
+#	an empty cell, so a template tests one thing and the row keeps
+#	its column count.
+sub _cell ($value)
+{
+	return defined $value ? App::FuguWeb::escape_html($value) : '';
+}
+
+# _digest_of($path):
+#	The lowercase hex SHA256 digest of the file, or undef when the
+#	file does not open. addfile reads in blocks, so the check
+#	never holds a whole key set in memory.
+sub _digest_of ($path)
+{
+	open my $fh, '<', $path or return;
+	binmode $fh;
+
+	my $sha = Digest::SHA->new(256);
+	$sha->addfile($fh);
+	close $fh;
+
+	return lc $sha->hexdigest;
+}
+
+1;
