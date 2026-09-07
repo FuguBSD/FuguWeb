@@ -172,7 +172,7 @@ sub clean ($self)
 #	whatever it cannot account for.
 sub _stranger ($self)
 {
-	my $owned = $self->_owned_dirs;
+	my $prefixes = $self->_prefixes;
 
 	my @found;
 	File::Find::find( {
@@ -187,40 +187,57 @@ sub _stranger ($self)
 		my $relative = substr $path, 1 + length $self->{out};
 		next if _in_staging($relative);
 
+		# A directory of the output is a prefix that a build
+		# writes into, or a directory below one. Anything else
+		# is a tree that no build made, and the files below it
+		# are not this site's to remove.
 		if ( -d $path && !-l $path ) {
-			next if $owned->{$relative};
+			next
+			    if
+			    grep { App::FuguWeb::path_below( $relative, $_ ) }
+			    @$prefixes;
 			return $relative;
 		}
 
-		my ($dir) = $relative =~ m{\A(.*)/[^/]+\z};
-		return $relative if defined $dir && !$owned->{$dir};
+		return $relative unless $self->_owns( $relative, $prefixes );
 		return $relative unless $self->_build_made($relative);
 	}
 
 	return;
 }
 
-# $self->_owned_dirs:
-#	Every directory below the output that a build writes into: the
-#	staging directory, and each directory of the key directory
-#	tree. The set comes from the description, so a site with no
-#	key directory owns one flat directory of files and no more.
-sub _owned_dirs ($self)
+# $self->_prefixes:
+#	The directories of the output that a build writes into: the
+#	staging directory, and the two of the key directory. A build
+#	writes one flat directory of files, and those prefixes below
+#	it.
+#
+#	The set holds a prefix and not each path of the inventory. A
+#	key that the description drops leaves its file behind, and the
+#	prune must own that file to remove it. A directory that the
+#	description never named holds the files of whoever made it,
+#	and neither the prune nor the clean may touch one.
+sub _prefixes ($self)
 {
-	my %owned = ( STAGING_DIR, 1 );
+	my @prefix = (STAGING_DIR);
 
-	for my $path ( $self->{config}->key_paths ) {
-		my @parts = split m{/}, $path;
-		pop @parts;
-
-		my $prefix = '';
-		for my $part (@parts) {
-			$prefix = length $prefix ? "$prefix/$part" : $part;
-			$owned{$prefix} = 1;
-		}
+	if ( defined $self->{config}->keys_dir ) {
+		push @prefix, $self->{config}->keys_dir,
+		    App::FuguWeb::Keys::WELL_KNOWN;
 	}
 
-	return \%owned;
+	return \@prefix;
+}
+
+# $self->_owns($path, $prefixes):
+#	Report whether a build writes a path of the output. A build
+#	writes a name at the top level, and a name below a prefix that
+#	it writes into.
+sub _owns ( $self, $path, $prefixes )
+{
+	return 1 unless $path =~ m{/};
+
+	return scalar grep { App::FuguWeb::path_below( $path, $_ ) } @$prefixes;
 }
 
 # $self->_check_target:
@@ -276,14 +293,17 @@ sub _prune_output ($self)
 		return;
 	}
 
+	my $prefixes = $self->_prefixes;
+
 	for my $path (@$paths) {
 		next if $expected{$path};
 
-		# A plain file only, and never a tree. The build writes
-		# files, so a file is the only thing it can have left
-		# behind. Anything else belongs to whoever put it
-		# there, and the check reports it.
-		unless ( $self->_build_made($path) ) {
+		# A plain file that a build writes, and nothing else.
+		# The prune and the clean read one ownership rule, so
+		# the prune can never remove what the clean refuses to.
+		unless (   $self->_owns( $path, $prefixes )
+			&& $self->_build_made($path) )
+		{
 			$self->{log}->warning(
 				'%s is in the output and no build made it',
 				$path );
@@ -303,9 +323,8 @@ sub _prune_output ($self)
 
 # $self->_prune_dirs:
 #	Remove every empty directory of the output. A key directory
-#	that the description no longer names leaves its own directory
-#	behind. The next check would then report a tree that no site
-#	holds.
+#	that the description dropped leaves its own directory behind.
+#	The next check would then report a tree that no site holds.
 #
 #	rmdir refuses a directory that still holds a name, so the walk
 #	needs no second test: a directory that the site still uses
@@ -313,6 +332,8 @@ sub _prune_output ($self)
 #	reverse order removes a tree from the leaves up.
 sub _prune_dirs ($self)
 {
+	my $prefixes = $self->_prefixes;
+
 	my @dirs;
 	File::Find::find( {
 			no_chdir => 1,
@@ -324,10 +345,21 @@ sub _prune_dirs ($self)
 		},
 		$self->{out} );
 
-	# The output directory itself stays. A site with no page is a
-	# build that failed, and a removed output directory would hide
-	# that from every check that reads it.
-	rmdir $_ for grep { $_ ne $self->{out} } reverse sort @dirs;
+	# A prefix that the build writes into, and a directory below
+	# one. The output directory itself stays. A site with no page
+	# is a build that failed, and a removed output directory would
+	# hide that from every check. A directory that no build made
+	# stays as well, empty or not.
+	for my $dir ( reverse sort @dirs ) {
+		next if $dir eq $self->{out};
+
+		my $relative = substr $dir, 1 + length $self->{out};
+		next
+		    unless grep { App::FuguWeb::path_below( $relative, $_ ) }
+		    @$prefixes;
+
+		rmdir $dir;
+	}
 
 	return 1;
 }
@@ -532,6 +564,17 @@ sub _write_keys ($self)
 
 	my $keys = App::FuguWeb::Keys->new( config => $config );
 
+	# The generation comes first, because it runs the guards of
+	# Fugu::KeyDir over every armored key. A copy that ran first
+	# would leave a private key block in the output of a build
+	# that then failed.
+	my $generated = $keys->generated;
+	unless ($generated) {
+		$self->{log}->error( 'The key directory is not usable: %s',
+			$keys->error );
+		return;
+	}
+
 	for my $copy ( $keys->copies ) {
 		$self->_write_out(
 			$copy->{to},
@@ -542,13 +585,6 @@ sub _write_keys ($self)
 				    unless defined $bytes;
 				return $bytes;
 			} ) or return;
-	}
-
-	my $generated = $keys->generated;
-	unless ($generated) {
-		$self->{log}->error( 'The key directory is not usable: %s',
-			$keys->error );
-		return;
 	}
 
 	for my $path ( sort keys %$generated ) {

@@ -13,12 +13,15 @@ use FindBin qw($RealBin);
 use lib "$RealBin/../../lib";
 use Digest::SHA ();
 use File::Path qw(make_path);
+use Cwd ();
 use File::Temp qw(tempdir);
 
 use_ok('App::FuguWeb::Check');
 use_ok('App::FuguWeb::Config');
 use_ok('App::FuguWeb::Keys');
 use_ok('App::FuguWeb::Render');
+use_ok('Fugu::OpenPGP');
+use_ok('App::FuguWeb::CLI');
 use_ok('App::FuguWeb::Site');
 use_ok('Fugu::Log');
 
@@ -39,6 +42,22 @@ mDMEap8KyxYJKwYBBAHaRw8BAQdA/6e7KzznAvEb2GEzYP1hlO69/FHDWy/cXJot
 CRDrLQSjr07OVYrkAP4nNPl6GHRSz1HlUlOc2ojAwvr8XDIifmAU1cc5W8xyogD+
 LtLBaFuVI8Oc1PPnYVpof5lHHSJd9KR/4F/S7omdUAU=
 =+npU
+-----END PGP PUBLIC KEY BLOCK-----
+KEY
+
+# A second OpenPGP public key, so a test can give one address two
+# keys. gpg(1) exported it, and its own address is another one. The
+# Web Key Directory hash comes from the description block, and never
+# from the user ID of the key.
+my $OPENPGP_TWO = <<'KEY';
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+mDMEap8SyBYJKwYBBAHaRw8BAQdAGB4kM583QvVjstiJzxMyAue0PzoV0JBkAr97
+o/R0iua0EW90aGVyQGV4YW1wbGUubmV0iJMEExYKADsWIQTK2oMEZ8k4Mqd9r9sc
+td/IKBFyxgUCap8SyAIbAwULCQgHAgIiAgYVCgkICwIEFgIDAQIeBwIXgAAKCRAc
+td/IKBFyxrYlAP9T9c5ckirPex8DHwD1x/t/Twkkpz4aRlGffqwVg87eXgD+MUAt
+sJE5p9nZI/NPUXLbEpLZ9EQotNcVXyqku3JhTQE=
+=joU/
 -----END PGP PUBLIC KEY BLOCK-----
 KEY
 
@@ -94,6 +113,18 @@ sub manifest (%file)
 	    for sort keys %file;
 
 	return $text;
+}
+
+# slurp($path):
+#	The whole file, as bytes.
+sub slurp ($path)
+{
+	open my $fh, '<', $path or die "Cannot read $path: $!";
+	binmode $fh;
+	my $bytes = do { local $/; <$fh> };
+	close $fh;
+
+	return $bytes;
 }
 
 # spew($path, $bytes):
@@ -406,7 +437,7 @@ RC
 	);
 };
 
-subtest 'a digest that no longer matches' => sub {
+subtest 'a digest that disagrees with its file' => sub {
 	my $root = project(
 		files => {
 			'web/keys/SHA256' => manifest(
@@ -588,6 +619,57 @@ keys "keys" {
 }
 RC
 		],
+		'a second keys block' => [
+			qr{the description holds 2 keys blocks},
+			<<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+keys "other" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+		],
+		'an unknown setting of the keys block' => [
+			qr{keys "keys" names the unknown setting orgg},
+			<<'RC'
+keys "keys" {
+	org  = fugubsd
+	orgg = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+		],
+		'an expiry that RFC 3339 does not hold' => [
+			qr{expires is 2027-09-07, which is not an RFC 3339},
+			<<'RC'
+keys "keys" {
+	org     = fugubsd
+	contact = mailto:security@fugubsd.org
+	expires = 2027-09-07
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+		],
+		'a key block with no keys block' => [
+			qr{key "fugubsd-1-release" stands with no keys block},
+			<<'RC'
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+		],
 		'a duplicate key block' => [
 			qr{key "fugubsd-1-release" is declared twice},
 			<<'RC'
@@ -617,6 +699,82 @@ RC
 		ok( !$config, "$name is refused" );
 		like( $reason, $pattern, "and the reason names it" );
 	}
+};
+
+subtest 'a fingerprint of the wrong shape' => sub {
+	my $root = project( rc => <<'RC' );
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status      = current
+	fingerprint = abc
+}
+RC
+
+	my ( $config, $reason ) = load($root);
+	ok( !$config, 'the description is refused' );
+	like( $reason, qr{fingerprint is abc, which is not 40 hexadecimal},
+		'and the reason names the shape' );
+};
+
+subtest 'a symlink in the key directory' => sub {
+	my $root = project();
+	symlink '/etc/passwd', "$root/web/keys/fugubsd-9-release.pub"
+	    or plan skip_all => 'cannot make a symlink here';
+
+	my ( $config, $reason ) = load($root);
+	ok( !$config, 'the description is refused' );
+	like(
+		$reason,
+		qr{web/keys/fugubsd-9-release\.pub is a symlink},
+		'because the build would publish what the link points at'
+	);
+};
+
+subtest 'an armored block that is not a public key' => sub {
+	my $private = $OPENPGP;
+	$private =~ s/PGP PUBLIC KEY BLOCK/PGP PRIVATE KEY BLOCK/g;
+
+	my $root = project(
+		keys => {
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-1-contact.asc' => $private,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = current
+}
+RC
+	);
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $keys = App::FuguWeb::Keys->new( config => $config );
+	ok( !$keys->generated, 'the key directory refuses to generate' );
+	like( $keys->error, qr{PRIVATE KEY BLOCK},
+		'and the reason names the block' );
+
+	# The guard must run before the first copy, or a failed build
+	# leaves the private key in the output.
+	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	ok( !site( $config, $out )->build, 'the build fails' );
+	ok( !-e "$out/keys/fugubsd-1-contact.asc",
+		'and it copies no key into the output' );
 };
 
 subtest 'two key files under one stem' => sub {
@@ -715,11 +873,12 @@ subtest 'the build writes the whole tree' => sub {
 		0, 'and the built site passes its checks' );
 
 	# A build must give the same bytes for the same checkout, or a
-	# published diff shows a change that nobody made.
-	my %first = map { $_ => -s "$out/$_" } tree($out);
+	# published diff shows a change that nobody made. The compare
+	# reads the bytes: two files of one length can differ.
+	my %first = map { $_ => slurp("$out/$_") } tree($out);
 	ok( site( $config, $out )->build, 'a second build succeeds' );
-	my %second = map { $_ => -s "$out/$_" } tree($out);
-	is_deeply( \%second, \%first, 'and writes the same tree' );
+	my %second = map { $_ => slurp("$out/$_") } tree($out);
+	is_deeply( \%second, \%first, 'and writes the same bytes' );
 };
 
 subtest 'the build prunes a key that the description dropped' => sub {
@@ -765,7 +924,7 @@ RC
 	ok( site( $dropped, $out )->build, 'the build succeeds again' );
 
 	ok( !-e "$out/keys/fugubsd-1-contact.asc",
-		'the key that the site no longer holds is gone' );
+		'the key that the site dropped is gone' );
 	ok( !-e "$out/keys/KEYS", 'and the KEYS file with it' );
 	ok( !-e "$out/.well-known",
 		'and the well-known tree, which is now empty' );
@@ -792,7 +951,170 @@ subtest 'the checks read the whole output tree' => sub {
 	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
 	is_deeply( [@problems],
 		['keys/stray.txt: in the output but not in the site'],
-		'a stray file below the root is reported by its path' );
+		'the check names a stray file below the root by its path' );
+};
+
+subtest 'the whole check run holds the key rules' => sub {
+	my $root = project(
+		files => {
+			'web/keys/SHA256' => manifest(
+				'fugubsd-1-release.pub' => "other bytes\n",
+				'fugubsd-1-contact.asc' => $OPENPGP,
+			)
+		}
+	);
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	# fuguweb check is what a publish workflow runs, so the key
+	# rules must reach it and not only the class that holds them.
+	my @problems =
+	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
+	ok(
+		( grep { m{^keys/fugubsd-1-release\.pub: the manifest records} }
+			@problems ),
+		'the run reports a digest that disagrees with its file'
+	) or diag join "\n", @problems;
+};
+
+subtest 'the chrome of a page below the root' => sub {
+	my $root = project( rc => <<'RC' );
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = current
+}
+RC
+
+	# An absolute navigation entry names a place of its own, so
+	# the step back must not stand in front of it.
+	my $rc = slurp("$root/.fuguwebrc");
+	$rc =~ s{nav "index\.html" \{\n\tlabel = Home\n\}}{$&\n\nnav "https://example.org/" {\n\tlabel = Elsewhere\n}};
+	spew( "$root/.fuguwebrc", $rc );
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	my $page = slurp("$out/keys/index.html");
+	like( $page, qr{href="https://example\.org/"},
+		'an absolute navigation href keeps its own form' );
+	unlike( $page, qr{href="\.\./https://},
+		'and takes no step back in front of it' );
+	like( $page, qr{href="\.\./index\.html"},
+		'a relative one takes the step back' );
+
+	# The generated page gets the checks of a page, so a broken
+	# link of the chrome fails the check and never publishes.
+	is( scalar App::FuguWeb::Check->new( config => $config, out => $out )
+		->run,
+		0, 'and the site passes its checks' );
+
+	my @generated =
+	    App::FuguWeb::Check->new( config => $config, out => $out )
+	    ->generated_pages;
+	is_deeply( \@generated, ['keys/index.html'],
+		'the checks hold the generated page' );
+};
+
+subtest 'a link that only the generated page gets wrong' => sub {
+	my $root = project();
+
+	# The footer is project prose, and the build copies it into
+	# every page. A relative link of the footer resolves against
+	# the directory of the page that carries it. One href
+	# therefore reaches the site from the root and misses from
+	# keys/.
+	spew( "$root/web/about.body.html", "<h1>About</h1>\n" );
+	spew( "$root/web/footer.body.html",
+		qq{<p><a href="about.html">About</a></p>\n} );
+
+	my $rc    = slurp("$root/.fuguwebrc");
+	my $added = $rc =~ s{^keys "keys"}{page "about.html" {\n\ttitle    = About\n\tbody     = about.body.html\n\tunlinked = yes\n}\n\nkeys "keys"}m;
+	ok( $added, 'the fixture adds a page of the root' );
+	spew( "$root/.fuguwebrc", $rc );
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
+
+	# Each page of the root carries the same href and resolves it,
+	# so this problem belongs to the generated page alone.
+	is_deeply(
+		[@problems],
+		['keys/index.html: about.html leads nowhere'],
+		'the check reports the link of the generated page'
+	) or diag join "\n", @problems;
+};
+
+subtest 'two keys of one address share one path' => sub {
+	my $root = project(
+		keys => {
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-1-contact.asc' => $OPENPGP,
+			'fugubsd-2-contact.asc' => $OPENPGP_TWO,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = retired
+	email  = security@fugubsd.org
+}
+
+key "fugubsd-2-contact" {
+	status = current
+	email  = security@fugubsd.org
+}
+RC
+	);
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my @wkd = grep { m{openpgpkey/hu/} } $config->key_paths;
+	is_deeply( \@wkd, [ '.well-known/openpgpkey/hu/' . WKD_HASH ],
+		'the inventory names the address once' );
+
+	my $keys      = App::FuguWeb::Keys->new( config => $config );
+	my $generated = $keys->generated;
+	ok( $generated, 'the key directory generates' ) or diag $keys->error;
+
+	# One file holds both keys, so a rotation publishes the
+	# current key and the retired one at one address. One file for
+	# each key would publish the last one written only.
+	my $binary = $generated->{ '.well-known/openpgpkey/hu/' . WKD_HASH };
+	my $packets = () = $binary =~ /\x98/g;
+	ok( length($binary) > 200, 'and the file holds more than one key' );
+
+	# The current key leads, because the file follows the
+	# publication order.
+	my ($first) = Fugu::OpenPGP->decode_armor($OPENPGP_TWO);
+	is( substr( $binary, 0, length $first ),
+		$first, 'and the current key comes first' );
 };
 
 subtest 'clean removes the whole tree' => sub {
@@ -805,6 +1127,153 @@ subtest 'clean removes the whole tree' => sub {
 
 	ok( site( $config, $out )->clean, 'the clean succeeds' );
 	ok( !-e $out, 'and the whole tree is gone' );
+};
+
+subtest 'the build keeps a directory that no build made' => sub {
+	my ( $config, $reason ) = load( project() );
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	# The output holds one flat directory of files, and the key
+	# directory below it. Anything else belongs to whoever put it
+	# there, so a build must leave it, however deep it sits.
+	make_path("$out/photos/deep");
+	spew( "$out/photos/holiday.jpg",   "mine\n" );
+	spew( "$out/photos/deep/more.jpg", "mine\n" );
+
+	ok( site( $config, $out )->build, 'a second build succeeds' );
+	ok( -e "$out/photos/holiday.jpg", 'and it keeps the file' );
+	ok( -e "$out/photos/deep/more.jpg", 'and the file below it' );
+	ok( -d "$out/photos/deep",          'and the directory' );
+
+	# The prune must never remove what the clean refuses to.
+	ok( !site( $config, $out )->clean, 'the clean refuses the tree' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
+	ok(
+		( grep { m{^photos/holiday\.jpg: in the output} } @problems ),
+		'and the check reports it'
+	) or diag join "\n", @problems;
+};
+
+subtest 'the checks see an empty directory that no build made' => sub {
+	my ( $config, $reason ) = load( project() );
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	mkdir "$out/archive" or die "Cannot make the directory: $!";
+
+	# An empty directory is a leaf of the walk, so the checks and
+	# the clean agree about the same tree.
+	my @problems =
+	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
+	ok( ( grep { m{^archive: in the output} } @problems ),
+		'the check reports it' )
+	    or diag join "\n", @problems;
+
+	ok( site( $config, $out )->build, 'a second build succeeds' );
+	ok( -d "$out/archive", 'and the build keeps it' );
+};
+
+subtest 'list_tree walks the leaves and no symlink' => sub {
+	my $dir = tempdir( CLEANUP => 1 );
+
+	spew( "$dir/top.txt",           "a\n" );
+	spew( "$dir/below/deep/one.txt", "b\n" );
+	mkdir "$dir/empty" or die "Cannot make the directory: $!";
+
+	my $linked = -e '/etc/hostname' ? '/etc/hostname' : '/etc/passwd';
+	my $made = symlink $linked, "$dir/link";
+	my $tree = symlink $dir . '/below', "$dir/tree";
+
+	my $paths = App::FuguWeb::list_tree($dir);
+	ok( $paths, 'the walk reads the directory' );
+
+	my %found = map { $_ => 1 } @$paths;
+	ok( $found{'top.txt'},            'a file of the top level' );
+	ok( $found{'below/deep/one.txt'}, 'a file below it' );
+	ok( $found{'empty'}, 'an empty directory is a leaf of its own' );
+
+	SKIP: {
+		skip 'cannot make a symlink here', 2 unless $made && $tree;
+
+		ok( $found{'link'}, 'a symlink is one entry' );
+		ok( $found{'tree'},
+			'and a symlinked directory is one entry, not a walk' );
+	}
+
+	is( App::FuguWeb::list_tree("$dir/no-such-directory"),
+		undef, 'a directory that it cannot read gives undef' );
+};
+
+# cli($root, @argv):
+#	Run one command of the tool from the project root, with the
+#	output captured, and return the exit code.
+sub cli ( $root, @argv )
+{
+	my ( $out, $err ) = ( '', '' );
+
+	my $here = Cwd::getcwd();
+	chdir $root or die "Cannot chdir to $root: $!";
+
+	open my $saved_out, '>&', \*STDOUT or die "Cannot save stdout: $!";
+	open my $saved_err, '>&', \*STDERR or die "Cannot save stderr: $!";
+	close STDOUT;
+	close STDERR;
+	open STDOUT, '>', \$out or die 'Cannot capture stdout';
+	open STDERR, '>', \$err or die 'Cannot capture stderr';
+
+	my $exit = eval { App::FuguWeb::CLI->run(@argv) };
+	my $died = $@;
+
+	close STDOUT;
+	close STDERR;
+	open STDOUT, '>&', $saved_out or die "Cannot restore stdout: $!";
+	open STDERR, '>&', $saved_err or die "Cannot restore stderr: $!";
+
+	chdir $here or die "Cannot chdir back: $!";
+	die $died if $died;
+
+	return ( $exit, $err );
+}
+
+subtest 'the clean command removes a key directory' => sub {
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+	ok( -d "$out/keys", 'the key directory is there' );
+
+	# The command names --out, so it loads no description of its
+	# own by the older rule. The description is what names the key
+	# directory, and without it the clean refuses the whole site.
+	my ( $exit, $err ) = cli( $root, 'clean', '--out', $out );
+	is( $exit, 0, 'the clean succeeds' ) or diag $err;
+	ok( !-e $out, 'and the whole tree is gone' );
+};
+
+subtest 'the clean command still refuses a tree that no build made' => sub {
+	my $root = project();
+
+	# A description that does not load must not stop the clean.
+	# It is the command an operator reaches for when a description
+	# is broken.
+	spew( "$root/.fuguwebrc", "site = Example\nkeys \"keys\" {\n" );
+
+	my $victim = "$root/victim";
+	spew( "$victim/deep/keep.txt", "important\n" );
+
+	my ( $exit, $err ) = cli( $root, 'clean', '--out', $victim );
+	isnt( $exit, 0, 'the clean fails' );
+	ok( -e "$victim/deep/keep.txt", 'and removes nothing' );
+	like( $err, qr/refusing to remove it/, 'and says why' );
 };
 
 subtest 'clean refuses a tree that no build made' => sub {

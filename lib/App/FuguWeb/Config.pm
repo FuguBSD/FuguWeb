@@ -70,6 +70,18 @@ my %KEY_SETTING =
 # vocabulary, so the two can never disagree.
 my %KEY_STATUS = map { $_ => 1 } Fugu::KeyDir::STATUSES;
 
+# A timestamp of RFC 3339, which is what the Expires field of
+# security.txt holds. The pattern takes a Z and a numeric offset, and
+# it takes an optional fraction of a second.
+my $RFC3339 = qr{
+	\A
+	[0-9]{4} - [0-9]{2} - [0-9]{2}
+	[Tt]
+	[0-9]{2} : [0-9]{2} : [0-9]{2} (?: \.[0-9]+ )?
+	(?: [Zz] | [+-][0-9]{2}:[0-9]{2} )
+	\z
+}x;
+
 # App::FuguWeb::Config->load(%args):
 #	root  => $dir		the project root (default: discover)
 #	error => \$reason	where the failure message goes
@@ -492,7 +504,19 @@ sub _read_groups ( $self, $reason )
 sub _read_keys ( $self, $reason )
 {
 	my @blocks = $self->{file}->blocks('keys');
-	return $self if !@blocks;
+	unless (@blocks) {
+
+		# A key block with no keys block names a directory that
+		# nothing publishes. The description means to publish a
+		# key, and a misspelled keys block would swallow the
+		# whole directory in silence.
+		my @orphan = $self->{file}->blocks('key');
+		return $self unless @orphan;
+
+		return $self->_fail( $reason,
+			      "key \"$orphan[0]{name}\" stands with no keys"
+			    . ' block' );
+	}
 
 	if ( @blocks > 1 ) {
 		return $self->_fail( $reason,
@@ -546,7 +570,11 @@ sub _read_keys_block ( $self, $reason, $block )
 	# a death.
 	my $dir = eval { Fugu::KeyDir->new( org => $org ) };
 	unless ($dir) {
-		my $why = $@ // 'the org is not usable';
+
+		# A failed eval leaves $@ as the empty string and never
+		# as undef, so a defined-or test can never reach its
+		# own fallback.
+		my $why = length $@ ? $@ : 'the org is not usable';
 		$why =~ s/\s+\z//;
 		return $self->_fail( $reason, "keys \"$name\": $why" );
 	}
@@ -564,6 +592,16 @@ sub _read_keys_block ( $self, $reason, $block )
 	if ( defined $expires && !defined $contact ) {
 		return $self->_fail( $reason,
 			"keys \"$name\" names expires and no contact" );
+	}
+
+	# RFC 9116 makes the Expires field a timestamp of RFC 3339. A
+	# value of another shape reaches the published file, and every
+	# reader of security.txt rejects it. No other gate of the site
+	# would have said so.
+	if ( defined $expires && $expires !~ /$RFC3339/ ) {
+		return $self->_fail( $reason,
+			      "keys \"$name\" expires is $expires, which is"
+			    . ' not an RFC 3339 timestamp' );
 	}
 
 	# The url is the published prefix of the directory. The
@@ -605,6 +643,19 @@ sub _read_key_blocks ( $self, $reason )
 
 	my $names = App::FuguWeb::list_dir($dir)
 	    or return $self->_fail( $reason, "cannot read $dir: $!" );
+
+	# A symlink in the key directory publishes whatever it points
+	# at, from anywhere on the machine. The manifest would then
+	# record the digest of that target. The source directory gets
+	# the same rule one level up. A key directory needs it more,
+	# because its bytes are the trust anchor of every release.
+	for my $name (@$names) {
+		next unless -l "$dir/$name";
+		return $self->_fail( $reason,
+			      "$self->{source_dir}/$self->{keys_dir}/$name is"
+			    . ' a symlink; the build would publish what it'
+			    . ' points at' );
+	}
 
 	my @blocks = $self->{file}->blocks('key');
 	unless (@blocks) {

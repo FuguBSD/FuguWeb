@@ -15,9 +15,10 @@ unit IDs.
 
 ## Units
 
-| Unit                        | State | Done by | Note                                                                 |
-| --------------------------- | ----- | ------- | -------------------------------------------------------------------- |
-| [WEB-KEYS](web.md#web-keys) | done  | —       | [Keys.pm](../lib/App/FuguWeb/Keys.pm), [keys.t](../t/fuguweb/keys.t) |
+| Unit                            | State | Done by | Note                                                                 |
+| ------------------------------- | ----- | ------- | -------------------------------------------------------------------- |
+| [WEB-KEYS](web.md#web-keys)     | done  | —       | [Keys.pm](../lib/App/FuguWeb/Keys.pm), [keys.t](../t/fuguweb/keys.t) |
+| [WEB-OUTPUT](web.md#web-output) | done  | —       | [Site.pm](../lib/App/FuguWeb/Site.pm), [keys.t](../t/fuguweb/keys.t) |
 
 ## Retired IDs
 

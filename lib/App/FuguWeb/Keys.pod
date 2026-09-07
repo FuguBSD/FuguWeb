@@ -34,8 +34,9 @@ tests C<< $config->keys_dir >> first, and this class dies without one.
 
 =head1 THE DESCRIPTION
 
-One C<keys> block names the source directory below the source
-directory, and the organization word:
+One C<keys> block names the key directory. The name is one segment
+below the source directory. The block also names the organization
+word:
 
     keys "keys" {
     	org     = fugubsd
@@ -72,6 +73,10 @@ each block to its file, so this class repeats no name pattern.
 
 The two well-known paths sit at the site root, because a reader asks
 for the registered path and never for one below the key directory.
+
+One Web Key Directory file holds every key of one address, in
+publication order. A rotation gives one address a current key and a
+next key, and a reader takes the whole file.
 
 =head1 METHODS
 

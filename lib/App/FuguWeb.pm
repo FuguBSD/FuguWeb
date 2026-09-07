@@ -94,14 +94,19 @@ sub list_dir ($dir)
 }
 
 # list_tree($dir, $prefix):
-#	Every entry below the directory that is not a directory, as
-#	paths relative to it. The function returns an array reference,
-#	or undef with the reason in $!.
+#	Every leaf below the directory, as paths relative to it: each
+#	file, each symlink, and each directory that holds nothing. The
+#	function returns an array reference, or undef with the reason
+#	in $!.
 #
 #	The function recurses into a plain directory, and never
 #	through a symlink. A symlinked directory is one entry: the
 #	build owns neither the target of the link nor what sits under
 #	it.
+#
+#	An empty directory is a leaf, so a caller sees it. A walk that
+#	answered with files alone would hide a stray directory from
+#	the checks, and the clean refuses one.
 #
 #	A site is one flat directory of files, and the key directory
 #	is the one part below it. The output therefore needs a walk of
@@ -117,7 +122,7 @@ sub list_tree ( $dir, $prefix = '' )
 
 		if ( -d $path && !-l $path ) {
 			my $below = list_tree( $path, "$relative/" ) or return;
-			push @paths, @$below;
+			push @paths, @$below ? @$below : $relative;
 			next;
 		}
 

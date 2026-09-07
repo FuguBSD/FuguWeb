@@ -63,6 +63,7 @@ use constant {
 # Directory, and security.txt is RFC 9116. Neither one sits under the
 # key directory, because a reader asks for the registered path.
 use constant {
+	WELL_KNOWN   => '.well-known',
 	WKD_DIR      => '.well-known/openpgpkey',
 	WKD_POLICY   => '.well-known/openpgpkey/policy',
 	SECURITY_TXT => '.well-known/security.txt',
@@ -116,9 +117,9 @@ sub paths ($self)
 	push @paths, $self->_in_dir(KEYS_FILE) if $self->_armored(@keys);
 	push @paths, $self->_in_dir(INDEX_PAGE);
 
-	my @wkd = $self->_published(@keys);
+	my @wkd = _addresses( $self->_published(@keys) );
 	if (@wkd) {
-		push @paths, WKD_DIR . "/hu/$_->{wkd}" for @wkd;
+		push @paths, WKD_DIR . "/hu/$_" for @wkd;
 		push @paths, WKD_POLICY;
 	}
 	push @paths, SECURITY_TXT if defined $self->{config}->keys_contact;
@@ -156,6 +157,12 @@ sub generated ($self)
 	my $set = $self->key_set or return;
 	my %out;
 
+	my $ordered = $self->{keydir}->order($set)
+	    or return $self->_fail( $self->{keydir}->error );
+
+	# The armor guards of Fugu::KeyDir run here, and they refuse a
+	# block that is not a public key. A build that copied first
+	# would leave a private key in the output of a failed build.
 	if ( $self->_armored(@$set) ) {
 		my $text = $self->{keydir}->keys_file($set);
 		return $self->_fail( $self->{keydir}->error )
@@ -167,19 +174,24 @@ sub generated ($self)
 	    or return $self->_fail( $self->{keydir}->error );
 	$out{ $self->_in_dir(INDEX_PAGE) } = $self->_index_page($rows);
 
-	my @wkd = $self->_published(@$set);
+	# One address holds every key of that address, in publication
+	# order. A rotation gives one address a current key and a next
+	# key, and a reader takes the whole file. One file for each key
+	# would give one path two keys, and only the last one written
+	# would publish.
+	my @wkd = $self->_published(@$ordered);
 	for my $key (@wkd) {
 		my ( $binary, $why ) =
 		    Fugu::OpenPGP->decode_armor( $key->{armor} );
 		return $self->_fail("$key->{name}: $why")
 		    unless defined $binary;
 
-		$out{ WKD_DIR . "/hu/$key->{wkd}" } = $binary;
+		$out{ WKD_DIR . "/hu/$key->{wkd}" } .= $binary;
 	}
 	$out{ WKD_POLICY() } = $self->_policy if @wkd;
 
 	if ( defined $self->{config}->keys_contact ) {
-		my $text = $self->_security_txt($set) or return;
+		my $text = $self->_security_txt($ordered) or return;
 		$out{ SECURITY_TXT() } = $text;
 	}
 
@@ -287,8 +299,9 @@ sub _stray_files ( $self, $keys )
 
 # $self->_manifest_problems($keys):
 #	The manifest names every key file, with the digest that the
-#	file has, and it names nothing else. A digest that no longer
-#	matches is the fault that the tier of scripts/deps rests on.
+#	file has, and it names nothing else. A digest that disagrees
+#	with its file is the fault that the tier of scripts/deps rests
+#	on.
 #	The check therefore reads the bytes, and never the size or the
 #	time.
 sub _manifest_problems ( $self, $keys )
@@ -415,16 +428,17 @@ sub _policy ($self)
 #	The text of security.txt. The Encryption field points at the
 #	current OpenPGP key. A site that publishes no such key, or
 #	that names no url, writes no such field.
-sub _security_txt ( $self, $set )
+sub _security_txt ( $self, $ordered )
 {
 	my $config = $self->{config};
 
+	# The first current OpenPGP key of the publication order. A
+	# site with two OpenPGP purposes names the newest current key
+	# of them, because the order sorts the serial down inside one
+	# status.
 	my $encryption;
 	my $url = $config->keys_url;
 	if ( defined $url ) {
-		my $ordered = $self->{keydir}->order($set)
-		    or return $self->_fail( $self->{keydir}->error );
-
 		my ($current) =
 		    grep {
 			       $_->{type} eq 'openpgp'
@@ -466,6 +480,17 @@ sub _armored ( $self, @keys )
 sub _published ( $self, @keys )
 {
 	return grep { $_->{type} eq 'openpgp' && defined $_->{email} } @keys;
+}
+
+# _addresses(@keys):
+#	The Web Key Directory hash of each key, once for each hash, in
+#	the order that the keys arrive. Two keys of one address share
+#	one published path.
+sub _addresses (@keys)
+{
+	my %seen;
+
+	return grep { !$seen{$_}++ } map { $_->{wkd} } @keys;
 }
 
 # $self->_fail($reason):

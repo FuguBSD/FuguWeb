@@ -94,12 +94,11 @@ sub _head ( $self, $title )
 {
 	my $config = $self->{config};
 
-	my $base  = $self->{base};
 	my $site  = App::FuguWeb::escape_html( $config->site );
 	my $lang  = App::FuguWeb::escape_attr( $config->lang );
-	my $entry = $base . App::FuguWeb::escape_attr( $config->entry );
+	my $entry = $self->_link( $config->entry );
 	my $full = App::FuguWeb::escape_html($title) . ' ' . EM_DASH . " $site";
-	my $sheet = $base . App::FuguWeb::STYLESHEET;
+	my $sheet = $self->_link(App::FuguWeb::STYLESHEET);
 
 	return <<"HTML" . $self->_nav . "<hr>\n<main>\n";
 <!DOCTYPE html>
@@ -123,11 +122,9 @@ sub _nav ($self)
 	my @entries = $self->{config}->nav;
 	return "" unless @entries;
 
-	my $base  = $self->{base};
 	my @links = map {
 		      '<a href="'
-		    . $base
-		    . App::FuguWeb::escape_attr( $_->{href} ) . '">'
+		    . $self->_link( $_->{href} ) . '">'
 		    . App::FuguWeb::escape_html( $_->{label} ) . '</a>'
 	} @entries;
 
@@ -135,6 +132,23 @@ sub _nav ($self)
 	      "<nav>\n"
 	    . join( ' ' . MIDDLE_DOT . "\n", @links )
 	    . "\n</nav>\n";
+}
+
+# $self->_link($href):
+#	One href of the chrome, escaped, with the step back to the
+#	site root in front of it.
+#
+#	The step goes in front of a relative name only. An absolute
+#	URL, a root-absolute path and a fragment each name a place of
+#	their own. A step in front of one would name a page that the
+#	site does not hold.
+sub _link ( $self, $href )
+{
+	my $written = App::FuguWeb::escape_attr($href);
+
+	return $written if $href =~ m{\A(?:[A-Za-z][A-Za-z0-9.+-]*:|/|\#)};
+
+	return $self->{base} . $written;
 }
 
 # $self->_foot:
