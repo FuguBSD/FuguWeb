@@ -17,10 +17,10 @@ An organization publishes its public keys under one prefix, so a consumer
 install can fetch a key and verify a release with it. A site describes that
 directory in `.fuguwebrc`, and the renderer publishes it.
 
-Every generic part lives in the Fugu library: the name pattern, the publication
-order, the text of the `KEYS` file and of `security.txt`, the armor decoder, the
-fingerprint, the Web Key Directory hash, and the manifest parser. The renderer
-holds the wiring only.
+Every generic part lives in the Fugu library. That library holds the name
+pattern, the publication order, and the text of each generated file. It also
+holds the armor decoder, the fingerprint, the Web Key Directory hash, and the
+manifest parser. The renderer holds the wiring only.
 
 ### The description
 
@@ -33,11 +33,10 @@ holds the wiring only.
   optional `expires` value, and must reject a description that names one and not
   the other. The `expires` value must be a timestamp of RFC 3339.
 - **WEB-KEYS-4** — The `keys` block must take an optional `url`, which is the
-  published prefix of the directory, and must reject a value that is not an
-  absolute URL.
+  published prefix of the directory. The value must be an absolute URL.
 - **WEB-KEYS-5** — Each `key` block must name the stem of one key file in the
-  directory. The renderer must read the type from the extension of that file,
-  and must reject a stem that names no file or more than one.
+  directory, and the extension of that file gives the type. The renderer must
+  reject a stem that names no file, and a stem that names more than one.
 - **WEB-KEYS-6** — Each `key` block must take a `status` of `current`, `next` or
   `retired`, and optional `since` and `until` values.
 - **WEB-KEYS-7** — A `key` block of an OpenPGP key must take an optional `email`
@@ -52,6 +51,11 @@ holds the wiring only.
   build would publish the bytes of the target of the link.
 - **WEB-KEYS-25** — The renderer must reject a `key` block that stands with no
   `keys` block.
+- **WEB-KEYS-29** — The renderer must reject a `keys` name of `.`, of `..`, and
+  of the staging directory of the build. None of the three names a directory
+  that the build can publish.
+- **WEB-KEYS-30** — The renderer must reject a `keys` name that a `page` block
+  also names. The two would become one name in the output.
 - **WEB-KEYS-10** — A description with no `keys` block must build a site with no
   key directory.
 
@@ -61,23 +65,25 @@ holds the wiring only.
   byte for byte.
 - **WEB-KEYS-12** — The build must generate `<dir>/KEYS` when the set holds an
   OpenPGP key, with every such key in publication order.
-- **WEB-KEYS-13** — The build must generate `<dir>/index.html`, which names the
-  serial, the purpose, the type, the status, the fingerprint and the dates of
-  each key, and links each key file.
+- **WEB-KEYS-13** — The build must generate `<dir>/index.html`. The page must
+  name the serial, the purpose, the type, the status, the fingerprint and the
+  dates of each key. It must link each key file.
 - **WEB-KEYS-14** — The build must generate `.well-known/openpgpkey/hu/<hash>`
   for each email address that a key names, and must generate
   `.well-known/openpgpkey/policy` beside it. The file must hold the binary form
   of each OpenPGP key of that address, in publication order.
+- **WEB-KEYS-28** — An address whose keys are all `retired` must serve no file.
+  A reader of that file encrypts a message with the key that it holds.
 - **WEB-KEYS-15** — The build must generate `.well-known/security.txt` when the
   `keys` block names a contact. The file must carry an `Encryption` field when
-  the block names a `url`. The field must name the first `current` OpenPGP key
-  of the publication order.
+  the block names a `url` and the set holds a `current` OpenPGP key. The field
+  must name the first such key of the publication order.
 - **WEB-KEYS-16** — The inventory must name every path above, so the build and
   the checks read one list.
 - **WEB-KEYS-17** — The build must sign nothing and must verify nothing.
-- **WEB-KEYS-26** — The build must hold each armored key to the guards of the
-  key directory module before it copies one file. A failed build must leave no
-  key in the output.
+- **WEB-KEYS-26** — The build must decode each armored key, and must hold it to
+  the guards of the key directory module, before it copies one file. A failed
+  build must leave no key in the output.
 
 ### The checks
 
@@ -100,15 +106,15 @@ holds the wiring only.
 ## The output directory
 
 A build owns its output directory. It writes the site there, and it removes what
-the site dropped, so a second build over one directory gives the same tree as
-the first.
+the site dropped. A second build over one directory therefore gives the same
+tree as the first.
 
 The output is one flat directory of files. The key directory is the one part
 below it, so the build writes into two prefixes there: the directory that the
 `keys` block names, and `.well-known`.
 
-- **WEB-OUTPUT-1** — The build must write a plain file, at the top level of the
-  output or below a prefix of the key directory, and must write nothing else.
+- **WEB-OUTPUT-1** — The build must write a plain file at the top level of the
+  output, or below a prefix of the key directory. It must write nothing else.
 - **WEB-OUTPUT-2** — The build must remove each file of the output that the
   inventory does not name and that rule WEB-OUTPUT-1 lets it write.
 - **WEB-OUTPUT-3** — The build must remove each directory of a key directory
@@ -116,12 +122,17 @@ below it, so the build writes into two prefixes there: the directory that the
 - **WEB-OUTPUT-4** — The build must keep a file that rule WEB-OUTPUT-1 does not
   let it write, and must report it. A directory that the description does not
   name holds the files of whoever made it.
-- **WEB-OUTPUT-5** — The clean must remove the output directory. It must refuse
-  a target that holds an entry which rule WEB-OUTPUT-1 does not let a build
-  write, and it must name that entry.
+- **WEB-OUTPUT-5** — The clean must remove the output directory that the
+  description names, and must refuse a symlink there. A `--out` that names
+  another directory must refuse every subdirectory as well, and must name the
+  entry that it refuses.
 - **WEB-OUTPUT-6** — The prune and the clean must read one ownership rule, so
   the build can never remove what the clean refuses.
 - **WEB-OUTPUT-7** — The checks must report each entry of the output that the
-  inventory does not name, at any depth, and an empty directory as well.
-- **WEB-OUTPUT-8** — The build and the clean must refuse a symlink in the
-  output.
+  inventory does not name. The report must reach any depth, and an empty
+  directory as well.
+- **WEB-OUTPUT-8** — The build must refuse a symlink in the output, before it
+  writes one file. An open follows a link, so a build would write the site
+  outside its own directory.
+- **WEB-OUTPUT-9** — The output path must take no trailing solidus. Each walk of
+  the output cuts a relative path out of an absolute one.

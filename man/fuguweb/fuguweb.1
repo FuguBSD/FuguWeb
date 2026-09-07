@@ -105,10 +105,22 @@ because such a page must fail the build and not render badly.
 Remove the output directory.
 .Pp
 The command removes a built site and refuses anything else.
-A build writes one flat directory of files,
-so a target that holds a subdirectory,
-a symlink,
-or anything else that no build made is refused by name.
+It deletes a tree without asking,
+so it reads two rules.
+.Pp
+The description names one output directory,
+and the build owns that directory.
+A clean of it removes what it holds,
+and it refuses a symlink alone.
+.Pp
+A
+.Fl Fl out
+that names another directory gets the strict rule.
+The command then refuses every subdirectory,
+every symlink,
+and every entry that no build makes,
+and it names the entry.
+A path that you type must never take the tree of somebody else with it.
 .Pp
 Both
 .Cm build
@@ -121,12 +133,14 @@ and any directory that holds the project.
 .Pp
 With
 .Fl Fl out
-the command needs no
-.Pa .fuguwebrc ,
-because the target is named on the command line.
+the command reads the
+.Pa .fuguwebrc
+when it can,
+because the description is what names the key directory.
+A description that does not load is no error here:
 .Cm clean
-is the command you reach for when the description is the thing that is
-broken.
+is the command you reach for when a description is broken,
+and the defaults then apply.
 .It Cm check Oo Fl Fl out Ar dir Oc Op Fl Fl verbose
 Check a built site:
 that every page and asset is there and is not empty,

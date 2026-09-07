@@ -132,7 +132,8 @@ C<clean> removes a built site and refuses anything else. It deletes a
 tree without asking, so the one thing it must never do is delete a tree
 that no build made. A build writes plain files: one flat directory of
 them, the key directory tree below it, and the staging directory while
-it runs. A target that holds anything else is refused by name.
+it runs. The clean refuses a target that holds anything else, and it
+names the entry.
 
 With C<--out> the description still names the key directory, so
 C<clean> reads it when it can. A description that does not load is not

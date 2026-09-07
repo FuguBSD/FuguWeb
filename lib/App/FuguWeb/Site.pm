@@ -49,7 +49,10 @@ use POSIX ();
 # manual host by looking for a file named %N.%S in its working
 # directory, so every source has to sit in one place under the name
 # that a cross-reference uses.
-use constant STAGING_DIR => '.man';
+#
+# App::FuguWeb holds the name, because the description must refuse a
+# key directory that would collide with it.
+use constant STAGING_DIR => App::FuguWeb::STAGING_DIR;
 
 # The stylesheet that ships with the tool, under the share path.
 use constant SHARE_STYLESHEET => 'share/fuguweb/style.css';
@@ -67,9 +70,18 @@ sub new ( $class, %args )
 
 	my $log = $args{log} // Fugu::Log->default;
 
+	# A trailing slash would break each path that this class cuts
+	# out of a walk. File::Find writes the root without one, so
+	# the substr that makes a relative path would run past the
+	# end and answer undef. The clean reads that answer as 'no
+	# stranger', and it would then remove a tree that it never
+	# looked at.
+	my $out = $args{out};
+	$out =~ s{(?<=.)/+\z}{} if defined $out;
+
 	return bless {
 		config => $config,
-		out    => $args{out},
+		out    => $out,
 		log    => $log,
 		render => $args{render} // App::FuguWeb::Render->new(
 			config => $config,
@@ -172,7 +184,7 @@ sub clean ($self)
 #	whatever it cannot account for.
 sub _stranger ($self)
 {
-	my $prefixes = $self->_prefixes;
+	my $own = $self->_own_target;
 
 	my @found;
 	File::Find::find( {
@@ -187,23 +199,44 @@ sub _stranger ($self)
 		my $relative = substr $path, 1 + length $self->{out};
 		next if _in_staging($relative);
 
-		# A directory of the output is a prefix that a build
-		# writes into, or a directory below one. Anything else
-		# is a tree that no build made, and the files below it
-		# are not this site's to remove.
-		if ( -d $path && !-l $path ) {
-			next
-			    if
-			    grep { App::FuguWeb::path_below( $relative, $_ ) }
-			    @$prefixes;
-			return $relative;
-		}
+		# A symlink is never something that a build wrote,
+		# whatever the target is.
+		return $relative if -l $path;
 
-		return $relative unless $self->_owns( $relative, $prefixes );
+		# The description names this output directory, so the
+		# build owns every name in it. A key directory that the
+		# description dropped is still this site's to remove.
+		next if $own;
+
+		# A --out that names another directory gets the strict
+		# rule. The clean deletes without asking, and a typed
+		# path must never take the tree of somebody else with
+		# it, whatever this description happens to name.
+		return $relative if -d $path;
 		return $relative unless $self->_build_made($relative);
 	}
 
 	return;
+}
+
+# $self->_own_target:
+#	Report whether the output directory is the one that the
+#	description names. A build owns that directory, so a clean of
+#	it removes what it holds.
+#
+#	The test is the whole difference between the two rules of the
+#	clean. Without it, a --out that names the directory of
+#	somebody else would take the key prefixes of this description
+#	with it. The clean would then remove a tree that it cannot
+#	account for.
+sub _own_target ($self)
+{
+	my $config = $self->{config};
+	my $named  = $config->out_dir;
+	return 0 unless defined $named;
+
+	return _absolute( $self->{out} ) eq
+	    _absolute( $config->root . "/$named" ) ? 1 : 0;
 }
 
 # $self->_prefixes:
@@ -298,15 +331,24 @@ sub _prune_output ($self)
 	for my $path (@$paths) {
 		next if $expected{$path};
 
-		# A plain file that a build writes, and nothing else.
-		# The prune and the clean read one ownership rule, so
-		# the prune can never remove what the clean refuses to.
+		# An empty directory is a leaf of the walk, and
+		# _prune_dirs removes the ones that the build owns. A
+		# report here would name a directory that the same run
+		# then removes.
+		next if -d $self->{out} . "/$path";
+
+		# A plain file that a build writes, and nothing else. A
+		# file below a directory that the description does not
+		# name belongs to whoever made it, and the checks
+		# report it.
 		unless (   $self->_owns( $path, $prefixes )
 			&& $self->_build_made($path) )
 		{
 			$self->{log}->warning(
-				'%s is in the output and no build made it',
-				$path );
+				'%s is in the output, and the site does not'
+				    . ' name it',
+				$path
+			);
 			next;
 		}
 
@@ -458,12 +500,47 @@ sub _lint ($self)
 sub _prepare_output ($self)
 {
 	Fugu::File->ensure_dir( $self->{out} ) or return;
+	$self->_check_links                    or return;
 
 	# A staging directory left by an interrupted build would leak
 	# stale sources into this one.
 	remove_tree( $self->staging, { safe => 0 } ) if -d $self->staging;
 
 	return Fugu::File->ensure_dir( $self->staging );
+}
+
+# $self->_check_links:
+#	Refuse a symlink anywhere in the output directory.
+#
+#	A build writes a file by name, and an open follows a link. A
+#	link in the output would therefore send the bytes of the site
+#	to whatever it points at. That is outside the output
+#	directory, and outside the project. The key directory makes it
+#	worse: a link at .well-known would take the published key
+#	material with it.
+#
+#	The test comes before the first write, because a link that the
+#	prune finds at the end has already served.
+sub _check_links ($self)
+{
+	my $paths = App::FuguWeb::list_tree( $self->{out} );
+	unless ($paths) {
+		$self->{log}->error( 'Cannot read %s: %s', $self->{out}, $! );
+		return;
+	}
+
+	for my $path (@$paths) {
+		next unless -l $self->{out} . "/$path";
+
+		$self->{log}->error(
+			'%s holds the symlink %s; a build writes no file'
+			    . ' through a link',
+			$self->{out}, $path
+		);
+		return;
+	}
+
+	return 1;
 }
 
 # $self->_copy($from, $to):

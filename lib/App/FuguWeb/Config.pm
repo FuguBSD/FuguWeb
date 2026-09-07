@@ -151,7 +151,16 @@ sub load ( $class, %args )
 #	description is the thing that is broken.
 sub anonymous ( $class, $root )
 {
-	return bless { root => $root }, $class;
+	# The defaults apply where no description does, so a clean of
+	# the default output directory still knows that the build owns
+	# it. Without them a broken description would stop the one
+	# command that an operator reaches for when a description is
+	# broken.
+	return bless {
+		root    => $root,
+		out_dir => DEFAULT_OUT_DIR,
+		key     => [],
+	}, $class;
 }
 
 # $self->root, $self->path:
@@ -559,6 +568,25 @@ sub _read_keys_block ( $self, $reason, $block )
 			    . ' directory' );
 	}
 
+	# A name of one or two dots names a directory of the path, and
+	# not one of its own. The inventory would then hold './KEYS'
+	# where the tree holds 'KEYS', and the build would remove the
+	# file that it wrote in the same run.
+	if ( $name eq '.' || $name eq '..' ) {
+		return $self->_fail( $reason,
+			      "keys \"$name\" names a directory of the path,"
+			    . ' and not a directory of its own' );
+	}
+
+	# The build makes its staging directory in the output under a
+	# fixed name, and it removes that directory at the end. A key
+	# directory of the same name would publish nothing.
+	if ( $name eq App::FuguWeb::STAGING_DIR ) {
+		return $self->_fail( $reason,
+			      "keys \"$name\" is the staging directory of"
+			    . ' the build, which the build removes' );
+	}
+
 	my $org = $settings->{org};
 	unless ( defined $org && length $org ) {
 		return $self->_fail( $reason, "keys \"$name\" has no org" );
@@ -619,6 +647,17 @@ sub _read_keys_block ( $self, $reason, $block )
 		return $self->_fail( $reason,
 			      "keys \"$name\" names $self->{source_dir}/$name,"
 			    . ' which is not a directory' );
+	}
+
+	# The key directory becomes a directory of the output, and a
+	# page of the same name becomes a file there. The build would
+	# fail late, on a write to a directory, and it would leave a
+	# tree that is half built.
+	for my $page ( $self->pages ) {
+		next unless $page->{file} eq $name;
+		return $self->_fail( $reason,
+			      "keys \"$name\" and page \"$name\" both"
+			    . ' become the same name in the output' );
 	}
 
 	$self->{keys_dir}     = $name;

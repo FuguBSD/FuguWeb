@@ -43,6 +43,15 @@ use constant CONFIG_FILE => '.fuguwebrc';
 # is a file name there.
 use constant STYLESHEET => 'style.css';
 
+# The staging directory for the mdoc sources, inside the output
+# directory. The build makes it, uses it, and removes it again.
+#
+# The name lives here because two modules need it. The build owns the
+# directory. The description must refuse a key directory of the same
+# name, because the build would remove the published keys with the
+# staging.
+use constant STAGING_DIR => '.man';
+
 # escape_html($text):
 #	Escape the three characters that change the meaning of HTML
 #	text: the ampersand first, so an escape that the function

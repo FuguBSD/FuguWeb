@@ -221,10 +221,16 @@ sub _check_references ( $self, $page, $html )
 		}
 
 		my ( $path, $fragment ) = split /#/, $ref, 2;
-		$path =
-		    defined $path && length $path
-		    ? _resolve( $page, $path )
-		    : $page;
+		if ( defined $path && length $path ) {
+			$path = _resolve( $page, $path );
+			unless ( defined $path ) {
+				push @problems, "$page: $ref leaves the site";
+				next;
+			}
+		}
+		else {
+			$path = $page;
+		}
 
 		unless ( -e $self->{out} . "/$path" ) {
 			push @problems, "$page: $ref leads nowhere";
@@ -265,6 +271,12 @@ sub _resolve ( $page, $ref )
 	for my $step ( split m{/}, $ref, -1 ) {
 		next if $step eq '' || $step eq '.';
 		if ( $step eq '..' ) {
+
+			# A step above the site root names no file of
+			# the output. A pop of an empty list does
+			# nothing, so the reference would clamp to the
+			# root and read like a link that resolves.
+			return unless @parts;
 			pop @parts;
 			next;
 		}
@@ -314,6 +326,7 @@ sub _check_reachable ($self)
 			my ($path) = split /#/, $ref, 2;
 			next unless defined $path && length $path;
 			$path = _resolve( $page, $path );
+			next unless defined $path;
 
 			next if $seen{$path}++;
 			push @queue, $path;

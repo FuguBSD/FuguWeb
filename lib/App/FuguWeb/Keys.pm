@@ -170,6 +170,17 @@ sub generated ($self)
 		$out{ $self->_in_dir(KEYS_FILE) } = $text;
 	}
 
+	# The guards of keys_file read the armored text. They hold the
+	# block type and the delimiters, and they decode nothing, so a
+	# body with a broken base64 or a broken checksum passes them.
+	# The decoder is what proves that the bytes are a key.
+	for my $key ( grep { $_->{type} eq 'openpgp' } @$ordered ) {
+		my ( $binary, $why ) =
+		    Fugu::OpenPGP->decode_armor( $key->{armor} );
+		return $self->_fail("$key->{name}: $why")
+		    unless defined $binary;
+	}
+
 	my $rows = $self->{keydir}->index_data($set)
 	    or return $self->_fail( $self->{keydir}->error );
 	$out{ $self->_in_dir(INDEX_PAGE) } = $self->_index_page($rows);
@@ -474,12 +485,26 @@ sub _armored ( $self, @keys )
 }
 
 # $self->_published(@keys):
-#	Every OpenPGP key that the Web Key Directory serves, in the
-#	order of the description. A key with no email address has no
-#	address to answer for, so the directory holds no file for it.
+#	Every OpenPGP key that the Web Key Directory serves. A key
+#	with no email address has no address to answer for, so the
+#	directory holds no file for it.
+#
+#	An address whose keys are all retired serves nothing. gpg
+#	--locate-keys reads the file to encrypt a message, and a
+#	retired key is the one key that must not answer that. A
+#	retired key beside a current one still serves, because the
+#	current key leads the file.
 sub _published ( $self, @keys )
 {
-	return grep { $_->{type} eq 'openpgp' && defined $_->{email} } @keys;
+	my @named =
+	    grep { $_->{type} eq 'openpgp' && defined $_->{email} } @keys;
+
+	my %live;
+	for my $key (@named) {
+		$live{ $key->{wkd} } = 1 if $key->{status} ne 'retired';
+	}
+
+	return grep { $live{ $_->{wkd} } } @named;
 }
 
 # _addresses(@keys):

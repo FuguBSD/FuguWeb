@@ -12,7 +12,7 @@ use Test::More;
 use FindBin qw($RealBin);
 use lib "$RealBin/../../lib";
 use Digest::SHA ();
-use File::Path qw(make_path);
+use File::Path qw(make_path remove_tree);
 use Cwd ();
 use File::Temp qw(tempdir);
 
@@ -701,6 +701,173 @@ RC
 	}
 };
 
+subtest 'a keys name that names no directory of its own' => sub {
+	my %case = (
+		'a solidus' => [ 'a/b', qr{holds a solidus} ],
+		'one dot'   => [ '.',   qr{names a directory of the path} ],
+		'two dots'  => [ '..',  qr{leaves the output directory} ],
+		'the staging directory' =>
+		    [ '.man', qr{is the staging directory of the build} ],
+	);
+
+	for my $name ( sort keys %case ) {
+		my ( $word, $pattern ) = @{ $case{$name} };
+		my $root = project(
+			keys => { 'fugubsd-1-release.pub' => $SIGNIFY },
+			rc   => <<"RC"
+keys "$word" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+		);
+
+		my ( $config, $reason ) = load($root);
+		ok( !$config, "$name is refused" );
+		like( $reason, $pattern, 'and the reason names it' );
+	}
+};
+
+subtest 'a key directory that collides with a page' => sub {
+	my $root = project( rc => <<'RC' );
+page "keys" {
+	title = Keys
+	body  = index.body.html
+}
+
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = current
+}
+RC
+
+	my ( $config, $reason ) = load($root);
+	ok( !$config, 'the description is refused' );
+	like( $reason, qr{both become the same name in the output},
+		'because a page and a directory cannot share one name' );
+};
+
+subtest 'an email that is not a local part and a domain' => sub {
+	my $root = project( rc => <<'RC' );
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = current
+	email  = security-at-fugubsd.org
+}
+RC
+
+	my ( $config, $reason ) = load($root);
+	ok( !$config, 'the description is refused' );
+	like( $reason, qr{which is not a local part and a domain},
+		'and the reason names the shape' );
+};
+
+subtest 'an armored body that does not decode' => sub {
+	# The guards of Fugu::KeyDir read the text of a block. They
+	# hold the delimiters and the block type, and they decode
+	# nothing, so a body with a broken checksum passes them.
+	my $broken = $OPENPGP;
+	$broken =~ s/^=\S+$/=AAAA/m;
+
+	my $root = project(
+		keys => {
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-1-contact.asc' => $broken,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = current
+}
+RC
+	);
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $keys = App::FuguWeb::Keys->new( config => $config );
+	ok( !$keys->generated, 'the key directory refuses to generate' );
+	like( $keys->error, qr{checksum}, 'and the reason names the checksum' );
+};
+
+subtest 'an address whose keys are all retired' => sub {
+	my $root = project( rc => <<'RC' );
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = retired
+	email  = security@fugubsd.org
+}
+RC
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	# gpg --locate-keys reads the file to encrypt a message, and a
+	# retired key is the one key that must not answer that.
+	my @wkd = grep { m{openpgpkey/hu/} } $config->key_paths;
+	is( scalar @wkd, 0, 'the address serves no key' );
+
+	my $keys      = App::FuguWeb::Keys->new( config => $config );
+	my $generated = $keys->generated;
+	ok( $generated, 'the key directory generates' ) or diag $keys->error;
+	ok( !grep { m{openpgpkey/hu/} } keys %$generated,
+		'and it writes no Web Key Directory file' );
+	ok( !$generated->{'.well-known/openpgpkey/policy'},
+		'and no policy file beside it' );
+};
+
+subtest 'a reference that climbs above the site root' => sub {
+	my $root = project();
+	spew( "$root/web/footer.body.html",
+		qq{<p><a href="../../secret.txt">Up</a></p>\n} );
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	# A step above the root names no file of the output. A walk
+	# that stopped at the root would read the reference as a link
+	# that resolves.
+	my @problems =
+	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
+	ok( ( grep { m{leaves the site} } @problems ),
+		'the check reports it' )
+	    or diag join "\n", @problems;
+};
+
 subtest 'a fingerprint of the wrong shape' => sub {
 	my $root = project( rc => <<'RC' );
 keys "keys" {
@@ -1106,22 +1273,22 @@ RC
 	# One file holds both keys, so a rotation publishes the
 	# current key and the retired one at one address. One file for
 	# each key would publish the last one written only.
+	# The file holds both keys, byte for byte, in publication
+	# order. A length test would pass for one key of any size.
 	my $binary = $generated->{ '.well-known/openpgpkey/hu/' . WKD_HASH };
-	my $packets = () = $binary =~ /\x98/g;
-	ok( length($binary) > 200, 'and the file holds more than one key' );
+	my ($current) = Fugu::OpenPGP->decode_armor($OPENPGP_TWO);
+	my ($retired) = Fugu::OpenPGP->decode_armor($OPENPGP);
 
-	# The current key leads, because the file follows the
-	# publication order.
-	my ($first) = Fugu::OpenPGP->decode_armor($OPENPGP_TWO);
-	is( substr( $binary, 0, length $first ),
-		$first, 'and the current key comes first' );
+	is( $binary, $current . $retired,
+		'the file holds the current key and then the retired one' );
 };
 
 subtest 'clean removes the whole tree' => sub {
-	my ( $config, $reason ) = load( project() );
+	my $root = project();
+	my ( $config, $reason ) = load($root);
 	ok( $config, 'the description loads' ) or diag $reason;
 
-	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	my $out = "$root/out";
 	ok( site( $config, $out )->build, 'the build succeeds' );
 	ok( -d "$out/keys", 'the key directory is there' );
 
@@ -1277,10 +1444,11 @@ subtest 'the clean command still refuses a tree that no build made' => sub {
 };
 
 subtest 'clean refuses a tree that no build made' => sub {
-	my ( $config, $reason ) = load( project() );
+	my $root = project();
+	my ( $config, $reason ) = load($root);
 	ok( $config, 'the description loads' ) or diag $reason;
 
-	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	my $out = "$root/out";
 	ok( site( $config, $out )->build, 'the build succeeds' );
 
 	# A symlink below the root. The clean deletes a tree without
@@ -1293,22 +1461,123 @@ subtest 'clean refuses a tree that no build made' => sub {
 	ok( -e "$out/keys/fugubsd-1-release.pub", 'and removes nothing' );
 };
 
-subtest 'clean refuses a directory that the site does not name' => sub {
-	my ( $config, $reason ) = load( project() );
+subtest 'clean refuses a foreign target that holds a tree' => sub {
+	my $root = project();
+	my ( $config, $reason ) = load($root);
 	ok( $config, 'the description loads' ) or diag $reason;
 
-	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	# A --out that names another directory gets the strict rule.
+	# The clean deletes without asking. A typed path must never
+	# take the tree of somebody else with it, whatever the
+	# description of this site happens to name.
+	my $victim = tempdir( CLEANUP => 1 ) . '/victim';
+	spew( "$victim/keys/deep/keep.txt", "important\n" );
+
+	ok( !site( $config, $victim )->clean, 'the clean refuses' );
+	ok( -e "$victim/keys/deep/keep.txt", 'and removes nothing' );
+
+	# The same tree under the output directory of the description
+	# belongs to the build, which owns that directory.
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+	ok( site( $config, $out )->clean, 'and the clean removes it' );
+	ok( !-e $out, 'the whole tree is gone' );
+};
+
+subtest 'a description that drops its keys block' => sub {
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+	ok( -d "$out/keys", 'the key directory is there' );
+
+	# A site that drops the whole block strands the published
+	# tree. The build owns its output directory, so the clean must
+	# still remove it. A tool that can neither prune nor clean its
+	# own output is a tool that an operator cannot use.
+	spew( "$root/.fuguwebrc", <<'RC' );
+site       = Example
+source_dir = web
+out_dir    = out
+
+nav "index.html" {
+	label = Home
+}
+
+page "index.html" {
+	title = Home
+	body  = index.body.html
+}
+RC
+
+	my ( $bare, $why ) = load($root);
+	ok( $bare, 'the smaller description loads' ) or diag $why;
+	is( $bare->keys_dir, undef, 'and it names no key directory' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $bare, out => $out )->run;
+	ok( ( grep { m{^keys/} } @problems ),
+		'the check reports the stranded tree' );
+
+	ok( site( $bare, $out )->clean, 'the clean removes the output' );
+	ok( !-e $out, 'and the whole tree is gone' );
+};
+
+subtest 'the build refuses a symlink in the output' => sub {
+	# The skip comes before the first assertion. A plan that
+	# arrives after one turns a failed assertion into a pass.
+	my $probe = tempdir( CLEANUP => 1 );
+	plan skip_all => 'cannot make a symlink here'
+	    unless symlink '/nonexistent', "$probe/link";
+
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
 	ok( site( $config, $out )->build, 'the build succeeds' );
 
-	# An empty directory holds no file, so a walk that reads files
-	# alone would not see it and the clean would take the tree.
-	mkdir "$out/archive" or die "Cannot make the directory: $!";
+	# A dangling symlink is the dangerous one. Fugu::File->write
+	# unlinks a path only when it exists, so an open would follow
+	# the link and write the page outside the output directory.
+	my $outside = tempdir( CLEANUP => 1 ) . '/pwned.html';
+	unlink "$out/index.html";
+	symlink $outside, "$out/index.html" or die "Cannot link: $!";
 
-	ok( !site( $config, $out )->clean, 'the clean refuses' );
-	ok( -e "$out/keys/fugubsd-1-release.pub", 'and removes nothing' );
+	ok( !site( $config, $out )->build, 'a second build refuses' );
+	ok( !-e $outside, 'and it writes nothing through the link' );
 
-	rmdir "$out/archive" or die "Cannot remove the directory: $!";
-	ok( site( $config, $out )->clean, 'and it succeeds once it is gone' );
+	# The same rule guards the key directory, where a link would
+	# take the published key material with it.
+	unlink "$out/index.html";
+	remove_tree("$out/.well-known");
+	my $elsewhere = tempdir( CLEANUP => 1 ) . '/keys';
+	symlink $elsewhere, "$out/.well-known" or die "Cannot link: $!";
+
+	ok( !site( $config, $out )->build, 'a build with a linked tree fails' );
+	ok( !-e $elsewhere, 'and it writes no key through the link' );
+};
+
+subtest 'an output path that ends in a slash' => sub {
+	my $root = project();
+
+	# File::Find writes the root of a walk without a trailing
+	# slash, so a path that carries one would cut every relative
+	# path one character short. The clean would then read its own
+	# answer as 'nothing to refuse'.
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	my $victim = tempdir( CLEANUP => 1 ) . '/victim';
+	spew( "$victim/precious/data.txt", "data\n" );
+
+	ok( !site( $config, "$victim/" )->clean, 'the clean refuses' );
+	ok( -e "$victim/precious/data.txt", 'and removes nothing' );
 };
 
 done_testing();
