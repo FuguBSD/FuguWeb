@@ -62,7 +62,8 @@ not;
 
 =item 2.
 
-refuse an output directory that no build may own;
+refuse an output directory that no build may own, and refuse a symlink
+in it;
 
 =item 3.
 
@@ -107,13 +108,11 @@ directory, so it owns the removal too.
 The build owns a plain file at the top level of the output, and a plain
 file below a prefix of the key directory. It keeps every other entry
 and reports it, so an operator directory in the output survives a
-build. C<clean> reads the same rule, and it therefore refuses what the
-build kept.
+build.
 
-A key directory that the description dropped leaves its own directory
-behind. The build removes an empty directory of a key directory prefix,
-and it keeps every other one. C<rmdir> refuses a directory that still
-holds a name, so the walk needs no second test, and the output
+The build removes an empty directory of a key directory prefix, and it
+keeps every other one and reports it. C<rmdir> refuses a directory that
+still holds a name, so the walk needs no second test, and the output
 directory itself always stays.
 
 The method returns true on success, and C<undef> with a message in the
@@ -130,15 +129,27 @@ is gone, whether or not it was there to begin with.
 
 C<clean> removes a built site and refuses anything else. It deletes a
 tree without asking, so the one thing it must never do is delete a tree
-that no build made. A build writes plain files: one flat directory of
-them, the key directory tree below it, and the staging directory while
-it runs. The clean refuses a target that holds anything else, and it
-names the entry.
+that no build made.
+
+The rule is the inventory. A plain file of the top level is one that a
+build writes, whatever the description names today. A renamed manual
+leaves its old page there. A file below the root belongs to the key
+directory, so the site must name it. A directory must hold a name of
+the site, and a symlink is never a thing that a build wrote. The clean
+refuses every other entry, and it names it.
+
+The staging directory is a build detail, and the build writes one flat
+directory of sources into it. A tree below it belongs to whoever made
+it.
 
 With C<--out> the description still names the key directory, so
-C<clean> reads it when it can. A description that does not load is not
-an error here. C<clean> is the command an operator reaches for when a
-description is broken.
+C<clean> reads it when it can. A description that does not load names
+nothing, and one flat directory of files is then the whole site that
+C<clean> knows.
+
+A description that drops its C<keys> block strands the published tree.
+The site names nothing there any more, so C<clean> refuses it and the
+checks report it. Remove the directory, or name the block again.
 
 =head2 THE OUTPUT DIRECTORY
 

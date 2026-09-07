@@ -181,6 +181,16 @@ kind: both absolute, or both relative to the same directory.
 The name of the configuration file, F<.fuguwebrc>. The name and the
 discovery match F<.fuguvmrc>.
 
+=head2 STAGING_DIR
+
+The staging directory for the mdoc sources, inside the output
+directory. The build makes it, uses it, and removes it again.
+
+The name lives here because two modules need it.
+L<App::FuguWeb::Site> owns the directory, and
+L<App::FuguWeb::Config> must refuse a key directory of the same name:
+the build would remove the published keys with the staging.
+
 =head2 STYLESHEET
 
 The name of the stylesheet in the output directory, F<style.css>. The

@@ -224,7 +224,8 @@ sub _check_references ( $self, $page, $html )
 		if ( defined $path && length $path ) {
 			$path = _resolve( $page, $path );
 			unless ( defined $path ) {
-				push @problems, "$page: $ref leaves the site";
+				push @problems,
+				    "$page: $ref names no page of the site";
 				next;
 			}
 		}
@@ -282,6 +283,12 @@ sub _resolve ( $page, $ref )
 		}
 		push @parts, $step;
 	}
+
+	# A reference of './' names the directory of its own page, and
+	# a directory is no page of a site. An empty answer also reads
+	# as false in the walk of the reachability check. The walk
+	# would then stop at the first page that holds one.
+	return unless @parts;
 
 	return join '/', @parts;
 }

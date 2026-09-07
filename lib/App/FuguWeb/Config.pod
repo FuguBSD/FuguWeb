@@ -99,6 +99,63 @@ whatever it points at, from anywhere on the machine.
 
 =back
 
+A C<keys> block adds its own rules. The description is rejected when:
+
+=over 4
+
+=item *
+
+a second C<keys> block appears, or a C<key> block stands with no
+C<keys> block;
+
+=item *
+
+the C<keys> block names no C<org>, or an C<org> that no key name can
+hold;
+
+=item *
+
+the C<keys> name is not one segment below the source directory, names a
+directory of the path, names the staging directory of the build, or
+names a file that the site already holds;
+
+=item *
+
+the C<keys> block names a C<contact> without an C<expires>, or the
+other way round, or an C<expires> that RFC 3339 does not hold;
+
+=item *
+
+the C<keys> block names a C<url> that is not absolute;
+
+=item *
+
+the key directory holds no C<SHA256>, no C<SHA256.sig>, or a symlink;
+
+=item *
+
+a C<key> block names no file, more than one file, or a setting that no
+block defines;
+
+=item *
+
+a C<key> block names a status outside C<current>, C<next> and
+C<retired>, or a second block declares the same key;
+
+=item *
+
+a C<key> block of a signify key names an C<email> or a C<fingerprint>,
+which describe an OpenPGP key;
+
+=item *
+
+an C<email> is not a local part and a domain, or a C<fingerprint> is
+not 40 hexadecimal characters.
+
+=back
+
+L<App::FuguWeb::Keys> documents the blocks and the published tree.
+
 =head2 root, path
 
 The project root, and the F<.fuguwebrc> that this object read.

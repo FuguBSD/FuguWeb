@@ -288,7 +288,29 @@ subtest 'the generated files' => sub {
 	unlike( $apache, qr/fugubsd-1-release/,
 		'and it holds no signify key, which gpg cannot read' );
 
+	# WEB-KEYS-13 names every column of the page, so the test does
+	# too. A row that lost six of eight columns passed before.
 	my $page = $generated->{'keys/index.html'};
+	for my $head (
+		'Key',    'Purpose',     'Serial', 'Type',
+		'Status', 'Fingerprint', 'Since',  'Until'
+	    )
+	{
+		like( $page, qr{<th>\Q$head\E</th>},
+			"the page names the $head column" );
+	}
+
+	like(
+		$page,
+		qr{<td>release</td><td>1</td><td>signify</td><td>current</td><td></td><td>2026-09-07</td><td></td>},
+		'and a signify row holds each value in order'
+	);
+	like(
+		$page,
+		qr{<td>contact</td><td>1</td><td>openpgp</td><td>current</td><td>\Q@{[FINGERPRINT]}\E</td>},
+		'and an OpenPGP row holds its fingerprint'
+	);
+
 	like( $page, qr{<title>Keys },     'the index page has a title' );
 	like( $page, qr{href="\.\./style\.css"},
 		'and it steps back to the stylesheet of the root' );
@@ -863,8 +885,45 @@ subtest 'a reference that climbs above the site root' => sub {
 	# that resolves.
 	my @problems =
 	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
-	ok( ( grep { m{leaves the site} } @problems ),
+	ok( ( grep { m{names no page of the site} } @problems ),
 		'the check reports it' )
+	    or diag join "\n", @problems;
+};
+
+subtest 'a reference that names its own directory' => sub {
+	my $root = project();
+
+	# './' names the directory of the page, and a directory is no
+	# page. An empty answer reads as false in the walk of the
+	# reachability check, which stops the walk at that page.
+	#
+	# A page that the walk marks on the way in still counts as
+	# seen. The fixture therefore needs a second step: the home
+	# page links one page, and that page links another.
+	spew( "$root/web/one.body.html",
+		qq{<h1>One</h1>\n<p><a href="two.html">Two</a></p>\n} );
+	spew( "$root/web/two.body.html", "<h1>Two</h1>\n" );
+	spew( "$root/web/index.body.html", <<'BODY' );
+<h1>Home</h1>
+<p><a href="./">Here</a></p>
+<p><a href="one.html">One</a></p>
+BODY
+
+	my $rc = slurp("$root/.fuguwebrc");
+	$rc =~ s{^keys "keys"}{page "one.html" {\n\ttitle = One\n\tbody  = one.body.html\n}\n\npage "two.html" {\n\ttitle = Two\n\tbody  = two.body.html\n}\n\nkeys "keys"}m
+	    or die 'the fixture adds no page';
+	spew( "$root/.fuguwebrc", $rc );
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
+	ok( !( grep { m{two\.html: no page links to it} } @problems ),
+		'the walk reaches a page that a second page links' )
 	    or diag join "\n", @problems;
 };
 
@@ -1196,38 +1255,75 @@ RC
 		'the checks hold the generated page' );
 };
 
-subtest 'a link that only the generated page gets wrong' => sub {
+subtest 'the generated page carries no footer' => sub {
 	my $root = project();
 
-	# The footer is project prose, and the build copies it into
-	# every page. A relative link of the footer resolves against
-	# the directory of the page that carries it. One href
-	# therefore reaches the site from the root and misses from
-	# keys/.
+	# The footer is the prose of the project, and the chrome
+	# copies it in unchanged. A relative link of it would resolve
+	# against the directory of the page that carries it. The same
+	# href therefore names one file from the root, and another
+	# from keys/.
 	spew( "$root/web/about.body.html", "<h1>About</h1>\n" );
 	spew( "$root/web/footer.body.html",
 		qq{<p><a href="about.html">About</a></p>\n} );
 
-	my $rc    = slurp("$root/.fuguwebrc");
-	my $added = $rc =~ s{^keys "keys"}{page "about.html" {\n\ttitle    = About\n\tbody     = about.body.html\n\tunlinked = yes\n}\n\nkeys "keys"}m;
-	ok( $added, 'the fixture adds a page of the root' );
+	my $rc = slurp("$root/.fuguwebrc");
+	$rc =~ s{^keys "keys"}{page "about.html" {\n\ttitle    = About\n\tbody     = about.body.html\n\tunlinked = yes\n}\n\nkeys "keys"}m
+	    or die 'the fixture adds no page';
 	spew( "$root/.fuguwebrc", $rc );
 
 	my ( $config, $reason ) = load($root);
 	ok( $config, 'the description loads' ) or diag $reason;
 
-	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	like( slurp("$out/index.html"), qr{<footer>},
+		'a page of the root carries the footer' );
+	unlike( slurp("$out/keys/index.html"), qr{<footer>},
+		'and a page below it does not' );
+
+	is( scalar App::FuguWeb::Check->new( config => $config, out => $out )
+		->run,
+		0, 'so the site passes its checks' );
+};
+
+subtest 'the checks read the links of the generated page' => sub {
+	my $root = project();
+
+	# A navigation entry that names no page is wrong on every page
+	# that carries the chrome. The generated page carries it too,
+	# so the check must report it there under its own path.
+	my $rc = slurp("$root/.fuguwebrc");
+	$rc =~ s{^nav "index\.html" \{\n\tlabel = Home\n\}}{$&\n\nnav "missing.html" {\n\tlabel = Missing\n}}m
+	    or die 'the fixture adds no navigation entry';
+	spew( "$root/.fuguwebrc", $rc );
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
 	ok( site( $config, $out )->build, 'the build succeeds' );
 
 	my @problems =
 	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
 
-	# Each page of the root carries the same href and resolves it,
-	# so this problem belongs to the generated page alone.
-	is_deeply(
-		[@problems],
-		['keys/index.html: about.html leads nowhere'],
-		'the check reports the link of the generated page'
+	ok( ( grep { $_ eq 'index.html: missing.html leads nowhere' }
+			@problems ),
+		'the check reports the page of the root' )
+	    or diag join "\n", @problems;
+
+	# The step back is part of the href that the generated page
+	# carries, so the report names it.
+	ok(
+		(
+			grep {
+				$_ eq
+				    'keys/index.html: ../missing.html leads'
+				    . ' nowhere'
+			} @problems
+		),
+		'and the generated page under its own path'
 	) or diag join "\n", @problems;
 };
 
@@ -1347,6 +1443,48 @@ subtest 'the checks see an empty directory that no build made' => sub {
 	ok( -d "$out/archive", 'and the build keeps it' );
 };
 
+subtest 'the build reports a stray directory' => sub {
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	mkdir "$out/archive" or die "Cannot make the directory: $!";
+
+	# The build keeps the directory, and it says so. A directory
+	# of a key prefix goes to the step that removes an empty one.
+	# A report there would name what the same run removes.
+	my $said = '';
+	open my $saved, '>&', \*STDERR or die "Cannot save stderr: $!";
+	close STDERR;
+	open STDERR, '>', \$said or die 'Cannot capture stderr';
+
+	my $again = App::FuguWeb::Site->new(
+		config => $config,
+		out    => $out,
+		render => App::FuguWeb::Render->new(
+			config  => $config,
+			mandoc  => '/bin/true',
+			lowdown => '/bin/true',
+		),
+	)->build;
+
+	close STDERR;
+	open STDERR, '>&', $saved or die "Cannot restore stderr: $!";
+
+	ok( $again, 'a second build succeeds' );
+	ok( -d "$out/archive", 'and it keeps the directory' );
+	like( $said, qr{archive is in the output},
+		'and it reports the directory' );
+
+	# An empty directory of a key prefix goes without a word.
+	mkdir "$out/keys/stale" or die "Cannot make the directory: $!";
+	ok( site( $config, $out )->build, 'a third build succeeds' );
+	ok( !-e "$out/keys/stale", 'and it removes the empty one it owns' );
+};
+
 subtest 'list_tree walks the leaves and no symlink' => sub {
 	my $dir = tempdir( CLEANUP => 1 );
 
@@ -1443,7 +1581,110 @@ subtest 'the clean command still refuses a tree that no build made' => sub {
 	like( $err, qr/refusing to remove it/, 'and says why' );
 };
 
-subtest 'clean refuses a tree that no build made' => sub {
+subtest 'clean refuses a file that the site does not name' => sub {
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	# The site names the key directory, so a walk that read a
+	# prefix would take every name below it. The rule is the
+	# inventory, and the inventory names no such file.
+	spew( "$out/keys/notes.txt", "mine\n" );
+
+	ok( !site( $config, $out )->clean, 'the clean refuses' );
+	ok( -e "$out/keys/notes.txt", 'and removes nothing' );
+};
+
+subtest 'a signify key file that holds no signify key' => sub {
+	# The extension gives the type, so a name that ends in .pub is
+	# a signify key by its name alone. The guards of Fugu::KeyDir
+	# hold an OpenPGP key and skip every other type, so a file of
+	# any content would publish under that name.
+	# The delimiter is built and never written, because the secret
+	# gate reads this file and a block of that name is what it
+	# looks for. The bytes below hold no key of any kind.
+	my $block   = join ' ', 'PGP', 'PRIVATE', 'KEY', 'BLOCK';
+	my $private = "-----BEGIN $block-----\n\n"
+	    . "bm90IGEga2V5IG9mIGFueSBraW5k\n"
+	    . "=AAAA\n"
+	    . "-----END $block-----\n";
+
+	my $root = project(
+		keys => { 'fugubsd-1-release.pub' => $private },
+		rc   => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+	);
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $keys = App::FuguWeb::Keys->new( config => $config );
+	ok( !$keys->generated, 'the key directory refuses to generate' );
+	like( $keys->error, qr{a signify public key holds 2},
+		'and the reason names the shape' );
+
+	my $out = "$root/out";
+	ok( !site( $config, $out )->build, 'the build fails' );
+	ok( !-e "$out/keys/fugubsd-1-release.pub",
+		'and it publishes no private key' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
+	ok( ( grep { m{signify public key holds 2} } @problems ),
+		'and the check reports it' )
+	    or diag join "\n", @problems;
+};
+
+subtest 'a signify key body that is not a key' => sub {
+	my %case = (
+		'a body of the wrong length' =>
+		    "untrusted comment: x\nRWRPa1Nd3YmPwqMM\n",
+		'a body that names no algorithm' =>
+		    "untrusted comment: x\n"
+		    . ( 'A' x 56 ) . "\n",
+		'no untrusted comment line' =>
+		    "a comment\nRWRPa1Nd3YmPwqMMjxtMv+TPkCbHp43jYR8s7TGqxx1EI70I2bKmsAlE\n",
+	);
+
+	for my $name ( sort keys %case ) {
+		my $root = project(
+			keys => { 'fugubsd-1-release.pub' => $case{$name} },
+			rc   => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+		);
+
+		my ( $config, $reason ) = load($root);
+		ok( $config, "$name loads" ) or diag $reason;
+
+		my $keys = App::FuguWeb::Keys->new( config => $config );
+		ok( !$keys->generated, "and $name is refused" );
+	}
+};
+
+subtest 'clean refuses a symlink that no build made' => sub {
+	# The skip comes before the first assertion. A plan that
+	# arrives after one turns a failed assertion into a pass.
+	my $probe = tempdir( CLEANUP => 1 );
+	plan skip_all => 'cannot make a symlink here'
+	    unless symlink '/nonexistent', "$probe/link";
+
 	my $root = project();
 	my ( $config, $reason ) = load($root);
 	ok( $config, 'the description loads' ) or diag $reason;
@@ -1454,11 +1695,25 @@ subtest 'clean refuses a tree that no build made' => sub {
 	# A symlink below the root. The clean deletes a tree without
 	# asking, so it must refuse anything that a build cannot have
 	# written.
-	symlink '/etc/passwd', "$out/keys/link"
-	    or plan skip_all => 'cannot make a symlink here';
+	symlink '/etc/passwd', "$out/keys/link" or die "Cannot link: $!";
 
 	ok( !site( $config, $out )->clean, 'the clean refuses' );
 	ok( -e "$out/keys/fugubsd-1-release.pub", 'and removes nothing' );
+};
+
+subtest 'clean refuses a foreign staging tree' => sub {
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	# The build writes one flat directory of sources into the
+	# staging directory. A tree below it belongs to whoever made
+	# it, and the name must not carry the whole target with it.
+	my $victim = tempdir( CLEANUP => 1 ) . '/victim';
+	spew( "$victim/.man/deep/keep.txt", "important\n" );
+
+	ok( !site( $config, $victim )->clean, 'the clean refuses' );
+	ok( -e "$victim/.man/deep/keep.txt", 'and removes nothing' );
 };
 
 subtest 'clean refuses a foreign target that holds a tree' => sub {
@@ -1476,12 +1731,24 @@ subtest 'clean refuses a foreign target that holds a tree' => sub {
 	ok( !site( $config, $victim )->clean, 'the clean refuses' );
 	ok( -e "$victim/keys/deep/keep.txt", 'and removes nothing' );
 
-	# The same tree under the output directory of the description
-	# belongs to the build, which owns that directory.
+	# The site names each published key, so the clean removes the
+	# key directory of a site that it read.
 	my $out = "$root/out";
 	ok( site( $config, $out )->build, 'the build succeeds' );
 	ok( site( $config, $out )->clean, 'and the clean removes it' );
 	ok( !-e $out, 'the whole tree is gone' );
+
+	# A directory with no description at all names nothing, so
+	# only one flat directory of files is a site. Without that
+	# rule, a clean of a path that an operator typed would take
+	# whatever the path holds.
+	my $bare = tempdir( CLEANUP => 1 ) . '/build';
+	spew( "$bare/somebody/precious.txt", "precious\n" );
+
+	my $anonymous = App::FuguWeb::Config->anonymous( $root );
+	ok( !site( $anonymous, $bare )->clean,
+		'a clean with no description refuses a tree' );
+	ok( -e "$bare/somebody/precious.txt", 'and removes nothing' );
 };
 
 subtest 'a description that drops its keys block' => sub {
@@ -1494,9 +1761,9 @@ subtest 'a description that drops its keys block' => sub {
 	ok( -d "$out/keys", 'the key directory is there' );
 
 	# A site that drops the whole block strands the published
-	# tree. The build owns its output directory, so the clean must
-	# still remove it. A tool that can neither prune nor clean its
-	# own output is a tool that an operator cannot use.
+	# tree. The site names nothing under keys/ any more, so the
+	# clean refuses it. A clean deletes without asking, and it
+	# reads the site and never a guess.
 	spew( "$root/.fuguwebrc", <<'RC' );
 site       = Example
 source_dir = web
@@ -1521,8 +1788,16 @@ RC
 	ok( ( grep { m{^keys/} } @problems ),
 		'the check reports the stranded tree' );
 
-	ok( site( $bare, $out )->clean, 'the clean removes the output' );
-	ok( !-e $out, 'and the whole tree is gone' );
+	ok( !site( $bare, $out )->clean, 'the clean refuses the output' );
+	ok( -e "$out/keys/fugubsd-1-release.pub", 'and removes nothing' );
+
+	# The operator removes the directory, or names the block
+	# again. Either one makes the site whole, and the clean then
+	# reads a site that it can account for.
+	remove_tree("$out/keys");
+	remove_tree("$out/.well-known");
+	ok( site( $bare, $out )->clean, 'the clean succeeds once it is gone' );
+	ok( !-e $out, 'and the whole tree with it' );
 };
 
 subtest 'the build refuses a symlink in the output' => sub {

@@ -159,8 +159,14 @@ sub _foot ($self)
 {
 	my $html = "</main>\n";
 
+	# A page below the site root carries no footer. The fragment
+	# is the prose of the project, and this class copies it in
+	# unchanged. A relative link of it would resolve against the
+	# directory of the page. The link would then name a file of
+	# the key directory, or no file at all, and the writer of the
+	# fragment named neither.
 	my $path = $self->{config}->source_path(FOOTER_FRAGMENT);
-	if ( -f $path ) {
+	if ( -f $path && !length $self->{base} ) {
 		my $prose = Fugu::File->read($path) // '';
 		$html .= "<hr>\n<footer>\n$prose</footer>\n";
 	}

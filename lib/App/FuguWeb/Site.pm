@@ -184,7 +184,7 @@ sub clean ($self)
 #	whatever it cannot account for.
 sub _stranger ($self)
 {
-	my $own = $self->_own_target;
+	my $named = $self->_named;
 
 	my @found;
 	File::Find::find( {
@@ -197,46 +197,59 @@ sub _stranger ($self)
 		next if $path eq $self->{out};
 
 		my $relative = substr $path, 1 + length $self->{out};
-		next if _in_staging($relative);
 
-		# A symlink is never something that a build wrote,
-		# whatever the target is.
+		# A symlink is never something that a build wrote.
 		return $relative if -l $path;
 
-		# The description names this output directory, so the
-		# build owns every name in it. A key directory that the
-		# description dropped is still this site's to remove.
-		next if $own;
+		# The staging directory is a build detail, and the
+		# build writes one flat directory of sources into it.
+		# A tree below it is somebody else's.
+		if ( App::FuguWeb::path_below( $relative, STAGING_DIR ) ) {
+			next if $relative eq STAGING_DIR;
+			next
+			    if $relative =~ m{\A\Q@{[STAGING_DIR]}\E/[^/]+\z}
+			    && $self->_build_made($relative);
+			return $relative;
+		}
 
-		# A --out that names another directory gets the strict
-		# rule. The clean deletes without asking, and a typed
-		# path must never take the tree of somebody else with
-		# it, whatever this description happens to name.
-		return $relative if -d $path;
+		# A directory holds a name of the site, or it holds the
+		# files of whoever made it.
+		if ( -d $path ) {
+			next
+			    if
+			    grep { App::FuguWeb::path_below( $_, $relative ) }
+			    keys %$named;
+			return $relative;
+		}
+
+		# A plain file of the top level is one that a build
+		# writes, whatever the description names today. A
+		# renamed manual leaves its old page there. A file
+		# below the root belongs to the key directory, so the
+		# site must name it.
 		return $relative unless $self->_build_made($relative);
+		next             unless $relative =~ m{/};
+		return $relative unless $named->{$relative};
 	}
 
 	return;
 }
 
-# $self->_own_target:
-#	Report whether the output directory is the one that the
-#	description names. A build owns that directory, so a clean of
-#	it removes what it holds.
+# $self->_named:
+#	Every path that the site holds, as a hash reference. The set
+#	is empty for a description that did not load, so the clean
+#	then accepts one flat directory of files and no more.
 #
-#	The test is the whole difference between the two rules of the
-#	clean. Without it, a --out that names the directory of
-#	somebody else would take the key prefixes of this description
-#	with it. The clean would then remove a tree that it cannot
-#	account for.
-sub _own_target ($self)
+#	The clean deletes without asking, so it reads the inventory
+#	and never a prefix. A prefix would accept any depth below the
+#	key directory, and a target that holds keys/deep/mine.txt is
+#	not a site.
+sub _named ($self)
 {
 	my $config = $self->{config};
-	my $named  = $config->out_dir;
-	return 0 unless defined $named;
+	return {} unless defined $config->path;
 
-	return _absolute( $self->{out} ) eq
-	    _absolute( $config->root . "/$named" ) ? 1 : 0;
+	return { map { $_ => 1 } $config->inventory };
 }
 
 # $self->_prefixes:
@@ -331,11 +344,26 @@ sub _prune_output ($self)
 	for my $path (@$paths) {
 		next if $expected{$path};
 
-		# An empty directory is a leaf of the walk, and
-		# _prune_dirs removes the ones that the build owns. A
-		# report here would name a directory that the same run
-		# then removes.
-		next if -d $self->{out} . "/$path";
+		# An empty directory is a leaf of the walk. The one
+		# that the build owns goes to _prune_dirs, and a report
+		# here would name a directory that the same run then
+		# removes. Every other one is a stray, and it reports
+		# like a stray file.
+		if ( -d $self->{out} . "/$path" ) {
+			next
+			    if $self->_owns( $path, $prefixes )
+			    && $path =~ m{/};
+			next
+			    if grep { App::FuguWeb::path_below( $path, $_ ) }
+			    @$prefixes;
+
+			$self->{log}->warning(
+				'%s is in the output, and the site does not'
+				    . ' name it',
+				$path
+			);
+			next;
+		}
 
 		# A plain file that a build writes, and nothing else. A
 		# file below a directory that the description does not
@@ -416,15 +444,6 @@ sub _build_made ( $self, $name )
 	my $path = "$self->{out}/$name";
 
 	return -f $path && !-l $path ? 1 : 0;
-}
-
-# _in_staging($path):
-#	Report whether an output path belongs to the mdoc staging
-#	directory. The staging is a build detail: a clean removes it
-#	with the site, and it is never something the caller put there.
-sub _in_staging ($path)
-{
-	return App::FuguWeb::path_below( $path, STAGING_DIR );
 }
 
 # _absolute($path):
@@ -529,8 +548,26 @@ sub _check_links ($self)
 		return;
 	}
 
+	# A link that the build never writes through is somebody
+	# else's, and a build leaves it. The build writes the
+	# inventory and no more. A link on one of those paths, or on a
+	# directory of one, is the whole rule.
+	my %named = map { $_ => 1 } $self->{config}->inventory;
+	my %above;
+	for my $named ( keys %named ) {
+		my @parts = split m{/}, $named;
+		pop @parts;
+
+		my $prefix = '';
+		for my $part (@parts) {
+			$prefix = length $prefix ? "$prefix/$part" : $part;
+			$above{$prefix} = 1;
+		}
+	}
+
 	for my $path (@$paths) {
 		next unless -l $self->{out} . "/$path";
+		next unless $named{$path} || $above{$path};
 
 		$self->{log}->error(
 			'%s holds the symlink %s; a build writes no file'

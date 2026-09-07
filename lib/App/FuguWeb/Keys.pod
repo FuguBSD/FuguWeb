@@ -78,6 +78,10 @@ One Web Key Directory file holds every key of one address, in
 publication order. A rotation gives one address a current key and a
 next key, and a reader takes the whole file.
 
+An address whose keys are all C<retired> serves no file. C<gpg
+--locate-keys> reads that file to encrypt a message, and a retired key
+is the one key that must not answer it.
+
 =head1 METHODS
 
 =head2 new

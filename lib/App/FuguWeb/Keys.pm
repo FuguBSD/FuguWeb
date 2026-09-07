@@ -26,6 +26,7 @@ use Fugu::File;
 use Fugu::KeyDir;
 use Fugu::OpenPGP;
 use Fugu::Signify;
+use MIME::Base64 ();
 
 # App::FuguWeb::Keys - the key directory of a site.
 #
@@ -222,11 +223,17 @@ sub key_set ($self)
 	for my $key ( $self->{config}->site_keys ) {
 		my %entry = %$key;
 
+		my $path  = $self->{config}->keys_path( $key->{name} );
+		my $bytes = Fugu::File->read($path);
+		return $self->_fail("cannot read $path") unless defined $bytes;
+
 		if ( $key->{type} eq 'openpgp' ) {
-			my $path = $self->{config}->keys_path( $key->{name} );
-			$entry{armor} = Fugu::File->read($path);
-			return $self->_fail("cannot read $path")
-			    unless defined $entry{armor};
+			$entry{armor} = $bytes;
+		}
+		else {
+			my $why = _signify_problem($bytes);
+			return $self->_fail("$key->{name}: $why")
+			    if defined $why;
 		}
 
 		push @set, \%entry;
@@ -505,6 +512,56 @@ sub _published ( $self, @keys )
 	}
 
 	return grep { $live{ $_->{wkd} } } @named;
+}
+
+# _signify_problem($bytes):
+#	The reason that a file is not a signify public key, or undef
+#	when it is one.
+#
+#	The extension of a key file gives its type, so a name that
+#	ends in .pub is a signify key by its name alone. Nothing else
+#	reads those bytes: the guards of Fugu::KeyDir hold an OpenPGP
+#	key and skip every other type. A file of any content would
+#	therefore publish under that name, a private key of any kind
+#	included.
+#
+#	A signify public key holds two lines. The first line starts
+#	with 'untrusted comment: ', which signify(1) needs. The second
+#	line is the key body: 42 bytes in base64, and the first two
+#	bytes spell Ed.
+sub _signify_problem ($bytes)
+{
+	my @line = split /\n/, $bytes, -1;
+	pop @line if @line && $line[-1] eq '';
+
+	unless ( @line == 2 ) {
+		return
+		      'it holds '
+		    . scalar(@line)
+		    . ' lines, and a signify public key holds 2';
+	}
+
+	unless ( $line[0] =~ /\Auntrusted comment: / ) {
+		return 'the first line is no untrusted comment line';
+	}
+
+	unless ( $line[1] =~ m{\A[A-Za-z0-9+/]{56}\z} ) {
+		return 'the key body is not 56 base64 characters';
+	}
+
+	my $raw = MIME::Base64::decode_base64( $line[1] );
+	unless ( length($raw) == 42 ) {
+		return
+		      'the key body decodes to '
+		    . length($raw)
+		    . ' bytes, and a signify key holds 42';
+	}
+
+	unless ( substr( $raw, 0, 2 ) eq 'Ed' ) {
+		return 'the key body names no signify algorithm';
+	}
+
+	return;
 }
 
 # _addresses(@keys):

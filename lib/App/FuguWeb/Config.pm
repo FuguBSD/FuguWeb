@@ -151,16 +151,11 @@ sub load ( $class, %args )
 #	description is the thing that is broken.
 sub anonymous ( $class, $root )
 {
-	# The defaults apply where no description does, so a clean of
-	# the default output directory still knows that the build owns
-	# it. Without them a broken description would stop the one
-	# command that an operator reaches for when a description is
-	# broken.
-	return bless {
-		root    => $root,
-		out_dir => DEFAULT_OUT_DIR,
-		key     => [],
-	}, $class;
+	# The object holds a root and no more. A default here would
+	# make a clean of the default output directory believe that a
+	# description named it. The clean would then remove a tree
+	# that it read no description for.
+	return bless { root => $root }, $class;
 }
 
 # $self->root, $self->path:
@@ -568,11 +563,11 @@ sub _read_keys_block ( $self, $reason, $block )
 			    . ' directory' );
 	}
 
-	# A name of one or two dots names a directory of the path, and
-	# not one of its own. The inventory would then hold './KEYS'
-	# where the tree holds 'KEYS', and the build would remove the
-	# file that it wrote in the same run.
-	if ( $name eq '.' || $name eq '..' ) {
+	# A single dot names the directory itself. The inventory would
+	# then hold './KEYS' where the tree holds 'KEYS', and the build
+	# would remove the file that it wrote in the same run. Two dots
+	# never reach here, because _unsafe_output_name answers first.
+	if ( $name eq '.' ) {
 		return $self->_fail( $reason,
 			      "keys \"$name\" names a directory of the path,"
 			    . ' and not a directory of its own' );
@@ -649,14 +644,15 @@ sub _read_keys_block ( $self, $reason, $block )
 			    . ' which is not a directory' );
 	}
 
-	# The key directory becomes a directory of the output, and a
-	# page of the same name becomes a file there. The build would
-	# fail late, on a write to a directory, and it would leave a
-	# tree that is half built.
-	for my $page ( $self->pages ) {
-		next unless $page->{file} eq $name;
+	# The key directory becomes a directory of the output, and any
+	# file of the same name collides with it. The build would fail
+	# late, on a write to a directory, and it would leave a tree
+	# that is half built. The inventory holds every name that the
+	# output takes, so the test reads that one list.
+	for my $held ( $self->inventory ) {
+		next unless $held eq $name;
 		return $self->_fail( $reason,
-			      "keys \"$name\" and page \"$name\" both"
+			      "keys \"$name\" and $name of the site both"
 			    . ' become the same name in the output' );
 	}
 

@@ -101,24 +101,24 @@ The command checks the renderers first,
 and names the one that is missing.
 It then rejects a malformed manual source,
 because such a page must fail the build and not render badly.
+.Pp
+The command refuses a symlink in the output,
+before it writes one file.
+An open follows a link,
+so a build would write the site outside its own directory.
 .It Cm clean Op Fl Fl out Ar dir
 Remove the output directory.
 .Pp
 The command removes a built site and refuses anything else.
 It deletes a tree without asking,
-so it reads two rules.
+so the rule is the site itself.
 .Pp
-The description names one output directory,
-and the build owns that directory.
-A clean of it removes what it holds,
-and it refuses a symlink alone.
-.Pp
-A
-.Fl Fl out
-that names another directory gets the strict rule.
-The command then refuses every subdirectory,
-every symlink,
-and every entry that no build makes,
+A plain file of the top level is one that a build writes.
+A file below the root belongs to the key directory,
+so the site must name it.
+A directory must hold a name of the site.
+A symlink is never a thing that a build wrote.
+The command refuses every other entry,
 and it names the entry.
 A path that you type must never take the tree of somebody else with it.
 .Pp
@@ -137,10 +137,10 @@ the command reads the
 .Pa .fuguwebrc
 when it can,
 because the description is what names the key directory.
-A description that does not load is no error here:
+A description that does not load names nothing,
+and one flat directory of files is then the whole site that
 .Cm clean
-is the command you reach for when a description is broken,
-and the defaults then apply.
+knows.
 .It Cm check Oo Fl Fl out Ar dir Oc Op Fl Fl verbose
 Check a built site:
 that every page and asset is there and is not empty,
