@@ -100,6 +100,12 @@ manifest parser. The renderer holds the wiring only.
   file has, and must name nothing else.
 - **WEB-KEYS-22** — The declared fingerprint of an OpenPGP key must equal the
   fingerprint that its body gives.
+- **WEB-KEYS-33** — `SHA256.sig` must hold a signify signature. The file must
+  hold two lines: an `untrusted comment: ` line, and a body of 100 base64
+  characters that decodes to 74 bytes whose first two bytes spell `Ed`. The
+  build verifies no signature, because a site that verified its own manifest
+  would prove nothing. It reads the shape, because a file of another shape fails
+  at every consumer install and never here.
 - **WEB-KEYS-23** — The checks must read the source directory, so the answer
   does not depend on a build having run.
 - **WEB-KEYS-27** — The human page must take the checks of a page. It must take
@@ -119,20 +125,22 @@ below it, so the build writes into two prefixes there: the directory that the
 `keys` block names, and `.well-known`.
 
 - **WEB-OUTPUT-1** — The build must write a plain file. The file must sit at the
-  top level of the output, or below a prefix of the key directory.
+  top level of the output, or must take a shape of the key directory. Rule
+  WEB-OUTPUT-10 states each shape.
 - **WEB-OUTPUT-2** — The build must remove each file that the inventory does not
   name. Rule WEB-OUTPUT-1 states which file the build can remove.
-- **WEB-OUTPUT-3** — The build must remove each directory of a key directory
-  prefix that holds nothing. It must keep the output directory itself.
+- **WEB-OUTPUT-3** — The build must remove each directory of the output that
+  holds nothing. It must keep the output directory itself. An empty directory
+  holds no content, so no such removal can lose one.
 - **WEB-OUTPUT-4** — The build must keep an entry that rule WEB-OUTPUT-1 does
   not let it write, and must report it. A directory that the description does
   not name holds the files of whoever made it.
 - **WEB-OUTPUT-5** — The clean must remove a plain file of the top level. It
-  must remove a path that the inventory names, and a directory that holds one.
-  It must refuse every other entry, and must name it.
-- **WEB-OUTPUT-6** — The build must not remove a file that the clean refuses.
-  The build can remove an empty directory of a key directory prefix, which holds
-  no content.
+  must remove a file that the inventory names, and one that takes a shape of the
+  key directory. It must remove a directory that holds a name of the site, and a
+  directory of the key tree. It must refuse every other entry, and must name it.
+- **WEB-OUTPUT-6** — The build and the clean must read one predicate, so the
+  build can never remove a file that the clean refuses.
 - **WEB-OUTPUT-7** — The checks must report each entry of the output that the
   inventory does not name. The report must reach any depth, and an empty
   directory as well.
@@ -141,3 +149,13 @@ below it, so the build writes into two prefixes there: the directory that the
   site outside its own directory.
 - **WEB-OUTPUT-9** — The output path must take no trailing solidus. Each walk of
   the output cuts a relative path out of an absolute one.
+- **WEB-OUTPUT-10** — A file below the top level must take one of these shapes:
+  a generated name of the key directory, which is `SHA256`, `SHA256.sig`, `KEYS`
+  or `index.html`; a key file of the key directory, whose name matches rule
+  WEB-KEYS-19; `.well-known/security.txt`; `.well-known/openpgpkey/policy`; or
+  `.well-known/openpgpkey/hu/<hash>`, where the hash is 32 characters of the
+  z-base-32 alphabet. A stale key file needs this shape set, because the
+  inventory names what the site holds today.
+- **WEB-OUTPUT-11** — A `page` block name must be one path segment. A name with
+  a solidus writes into the key directory tree, or into the staging directory,
+  and the build would fail at the write.

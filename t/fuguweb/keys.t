@@ -70,9 +70,14 @@ use constant {
 	WKD_HASH    => 't5s8ztdbon8yzntexy6oz5y48etqsnbb',
 };
 
-# The signature of the manifest is opaque to the site build, which
-# copies it and never reads it. The fixture is therefore any bytes.
-my $SIGNATURE = "untrusted comment: signature\nAAAA\n";
+# A real signify signature. The site build verifies nothing: a site
+# that verified its own manifest would prove nothing. It reads the
+# shape, because a file of another shape fails at every consumer
+# install and never here. signify-openbsd(1) wrote these bytes.
+my $SIGNATURE = <<'SIG';
+untrusted comment: verify with k.pub
+RWS/n+2mbBbQjaszJlHbcECAmX6zY46E8MrxS6vpDXtY33UrTfBBVbrutfEVICOlrSP+m3H++WREZe3nc18vW/2QkeczyJcMFAo=
+SIG
 
 my $KEYS_BLOCK = <<'RC';
 keys "keys" {
@@ -779,6 +784,33 @@ RC
 		'because a page and a directory cannot share one name' );
 };
 
+subtest 'a key directory that collides with the stylesheet' => sub {
+	# The guard reads the whole inventory and not the pages, so
+	# every name that the output takes gets it. The stylesheet is
+	# the one such name that no block declares.
+	my $root = project( rc => <<'RC' );
+keys "style.css" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = current
+}
+RC
+
+	rename "$root/web/keys", "$root/web/style.css"
+	    or die "Cannot rename: $!";
+
+	my ( $config, $reason ) = load($root);
+	ok( !$config, 'the description is refused' );
+	like( $reason, qr{both become the same name in the output},
+		'because the stylesheet takes that name' );
+};
+
 subtest 'an email that is not a local part and a domain' => sub {
 	my $root = project( rc => <<'RC' );
 keys "keys" {
@@ -1439,8 +1471,14 @@ subtest 'the checks see an empty directory that no build made' => sub {
 		'the check reports it' )
 	    or diag join "\n", @problems;
 
+	# An empty directory holds no content, so a build takes it and
+	# nothing is lost. A directory that holds a file stays.
 	ok( site( $config, $out )->build, 'a second build succeeds' );
-	ok( -d "$out/archive", 'and the build keeps it' );
+	ok( !-e "$out/archive", 'and the build removes it' );
+
+	spew( "$out/archive/notes.txt", "mine\n" );
+	ok( site( $config, $out )->build, 'a third build succeeds' );
+	ok( -e "$out/archive/notes.txt", 'and it keeps a directory of files' );
 };
 
 subtest 'the build reports a stray directory' => sub {
@@ -1451,11 +1489,11 @@ subtest 'the build reports a stray directory' => sub {
 	my $out = "$root/out";
 	ok( site( $config, $out )->build, 'the build succeeds' );
 
-	mkdir "$out/archive" or die "Cannot make the directory: $!";
+	spew( "$out/archive/notes.txt", "mine\n" );
 
-	# The build keeps the directory, and it says so. A directory
-	# of a key prefix goes to the step that removes an empty one.
-	# A report there would name what the same run removes.
+	# The build keeps a directory that holds a file, and it says
+	# so. An empty directory goes to the step that removes one, so
+	# a report there would name what the same run removes.
 	my $said = '';
 	open my $saved, '>&', \*STDERR or die "Cannot save stderr: $!";
 	close STDERR;
@@ -1475,14 +1513,14 @@ subtest 'the build reports a stray directory' => sub {
 	open STDERR, '>&', $saved or die "Cannot restore stderr: $!";
 
 	ok( $again, 'a second build succeeds' );
-	ok( -d "$out/archive", 'and it keeps the directory' );
-	like( $said, qr{archive is in the output},
-		'and it reports the directory' );
+	ok( -e "$out/archive/notes.txt", 'and it keeps the file' );
+	like( $said, qr{archive/notes\.txt is in the output},
+		'and it reports the file' );
 
-	# An empty directory of a key prefix goes without a word.
+	# An empty directory goes without a word.
 	mkdir "$out/keys/stale" or die "Cannot make the directory: $!";
 	ok( site( $config, $out )->build, 'a third build succeeds' );
-	ok( !-e "$out/keys/stale", 'and it removes the empty one it owns' );
+	ok( !-e "$out/keys/stale", 'and it removes an empty one' );
 };
 
 subtest 'list_tree walks the leaves and no symlink' => sub {
@@ -1591,11 +1629,134 @@ subtest 'clean refuses a file that the site does not name' => sub {
 
 	# The site names the key directory, so a walk that read a
 	# prefix would take every name below it. The rule is the
-	# inventory, and the inventory names no such file.
+	# shape, and no key file is named notes.txt.
 	spew( "$out/keys/notes.txt", "mine\n" );
 
 	ok( !site( $config, $out )->clean, 'the clean refuses' );
 	ok( -e "$out/keys/notes.txt", 'and removes nothing' );
+};
+
+subtest 'the top level takes any plain file that a build could write' =>
+    sub {
+	# A renamed page leaves its old file behind, and the
+	# description no longer names it. The clean must still take
+	# it, or a rename would strand the output for good.
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	spew( "$out/old-name.html", "a page of an earlier run\n" );
+
+	ok( site( $config, $out )->clean, 'the clean takes the output' );
+	ok( !-e $out, 'and the whole tree is gone' );
+};
+
+subtest 'clean refuses an empty directory that no build made' => sub {
+	# A directory holds a name of the site, or is a directory of
+	# the key tree. Anything else is somebody else's, and an empty
+	# one carries no file that the walk could refuse instead.
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	make_path("$out/photos");
+	ok( !site( $config, $out )->clean, 'the clean refuses' );
+	ok( -d "$out/photos", 'and removes nothing' );
+
+	# The key tree is the one exception: its directories stay
+	# after a description drops a key, and the clean takes them.
+	remove_tree("$out/photos");
+	ok( site( $config, $out )->clean, 'without it the clean succeeds' );
+};
+
+subtest 'the prune and the clean answer alike' => sub {
+	# WEB-OUTPUT-6: a build must never remove a file that the
+	# clean refuses. The two read one predicate, and this test
+	# plants a name and compares the two answers for it.
+	#
+	# A name that the site holds gets skipped below: the build
+	# rewrites it, so no prune ever sees it.
+	my @name = (
+		'keys/notes.txt',
+		'keys/archive/f.txt',
+		'keys/README',
+		'keys/.hidden',
+		'keys/fugubsd-9-release.pub',
+		'keys/fugubsd-9-signing.asc',
+		'keys/KEYS',
+		'.well-known/security.txt',
+		'.well-known/openpgpkey/policy',
+		'.well-known/notes.txt',
+		'.well-known/openpgpkey/hu/short',
+		'.well-known/openpgpkey/hu/deep/f',
+		'sub/page.html',
+		'stale.html',
+	);
+
+	my $tested = 0;
+	for my $name (@name) {
+		my $root = project();
+		my ( $config, $reason ) = load($root);
+		ok( $config, "$name: the description loads" ) or next;
+
+		next if grep { $_ eq $name } $config->inventory;
+		$tested++;
+
+		my $out = "$root/out";
+		ok( site( $config, $out )->build, "$name: the build succeeds" );
+
+		spew( "$out/$name", "planted\n" );
+		my $takes = site( $config, $out )->clean ? 1 : 0;
+
+		# The clean of a taken target removed the output, so
+		# the second run builds and plants again.
+		my $again = project();
+		my ($second) = load($again);
+		my $out2 = "$again/out";
+		site( $second, $out2 )->build;
+		spew( "$out2/$name", "planted\n" );
+		site( $second, $out2 )->build;
+		my $removes = -e "$out2/$name" ? 0 : 1;
+
+		is( $removes, $takes,
+			"$name: the prune and the clean answer alike" );
+	}
+
+	# A filter that dropped every name would prove nothing.
+	cmp_ok( $tested, '>=', 8, 'the test reached most of the names' );
+};
+
+subtest 'the shape of a Web Key Directory name' => sub {
+	# A stale hu name is the encoded SHA-1 of a local part, so it
+	# holds 32 characters of the z-base-32 alphabet. The build
+	# removes one of that shape and keeps every other name, and
+	# the clean answers the same way.
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	my $hu    = '.well-known/openpgpkey/hu';
+	my $stale = "$hu/ybndrfg8ejkmcpqxot1uwisza345h769";
+	my $other = "$hu/holiday.jpg";
+
+	spew( "$out/$stale", "stale\n" );
+	spew( "$out/$other", "mine\n" );
+
+	ok( site( $config, $out )->build, 'a second build succeeds' );
+	ok( !-e "$out/$stale", 'the build removes the stale hash' );
+	ok( -e "$out/$other",  'and keeps the name of another shape' );
+
+	ok( !site( $config, $out )->clean, 'the clean refuses the tree' );
+	ok( -e "$out/$other", 'and removes nothing' );
 };
 
 subtest 'a signify key file that holds no signify key' => sub {
@@ -1676,6 +1837,63 @@ RC
 		my $keys = App::FuguWeb::Keys->new( config => $config );
 		ok( !$keys->generated, "and $name is refused" );
 	}
+};
+
+subtest 'a signature that is not a signify signature' => sub {
+	# The build copies the signature and verifies nothing: a site
+	# that verified its own manifest would prove nothing. It reads
+	# the shape, because a file of another shape fails at every
+	# consumer install and never here.
+	my %case = (
+		'the wrong line count' => [
+			"untrusted comment: x\n",
+			qr{a signify signature holds 2},
+		],
+		'no untrusted comment line' => [
+			"a comment\n" . ( 'A' x 99 ) . "=\n",
+			qr{no untrusted comment line},
+		],
+		'a body of the wrong length' => [
+			"untrusted comment: x\nRWS/n+2mbBbQ\n",
+			qr{not 100 base64 characters},
+		],
+		'a body that names no algorithm' => [
+			"untrusted comment: x\n" . ( 'A' x 99 ) . "=\n",
+			qr{names no signify algorithm},
+		],
+	);
+
+	for my $name ( sort keys %case ) {
+		my ( $bytes, $why ) = @{ $case{$name} };
+
+		my $root =
+		    project( files => { 'web/keys/SHA256.sig' => $bytes } );
+		my ( $config, $reason ) = load($root);
+		ok( $config, "$name loads" ) or diag $reason;
+
+		my @problems =
+		    App::FuguWeb::Keys->new( config => $config )->problems;
+		ok( ( grep { $_ =~ $why } @problems ),
+			"and the check reports $name" )
+		    or diag join "\n", @problems;
+	}
+};
+
+subtest 'a signature that the checkout does not hold' => sub {
+	# The description refuses a directory with no manifest pair,
+	# so an unreadable signature reaches the check through a
+	# directory that lost it after the load.
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	unlink "$root/web/keys/SHA256.sig" or die "Cannot remove: $!";
+
+	my @problems =
+	    App::FuguWeb::Keys->new( config => $config )->problems;
+	ok( ( grep { m{SHA256\.sig: cannot read it} } @problems ),
+		'the check reports the missing signature' )
+	    or diag join "\n", @problems;
 };
 
 subtest 'clean refuses a symlink that no build made' => sub {
@@ -1833,6 +2051,35 @@ subtest 'the build refuses a symlink in the output' => sub {
 
 	ok( !site( $config, $out )->build, 'a build with a linked tree fails' );
 	ok( !-e $elsewhere, 'and it writes no key through the link' );
+};
+
+subtest 'the build keeps a symlink it never writes through' => sub {
+	# The skip comes before the first assertion. A plan that
+	# arrives after one turns a failed assertion into a pass.
+	my $probe = tempdir( CLEANUP => 1 );
+	plan skip_all => 'cannot make a symlink here'
+	    unless symlink '/nonexistent', "$probe/link";
+
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	# The build writes the inventory and no more. A link on any
+	# other path is somebody else's, and the build leaves it.
+	my $target = tempdir( CLEANUP => 1 );
+	symlink $target, "$out/photos" or die "Cannot link: $!";
+
+	ok( site( $config, $out )->build, 'a second build succeeds' );
+	ok( -l "$out/photos", 'and it keeps the link' );
+
+	# The clean is the stricter of the two here, by design: it
+	# deletes a tree without asking, and a link is never a thing
+	# that a build wrote.
+	ok( !site( $config, $out )->clean, 'the clean refuses the link' );
+	ok( -l "$out/photos", 'and removes nothing' );
 };
 
 subtest 'an output path that ends in a slash' => sub {

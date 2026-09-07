@@ -63,7 +63,7 @@ not;
 =item 2.
 
 refuse an output directory that no build may own, and refuse a symlink
-in it;
+on a path that the build writes;
 
 =item 3.
 
@@ -106,14 +106,14 @@ that carried both would fail its own check. The build owns the output
 directory, so it owns the removal too.
 
 The build owns a plain file at the top level of the output, and a plain
-file below a prefix of the key directory. It keeps every other entry
-and reports it, so an operator directory in the output survives a
-build.
+file below the root that the site names or that takes a shape of the
+key directory. It keeps every other entry and reports it, so an
+operator directory in the output survives a build.
 
-The build removes an empty directory of a key directory prefix, and it
-keeps every other one and reports it. C<rmdir> refuses a directory that
-still holds a name, so the walk needs no second test, and the output
-directory itself always stays.
+The build removes every empty directory of the output, and the output
+directory itself always stays. An empty directory holds no content, so
+no removal there can lose one. C<rmdir> refuses a directory that still
+holds a name, so the walk needs no second test.
 
 The method returns true on success, and C<undef> with a message in the
 log otherwise.
@@ -131,12 +131,16 @@ C<clean> removes a built site and refuses anything else. It deletes a
 tree without asking, so the one thing it must never do is delete a tree
 that no build made.
 
-The rule is the inventory. A plain file of the top level is one that a
-build writes, whatever the description names today. A renamed manual
-leaves its old page there. A file below the root belongs to the key
-directory, so the site must name it. A directory must hold a name of
-the site, and a symlink is never a thing that a build wrote. The clean
-refuses every other entry, and it names it.
+A plain file of the top level is one that a build writes, whatever the
+description names today. A renamed manual leaves its old page there. A
+file below the root must be one that the site names, or one of the
+shapes that the key directory takes. A directory must hold a name of
+the site, or be a directory of the key tree, and a symlink is never a
+thing that a build wrote. The clean refuses every other entry, and it
+names it.
+
+The clean and the prune read one predicate, so a build can never remove
+a file that the clean refuses.
 
 The staging directory is a build detail, and the build writes one flat
 directory of sources into it. A tree below it belongs to whoever made

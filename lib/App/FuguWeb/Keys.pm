@@ -74,6 +74,16 @@ use constant {
 # holds every other name to the key pattern.
 my %NOT_A_KEY = map { $_ => 1 } ( MANIFEST, SIGNATURE );
 
+# Every generated name of the key directory. A build writes each one,
+# whatever the description names today.
+my %GENERATED_NAME =
+    map { $_ => 1 } ( MANIFEST, SIGNATURE, KEYS_FILE, INDEX_PAGE );
+
+# A Web Key Directory name is the z-base-32 form of the SHA-1 of an
+# address local part. SHA-1 holds 20 bytes, and z-base-32 writes 32
+# characters of its own alphabet for them.
+use constant WKD_NAME => qr{\A[ybndrfg8ejkmcpqxot1uwisza345h769]{32}\z};
+
 # App::FuguWeb::Keys->new(%args):
 #	config => $config	the site description (required)
 #
@@ -101,6 +111,45 @@ sub new ( $class, %args )
 sub error ($self)
 {
 	return $self->{error};
+}
+
+# App::FuguWeb::Keys->shaped($config, $path):
+#	Report whether a path of the output is one that a build of the
+#	key directory writes.
+#
+#	A stale key file needs this. The build removes what the site
+#	dropped, and a key that the description no longer names is
+#	exactly that. The inventory cannot answer for it, because the
+#	inventory names what the site holds today.
+#
+#	The set is bounded, and every member takes a fixed shape: a
+#	generated name of the key directory, a key file that
+#	Fugu::KeyDir parses, or one of the well-known paths. A path of
+#	another shape belongs to whoever made it, so a target that
+#	holds keys/notes.txt is no site.
+#
+#	The prune and the clean read this one answer, so a build can
+#	never remove a file that the clean refuses.
+sub shaped ( $class, $config, $path )
+{
+	return 1 if $path eq SECURITY_TXT;
+	return 1 if $path eq WKD_POLICY;
+
+	my $hu = WKD_DIR . '/hu';
+	if ( my ($hash) = $path =~ m{\A\Q$hu\E/(.+)\z} ) {
+		return $hash =~ WKD_NAME ? 1 : 0;
+	}
+
+	my $dir = $config->keys_dir;
+	return 0 unless defined $dir;
+
+	my ($name) = $path =~ m{\A\Q$dir\E/(.+)\z};
+	return 0 unless defined $name;
+	return 1 if $GENERATED_NAME{$name};
+
+	my $keydir = Fugu::KeyDir->new( org => $config->keys_org );
+
+	return $keydir->parse_name($name) ? 1 : 0;
 }
 
 # $self->paths:
@@ -275,6 +324,7 @@ sub problems ($self)
 	}
 
 	push @problems, $self->_manifest_problems( \@keys );
+	push @problems, $self->_signature_problems;
 	push @problems, $self->_fingerprint_problems($set);
 
 	return @problems;
@@ -375,6 +425,24 @@ sub _manifest_problems ( $self, $keys )
 	    for grep { !$named{$_} } sort keys %$digest;
 
 	return @problems;
+}
+
+# $self->_signature_problems:
+#	What the signature of the manifest is not true of. The
+#	consumer install reads these bytes with signify(1), and a file
+#	of another shape fails there and never here.
+sub _signature_problems ($self)
+{
+	my $config = $self->{config};
+	my $dir    = $config->keys_dir;
+
+	my $bytes = Fugu::File->read( $config->keys_path(SIGNATURE) );
+	return "$dir/" . SIGNATURE . ': cannot read it'
+	    unless defined $bytes;
+
+	my $why = _signature_problem($bytes);
+
+	return defined $why ? "$dir/" . SIGNATURE . ": $why" : ();
 }
 
 # $self->_fingerprint_problems($set):
@@ -559,6 +627,54 @@ sub _signify_problem ($bytes)
 
 	unless ( substr( $raw, 0, 2 ) eq 'Ed' ) {
 		return 'the key body names no signify algorithm';
+	}
+
+	return;
+}
+
+# _signature_problem($bytes):
+#	The reason that a file is not a signify signature, or undef
+#	when it is one.
+#
+#	The build copies the signature as it stands, and it verifies
+#	nothing: a site that verified its own manifest would prove
+#	nothing. A file of any content would therefore publish under
+#	the name that every consumer install reads.
+#
+#	A signify signature holds two lines. The first line starts
+#	with 'untrusted comment: ', which signify(1) needs. The second
+#	line is the signature body: 74 bytes in base64, and the first
+#	two bytes spell Ed.
+sub _signature_problem ($bytes)
+{
+	my @line = split /\n/, $bytes, -1;
+	pop @line if @line && $line[-1] eq '';
+
+	unless ( @line == 2 ) {
+		return
+		      'it holds '
+		    . scalar(@line)
+		    . ' lines, and a signify signature holds 2';
+	}
+
+	unless ( $line[0] =~ /\Auntrusted comment: / ) {
+		return 'the first line is no untrusted comment line';
+	}
+
+	unless ( $line[1] =~ m{\A[A-Za-z0-9+/]{99}=\z} ) {
+		return 'the signature body is not 100 base64 characters';
+	}
+
+	my $raw = MIME::Base64::decode_base64( $line[1] );
+	unless ( length($raw) == 74 ) {
+		return
+		      'the signature body decodes to '
+		    . length($raw)
+		    . ' bytes, and a signify signature holds 74';
+	}
+
+	unless ( substr( $raw, 0, 2 ) eq 'Ed' ) {
+		return 'the signature body names no signify algorithm';
 	}
 
 	return;

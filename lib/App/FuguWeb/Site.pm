@@ -177,11 +177,10 @@ sub clean ($self)
 #	it runs. A directory that the description does not name is
 #	therefore not part of a site, and so is anything below it.
 #
-#	The rule is stricter than the one the prune reads. A prune
-#	runs after a build of this description, which establishes what
-#	the output holds. A clean runs on a directory that the caller
-#	named. It deletes the tree without asking, so it must refuse
-#	whatever it cannot account for.
+#	The clean deletes the tree without asking, so it refuses
+#	whatever it cannot account for. It reads the same predicate
+#	that the prune reads, so a build can never remove a file that
+#	the clean refuses.
 sub _stranger ($self)
 {
 	my $named = $self->_named;
@@ -212,24 +211,21 @@ sub _stranger ($self)
 			return $relative;
 		}
 
-		# A directory holds a name of the site, or it holds the
-		# files of whoever made it.
+		# A directory holds a name of the site, or a name of the
+		# key directory tree, or it holds the files of whoever
+		# made it.
 		if ( -d $path ) {
-			next
-			    if
-			    grep { App::FuguWeb::path_below( $_, $relative ) }
-			    keys %$named;
+			next if _holds( $named, $relative );
+			next if $self->_key_dir($relative);
 			return $relative;
 		}
 
-		# A plain file of the top level is one that a build
-		# writes, whatever the description names today. A
-		# renamed manual leaves its old page there. A file
-		# below the root belongs to the key directory, so the
-		# site must name it.
-		return $relative unless $self->_build_made($relative);
-		next             unless $relative =~ m{/};
-		return $relative unless $named->{$relative};
+		# A plain file that a build writes, and nothing else.
+		# The prune reads the same two tests, so the build can
+		# never remove a file that the clean refuses.
+		return $relative
+		    unless $self->_build_made($relative)
+		    && $self->_owns( $relative, $named );
 	}
 
 	return;
@@ -239,11 +235,6 @@ sub _stranger ($self)
 #	Every path that the site holds, as a hash reference. The set
 #	is empty for a description that did not load, so the clean
 #	then accepts one flat directory of files and no more.
-#
-#	The clean deletes without asking, so it reads the inventory
-#	and never a prefix. A prefix would accept any depth below the
-#	key directory, and a target that holds keys/deep/mine.txt is
-#	not a site.
 sub _named ($self)
 {
 	my $config = $self->{config};
@@ -252,38 +243,51 @@ sub _named ($self)
 	return { map { $_ => 1 } $config->inventory };
 }
 
-# $self->_prefixes:
-#	The directories of the output that a build writes into: the
-#	staging directory, and the two of the key directory. A build
-#	writes one flat directory of files, and those prefixes below
-#	it.
+# $self->_owns($path, $named):
+#	Report whether a build writes a path of the output.
 #
-#	The set holds a prefix and not each path of the inventory. A
-#	key that the description drops leaves its file behind, and the
-#	prune must own that file to remove it. A directory that the
-#	description never named holds the files of whoever made it,
-#	and neither the prune nor the clean may touch one.
-sub _prefixes ($self)
-{
-	my @prefix = (STAGING_DIR);
-
-	if ( defined $self->{config}->keys_dir ) {
-		push @prefix, $self->{config}->keys_dir,
-		    App::FuguWeb::Keys::WELL_KNOWN;
-	}
-
-	return \@prefix;
-}
-
-# $self->_owns($path, $prefixes):
-#	Report whether a build writes a path of the output. A build
-#	writes a name at the top level, and a name below a prefix that
-#	it writes into.
-sub _owns ( $self, $path, $prefixes )
+#	A name of the top level is one that a build writes, whatever
+#	the description names today. A renamed manual leaves its old
+#	page there. A name below the root is one that the site holds,
+#	or one of the shape that the key directory takes.
+#
+#	The prune and the clean read this one predicate, so the build
+#	can never remove a file that the clean refuses.
+sub _owns ( $self, $path, $named )
 {
 	return 1 unless $path =~ m{/};
+	return 1 if $named->{$path};
 
-	return scalar grep { App::FuguWeb::path_below( $path, $_ ) } @$prefixes;
+	return App::FuguWeb::Keys->shaped( $self->{config}, $path );
+}
+
+# $self->_key_dir($path):
+#	Report whether a path of the output is a directory of the key
+#	directory tree. The tree stays after a description drops a
+#	key, and the clean must still take it.
+sub _key_dir ( $self, $path )
+{
+	my $dir = $self->{config}->keys_dir;
+	return 1 if defined $dir && $path eq $dir;
+
+	for my $known (
+		App::FuguWeb::Keys::WELL_KNOWN,
+		App::FuguWeb::Keys::WKD_DIR,
+		App::FuguWeb::Keys::WKD_DIR . '/hu'
+	    )
+	{
+		return 1 if $path eq $known;
+	}
+
+	return 0;
+}
+
+# _holds($named, $dir):
+#	Report whether the site holds a name below the directory.
+sub _holds ( $named, $dir )
+{
+	return scalar grep { App::FuguWeb::path_below( $_, $dir ) }
+	    keys %$named;
 }
 
 # $self->_check_target:
@@ -309,11 +313,22 @@ sub _check_target ($self)
 	my $root   = _absolute( $self->{config}->root );
 	my $home   = defined $ENV{HOME} ? _absolute( $ENV{HOME} ) : undef;
 
+	# The source directory holds the key files under the same names
+	# that the inventory carries, and a flat directory of files
+	# reads like a built site. A clean of it would take the
+	# content of the project with it.
+	my $source =
+	    defined $self->{config}->source_dir
+	    ? _absolute( $self->{config}->source_path )
+	    : undef;
+
 	my $why;
 	$why = 'the root of the filesystem' if $target eq '/';
 	$why = 'the home directory'
 	    if !$why && defined $home && $target eq $home;
 	$why = 'the project root' if !$why && $target eq $root;
+	$why = 'the source directory'
+	    if !$why && defined $source && $target eq $source;
 	$why = 'above the project'
 	    if !$why && App::FuguWeb::path_below( $root, $target );
 
@@ -339,37 +354,20 @@ sub _prune_output ($self)
 		return;
 	}
 
-	my $prefixes = $self->_prefixes;
+	my $named = $self->_named;
 
 	for my $path (@$paths) {
 		next if $expected{$path};
 
-		# An empty directory is a leaf of the walk. The one
-		# that the build owns goes to _prune_dirs, and a report
-		# here would name a directory that the same run then
-		# removes. Every other one is a stray, and it reports
-		# like a stray file.
-		if ( -d $self->{out} . "/$path" ) {
-			next
-			    if $self->_owns( $path, $prefixes )
-			    && $path =~ m{/};
-			next
-			    if grep { App::FuguWeb::path_below( $path, $_ ) }
-			    @$prefixes;
-
-			$self->{log}->warning(
-				'%s is in the output, and the site does not'
-				    . ' name it',
-				$path
-			);
-			next;
-		}
+		# An empty directory is a leaf of the walk, and
+		# _prune_dirs removes it. A report here would name a
+		# directory that the same run then removes.
+		next if -d $self->{out} . "/$path";
 
 		# A plain file that a build writes, and nothing else. A
-		# file below a directory that the description does not
-		# name belongs to whoever made it, and the checks
-		# report it.
-		unless (   $self->_owns( $path, $prefixes )
+		# file below a directory that the site does not hold
+		# belongs to whoever made it, and the checks report it.
+		unless (   $self->_owns( $path, $named )
 			&& $self->_build_made($path) )
 		{
 			$self->{log}->warning(
@@ -402,8 +400,6 @@ sub _prune_output ($self)
 #	reverse order removes a tree from the leaves up.
 sub _prune_dirs ($self)
 {
-	my $prefixes = $self->_prefixes;
-
 	my @dirs;
 	File::Find::find( {
 			no_chdir => 1,
@@ -415,20 +411,27 @@ sub _prune_dirs ($self)
 		},
 		$self->{out} );
 
-	# A prefix that the build writes into, and a directory below
-	# one. The output directory itself stays. A site with no page
-	# is a build that failed, and a removed output directory would
-	# hide that from every check. A directory that no build made
-	# stays as well, empty or not.
+	# Every empty directory of the output, whatever made it. An
+	# empty directory holds no content, so no removal here can
+	# lose one, and a key directory that the description dropped
+	# leaves its own tree behind.
+	#
+	# rmdir refuses a directory that still holds a name, so the
+	# walk needs no second test. The output directory itself
+	# stays: a site with no page is a build that failed, and a
+	# removed output directory would hide that from every check.
 	for my $dir ( reverse sort @dirs ) {
 		next if $dir eq $self->{out};
 
-		my $relative = substr $dir, 1 + length $self->{out};
-		next
-		    unless grep { App::FuguWeb::path_below( $relative, $_ ) }
-		    @$prefixes;
+		# rmdir refuses a directory that still holds a name,
+		# and that refusal is the test of this loop. Every
+		# other failure is one the checks report, so the return
+		# value goes to the log and never to the caller.
+		next if rmdir $dir;
+		next if $! == POSIX::ENOTEMPTY() || $! == POSIX::EEXIST();
 
-		rmdir $dir;
+		$self->{log}
+		    ->warning( 'Cannot remove the directory %s: %s', $dir, $! );
 	}
 
 	return 1;
@@ -529,7 +532,8 @@ sub _prepare_output ($self)
 }
 
 # $self->_check_links:
-#	Refuse a symlink anywhere in the output directory.
+#	Refuse a symlink on a path that the build writes, or on a
+#	directory above one.
 #
 #	A build writes a file by name, and an open follows a link. A
 #	link in the output would therefore send the bytes of the site

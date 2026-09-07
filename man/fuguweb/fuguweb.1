@@ -102,21 +102,37 @@ and names the one that is missing.
 It then rejects a malformed manual source,
 because such a page must fail the build and not render badly.
 .Pp
-The command refuses a symlink in the output,
+The command refuses a symlink on a path that it writes,
+or on a directory above one,
 before it writes one file.
 An open follows a link,
 so a build would write the site outside its own directory.
+A symlink that the build never writes through belongs to somebody else,
+and the build leaves it.
 .It Cm clean Op Fl Fl out Ar dir
 Remove the output directory.
+.Fl Fl out
+overrides the
+.Va out_dir
+setting,
+and a relative value is resolved against the project root,
+exactly as
+.Cm build
+resolves it.
+The working directory does not decide it,
+so
+.Ic clean Fl Fl out Ar build
+names one directory from anywhere in the project.
 .Pp
 The command removes a built site and refuses anything else.
 It deletes a tree without asking,
 so the rule is the site itself.
 .Pp
 A plain file of the top level is one that a build writes.
-A file below the root belongs to the key directory,
-so the site must name it.
-A directory must hold a name of the site.
+A file below the root must be one that the site names,
+or one of the shapes that the key directory takes.
+A directory must hold a name of the site,
+or be a directory of the key tree.
 A symlink is never a thing that a build wrote.
 The command refuses every other entry,
 and it names the entry.

@@ -266,9 +266,12 @@ sub assets ($self)
 # $self->inventory:
 #	Every name that the output directory must hold after a build:
 #	the pages of the description, one page for each manual of each
-#	group, the stylesheet, and the assets. The build and the
-#	checks read the same list, so the two can never disagree about
-#	what the site holds.
+#	group, the stylesheet, the assets, and every path of the key
+#	directory. The build and the checks read the same list, so the
+#	two can never disagree about what the site holds.
+#
+#	Every name but the key paths is one segment. The key directory
+#	is the one part of a site that is not one flat directory.
 sub inventory ($self)
 {
 	return ( map { $_->{file} } $self->pages ),
@@ -366,6 +369,17 @@ sub _read_pages ( $self, $reason )
 		# builder can write.
 		if ( my $why = _unsafe_output_name($name) ) {
 			return $self->_fail( $reason, "page \"$name\" $why" );
+		}
+
+		# A site is one flat directory of pages, and the key
+		# directory tree below it. A name with a solidus would
+		# write into that tree, or into the staging directory,
+		# and the build would fail at the write with a reason
+		# that names neither.
+		if ( $name =~ m{/} ) {
+			return $self->_fail( $reason,
+				      "page \"$name\" holds a solidus, and a"
+				    . ' site is one flat directory of pages' );
 		}
 		if ( $seen{$name}++ ) {
 			return $self->_fail( $reason,
