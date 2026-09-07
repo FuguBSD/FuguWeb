@@ -366,14 +366,17 @@ subtest 'the build refuses an output directory it must not own' => sub {
 	my $good = tempdir( CLEANUP => 1 ) . '/out';
 	ok( site( $root, $good )->build, "the build takes $good" );
 
-	# The default output directory sits inside the default source
-	# directory, so a rule that reached every directory below the
-	# source would refuse the layout that the tool ships.
-	ok( site( $root, "$root/web/build" )->build,
-		'the build takes the default output directory' );
-	ok( site( $root, "$root/web/build" )->clean,
-		'and the clean takes it too' );
+	# The output directory that the description names is the one
+	# exception below the source. This description names out, so
+	# web/build is a directory of the source like any other.
+	ok( !site( $root, "$root/web/build" )->build,
+		'the build refuses a source directory that it does not own' );
+	ok( !site( $root, "$root/web/build" )->clean,
+		'and the clean refuses it too' );
 	ok( -e "$root/web/index.body.html", 'the source is untouched' );
+
+	# t/web/site.t builds the description of this repository, which
+	# names neither setting and therefore takes web/build.
 };
 
 subtest 'clean refuses a directory that no build made' => sub {

@@ -347,39 +347,43 @@ sub _check_target ($self)
 	my $root   = _absolute( $self->{config}->root );
 	my $home   = defined $ENV{HOME} ? _absolute( $ENV{HOME} ) : undef;
 
-	# The source directory holds a flat directory of files, which
-	# reads like a built site. A clean of it would take the
-	# content of the project with it.
+	# The source directory holds the files of the project, and a
+	# flat directory of files reads like a built site. A clean of
+	# it, or of any directory of it, would take the content of the
+	# project with it. The key directory is the worst case: its
+	# files are the trust anchor of every release.
 	#
-	# The rule stops at the directory itself. The default output
-	# directory is web/build, which sits inside the default source
-	# directory web, so a rule that reached every directory below
-	# would refuse the layout that the tool ships.
-	my $source =
-	    defined $self->{config}->source_dir
-	    ? _absolute( $self->{config}->source_path )
-	    : undef;
+	# The output directory is the one exception, and it needs to
+	# be: the default output directory is web/build, which sits
+	# inside the default source directory web. The description
+	# names that path, so a build owns it. Nothing else below the
+	# source is a build's.
+	#
+	# A description that did not load names neither directory, so
+	# the two defaults answer for it. The clean is the command an
+	# operator reaches for when a description is broken, and the
+	# key directory of the default layout must survive that.
+	my $config = $self->{config};
 
-	# The key directory is the one part below the source that
-	# needs the rule of its own. Its files are the trust anchor of
-	# every release, and each one sits at the top level of that
-	# directory, where the clean takes a plain file.
-	my $keys =
-	    defined $self->{config}->keys_dir
-	    ? _absolute( $self->{config}->keys_path )
-	    : undef;
+	my $source = _absolute(
+		defined $config->source_dir
+		? $config->source_path
+		: "$root/" . App::FuguWeb::Config::DEFAULT_SOURCE_DIR() );
+
+	my $owned = _absolute(
+		defined $config->out_dir
+		? "$root/" . $config->out_dir
+		: "$root/" . App::FuguWeb::Config::DEFAULT_OUT_DIR() );
 
 	my $why;
 	$why = 'the root of the filesystem' if $target eq '/';
 	$why = 'the home directory'
 	    if !$why && defined $home && $target eq $home;
 	$why = 'the project root' if !$why && $target eq $root;
-	$why = 'the source directory'
-	    if !$why && defined $source && $target eq $source;
-	$why = 'the key directory, or a directory of it'
+	$why = 'the source directory, or a directory of it'
 	    if !$why
-	    && defined $keys
-	    && App::FuguWeb::path_below( $target, $keys );
+	    && App::FuguWeb::path_below( $target,  $source )
+	    && !App::FuguWeb::path_below( $target, $owned );
 	$why = 'above the project'
 	    if !$why && App::FuguWeb::path_below( $root, $target );
 
@@ -634,13 +638,16 @@ sub _drop_staging ($self)
 		return;
 	}
 
-	for my $name (@$names) {
-		next if -f "$staging/$name" && !-l "$staging/$name";
+	# A build writes one flat directory of plain files, so the
+	# first entry of another kind is the whole answer.
+	my ($stranger) =
+	    grep { !-f "$staging/$_" || -l "$staging/$_" } @$names;
 
+	if ( defined $stranger ) {
 		$self->{log}->error(
 			'%s holds %s, which no build made; refusing to'
 			    . ' remove it',
-			$staging, $name
+			$staging, $stranger
 		);
 		return;
 	}

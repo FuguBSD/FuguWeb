@@ -88,7 +88,8 @@ manifest parser. The renderer holds the wiring only.
 - **WEB-KEYS-17** — The build must sign nothing and must verify nothing.
 - **WEB-KEYS-26** — The build must read each key file before it copies one. It
   must decode an armored key, and it must hold a signify key to its own shape. A
-  failed build must leave no key in the output.
+  build that refuses a key must copy no key at all. A build that fails later can
+  leave the keys that it wrote, and the checks report the tree.
 
 ### The checks
 
@@ -127,7 +128,8 @@ it, so the build keeps it and the clean refuses the tree.
 
 - **WEB-OUTPUT-1** — The build must write a plain file. The file must sit at the
   top level of the output, or must take a shape of the key directory. Rule
-  WEB-OUTPUT-10 states each shape.
+  WEB-OUTPUT-10 states each shape, and rule WEB-OUTPUT-14 states the one
+  exception.
 - **WEB-OUTPUT-2** — The build must remove each file that the inventory does not
   name. Rule WEB-OUTPUT-1 states which file the build can remove.
 - **WEB-OUTPUT-3** — The build must remove each empty directory that it owns. It
@@ -139,7 +141,8 @@ it, so the build keeps it and the clean refuses the tree.
 - **WEB-OUTPUT-5** — The clean must remove a plain file of the top level. It
   must remove a file that the inventory names, and one that takes a shape of the
   key directory. It must remove a directory that holds a name of the site, and a
-  directory of the key tree. It must refuse every other entry, and must name it.
+  directory of the key tree. Rule WEB-OUTPUT-14 states what it takes in the
+  staging directory. It must refuse every other entry, and must name it.
 - **WEB-OUTPUT-6** — The build and the clean must read one predicate. The build
   must never remove an entry that the clean refuses. The rule holds for a
   directory as it holds for a file.
@@ -172,15 +175,19 @@ it, so the build keeps it and the clean refuses the tree.
   rule WEB-OUTPUT-10, and no directory of the key tree. A site of another maker
   holds `security.txt` too, and the clean must not delete that site.
 - **WEB-OUTPUT-13** — The build and the clean must refuse an output directory
-  that no build may own. The refused targets are these: the root of the
+  that no build may own. They must refuse these targets: the root of the
   filesystem, the home directory, the project root, and any directory that holds
-  the project. The source directory is refused too. The key directory and each
-  directory of it are refused as well. The rule stops at the source directory
-  itself, because the default output directory sits inside it.
-- **WEB-OUTPUT-14** — The staging directory holds one flat directory of plain
-  files. The build must refuse a staging directory of another shape, and must
-  not remove it. The clean must refuse the same one.
+  the project. They must refuse the source directory, and each directory of it.
+  The output directory of the description is the one exception, because the
+  default output directory sits inside the default source directory. A
+  description that names neither directory takes the two defaults.
+- **WEB-OUTPUT-14** — The staging directory is the one part of the output that
+  rule WEB-OUTPUT-1 does not reach. The build writes one flat directory of plain
+  files there, and removes the whole directory at the end. The build must refuse
+  a staging directory of another shape, and must not remove it. The clean must
+  refuse the same one.
 - **WEB-OUTPUT-15** — The clean must refuse a target that holds no stylesheet,
   when the description does not load. Every build writes the stylesheet, so a
-  target without it is the output of no build. A key directory and a source
-  directory both read like one flat directory of plain files.
+  target without it is the output of no build. The rule is a second guard, and
+  rule WEB-OUTPUT-13 is the first: a directory that holds a stylesheet of its
+  own defeats this one alone.

@@ -1824,10 +1824,74 @@ subtest 'the clean refuses a directory of the source' => sub {
 	ok( -e "$root/web/keys/SHA256.sig",   'the signature survives' );
 	ok( -e "$root/web/index.body.html",   'the source survives' );
 
-	# The default output directory sits inside the source
-	# directory, so the rule stops at the source itself.
+	# The output directory that the description names is the one
+	# exception below the source. This description names out, so
+	# web/build is a directory of the source like any other.
 	my ($exit) = cli( $root, 'build', '--out', 'web/build' );
-	is( $exit, 0, 'the build takes the default output directory' );
+	isnt( $exit, 0, 'the build refuses another directory of the source' );
+
+	($exit) = cli( $root, 'build' );
+	is( $exit, 0, 'and it takes the output that the site names' );
+
+	# Every directory of the source, and not the key directory
+	# alone. An operator directory there is content of the project.
+	make_path("$root/web/img");
+	spew( "$root/web/img/logo.svg", "logo\n" );
+
+	for my $command (qw(build clean)) {
+		my ($code) = cli( $root, $command, '--out', 'web/img' );
+		isnt( $code, 0, "the $command refuses web/img" );
+	}
+	ok( -e "$root/web/img/logo.svg", 'the operator file survives' );
+};
+
+subtest 'a source that holds its own stylesheet' => sub {
+	# The stylesheet guard alone would take this target, because
+	# every build writes style.css and this source holds one. The
+	# target guard is the rule that refuses it.
+	my $root = project();
+	spew( "$root/web/style.css", "body{}\n" );
+	spew( "$root/.fuguwebrc", "site = Example\nnav \"index.html\" {\n" );
+
+	my ( $config, $reason ) = load($root);
+	ok( !$config, 'the description does not load' );
+
+	my ($exit) = cli( $root, 'clean', '--out', 'web' );
+	isnt( $exit, 0, 'the clean refuses the source directory' );
+	ok( -e "$root/web/index.body.html", 'the source survives' );
+	ok( -e "$root/web/keys/fugubsd-1-release.pub", 'the key survives' );
+
+	# A source of plain files and no directory. Every other guard
+	# takes this one, so the target guard is the only rule left.
+	my $flat = project();
+	spew( "$flat/.fuguwebrc", "site = Example\nnav \"index.html\" {\n" );
+	spew( "$flat/web/style.css", "body{}\n" );
+	remove_tree("$flat/web/keys");
+
+	($exit) = cli( $flat, 'clean', '--out', 'web' );
+	isnt( $exit, 0, 'and a flat source with a stylesheet as well' );
+	ok( -e "$flat/web/index.body.html", 'that source survives too' );
+};
+
+subtest 'the clean refuses a foreign target with no stylesheet' => sub {
+	# Outside the project the target guard says nothing, so the
+	# stylesheet is the whole rule. Every build writes it.
+	my $root = project();
+	spew( "$root/.fuguwebrc", "site = Example\nnav \"index.html\" {\n" );
+
+	my $victim = tempdir( CLEANUP => 1 ) . '/victim';
+	spew( "$victim/notes.txt",  "mine\n" );
+	spew( "$victim/README.txt", "mine\n" );
+
+	my ($exit) = cli( $root, 'clean', '--out', $victim );
+	isnt( $exit, 0, 'the clean refuses it' );
+	ok( -e "$victim/notes.txt", 'and removes nothing' );
+
+	# The same target with a stylesheet is the output of a build.
+	spew( "$victim/style.css", "body{}\n" );
+	($exit) = cli( $root, 'clean', '--out', $victim );
+	is( $exit, 0, 'and it takes one that holds the stylesheet' );
+	ok( !-e $victim, 'which is gone' );
 };
 
 subtest 'a broken description takes no key directory' => sub {

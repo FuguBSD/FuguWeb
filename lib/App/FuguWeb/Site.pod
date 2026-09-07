@@ -158,6 +158,11 @@ C<clean> reads it when it can. A description that does not load names
 nothing, and one flat directory of files is then the whole site that
 C<clean> knows.
 
+That fallback is weak, so C<clean> asks for one more thing: the target
+must hold the stylesheet. Every build writes it, so a target without it
+is the output of no build. The target guard is the first line, and this
+is the second.
+
 A description that drops its C<keys> block strands the published tree.
 The site names nothing there any more, so the build keeps it, C<clean>
 refuses it and the checks report it. Remove the directory, or name the
@@ -165,20 +170,24 @@ block again.
 
 =head2 THE OUTPUT DIRECTORY
 
-Both C<build> and C<clean> refuse a target that no build may own. The
-refused targets are the root of the filesystem, the home directory, the
-project root, and any directory that holds the project. The source
-directory and the key directory are refused as well, and so is any
-directory of the key directory. C<--out> reaches both commands, and the
-C<out_dir> setting it overrides is checked in the description, so the
-guard has to sit here as well.
+Both C<build> and C<clean> refuse a target that no build may own. They
+refuse the root of the filesystem, the home directory, the project
+root, and any directory that holds the project. They refuse the source
+directory, and every directory of it. C<--out> reaches both commands,
+and the C<out_dir> setting it overrides is checked in the description,
+so the guard has to sit here as well.
+
+A description that names neither directory takes the two defaults.
 
 The source directory needs the rule because it reads like a built site:
-a flat directory of files. The key directory needs a rule of its own,
-because the default output directory is F<web/build> and sits inside
-the source. Each key file sits at the top level of the key directory,
-where the clean takes a plain file. A clean of it would take the trust
-anchor of every release.
+a flat directory of files. The key directory is the worst case. Each
+key file sits at its top level, where the clean takes a plain file, so
+a clean of it would take the trust anchor of every release.
+
+The output directory is the one exception below the source, and it
+needs to be: the default output directory is F<web/build>, and it sits
+inside the default source directory F<web>. The description names that
+path, so a build owns it. Nothing else below the source is a build's.
 
 The rule is deliberately not "inside the project". The tests and the CI
 both build into a temporary directory outside it.
