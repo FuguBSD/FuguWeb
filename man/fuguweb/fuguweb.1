@@ -145,7 +145,16 @@ and
 also refuse the root of the filesystem,
 the home directory,
 the project root,
-and any directory that holds the project.
+any directory that holds the project,
+the source directory,
+and any directory of the source directory.
+.Pp
+The source directory holds the key files under the names that the
+inventory carries.
+Each key file sits at the top level of the key directory,
+where the clean takes a plain file.
+A clean of the source would take the trust anchor of every release
+with it.
 .Pp
 With
 .Fl Fl out

@@ -132,6 +132,13 @@ sub error ($self)
 #	never remove a file that the clean refuses.
 sub shaped ( $class, $config, $path )
 {
+	# A description with no keys block publishes no key directory,
+	# so it owns no path of one. The well-known names are the
+	# trap: a site of another maker holds security.txt too, and a
+	# clean that took it would delete that site.
+	my $dir = $config->keys_dir;
+	return 0 unless defined $dir;
+
 	return 1 if $path eq SECURITY_TXT;
 	return 1 if $path eq WKD_POLICY;
 
@@ -139,9 +146,6 @@ sub shaped ( $class, $config, $path )
 	if ( my ($hash) = $path =~ m{\A\Q$hu\E/(.+)\z} ) {
 		return $hash =~ WKD_NAME ? 1 : 0;
 	}
-
-	my $dir = $config->keys_dir;
-	return 0 unless defined $dir;
 
 	my ($name) = $path =~ m{\A\Q$dir\E/(.+)\z};
 	return 0 unless defined $name;
@@ -643,8 +647,8 @@ sub _signify_problem ($bytes)
 #
 #	A signify signature holds two lines. The first line starts
 #	with 'untrusted comment: ', which signify(1) needs. The second
-#	line is the signature body: 74 bytes in base64, and the first
-#	two bytes spell Ed.
+#	line is the signature body: 100 base64 characters, which
+#	decode to 74 bytes whose first two bytes spell Ed.
 sub _signature_problem ($bytes)
 {
 	my @line = split /\n/, $bytes, -1;
@@ -661,18 +665,14 @@ sub _signature_problem ($bytes)
 		return 'the first line is no untrusted comment line';
 	}
 
+	# 99 characters and one pad always decode to 74 bytes, so the
+	# length needs no second test. A key body needs one, because
+	# 56 characters carry no pad and decode to 42.
 	unless ( $line[1] =~ m{\A[A-Za-z0-9+/]{99}=\z} ) {
 		return 'the signature body is not 100 base64 characters';
 	}
 
 	my $raw = MIME::Base64::decode_base64( $line[1] );
-	unless ( length($raw) == 74 ) {
-		return
-		      'the signature body decodes to '
-		    . length($raw)
-		    . ' bytes, and a signify signature holds 74';
-	}
-
 	unless ( substr( $raw, 0, 2 ) eq 'Ed' ) {
 		return 'the signature body names no signify algorithm';
 	}

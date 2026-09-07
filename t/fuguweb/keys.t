@@ -199,6 +199,34 @@ RC
 	return $root;
 }
 
+# keyless():
+#	The same small project with no keys block and no key
+#	directory. A description that publishes no key owns no path of
+#	one, and the well-known names are the trap: a site of another
+#	maker holds security.txt too.
+sub keyless ()
+{
+	my $root = tempdir( CLEANUP => 1 );
+
+	spew( "$root/web/index.body.html", "<h1>Home</h1>\n" );
+	spew( "$root/.fuguwebrc", <<'RC' );
+site       = Example
+source_dir = web
+out_dir    = out
+
+nav "index.html" {
+	label = Home
+}
+
+page "index.html" {
+	title = Home
+	body  = index.body.html
+}
+RC
+
+	return $root;
+}
+
 # load($root):
 #	Load the description of the project, and return it with the
 #	reason of a failure.
@@ -1471,10 +1499,11 @@ subtest 'the checks see an empty directory that no build made' => sub {
 		'the check reports it' )
 	    or diag join "\n", @problems;
 
-	# An empty directory holds no content, so a build takes it and
-	# nothing is lost. A directory that holds a file stays.
+	# The clean refuses this directory, so the build must keep it.
+	# WEB-OUTPUT-6 holds for a directory as it holds for a file.
 	ok( site( $config, $out )->build, 'a second build succeeds' );
-	ok( !-e "$out/archive", 'and the build removes it' );
+	ok( -d "$out/archive", 'and the build keeps it' );
+	ok( !site( $config, $out )->clean, 'the clean refuses it too' );
 
 	spew( "$out/archive/notes.txt", "mine\n" );
 	ok( site( $config, $out )->build, 'a third build succeeds' );
@@ -1491,9 +1520,9 @@ subtest 'the build reports a stray directory' => sub {
 
 	spew( "$out/archive/notes.txt", "mine\n" );
 
-	# The build keeps a directory that holds a file, and it says
-	# so. An empty directory goes to the step that removes one, so
-	# a report there would name what the same run removes.
+	# The build keeps a directory that no build made, and it says
+	# so. An empty one gets the same report, because the build
+	# keeps that one too.
 	my $said = '';
 	open my $saved, '>&', \*STDERR or die "Cannot save stderr: $!";
 	close STDERR;
@@ -1517,10 +1546,12 @@ subtest 'the build reports a stray directory' => sub {
 	like( $said, qr{archive/notes\.txt is in the output},
 		'and it reports the file' );
 
-	# An empty directory goes without a word.
+	# An empty directory below the key directory is nobody's
+	# build, so it gets the report and it stays.
 	mkdir "$out/keys/stale" or die "Cannot make the directory: $!";
 	ok( site( $config, $out )->build, 'a third build succeeds' );
-	ok( !-e "$out/keys/stale", 'and it removes an empty one' );
+	ok( -d "$out/keys/stale", 'and it keeps an empty one' );
+	ok( !site( $config, $out )->clean, 'the clean refuses it too' );
 };
 
 subtest 'list_tree walks the leaves and no symlink' => sub {
@@ -1675,6 +1706,118 @@ subtest 'clean refuses an empty directory that no build made' => sub {
 	ok( site( $config, $out )->clean, 'without it the clean succeeds' );
 };
 
+subtest 'a description with no keys block owns no well-known path' => sub {
+	# A site of another maker holds security.txt too, so a
+	# predicate that answered on the name alone would let the
+	# clean delete that site.
+	my $root = keyless();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+	is( $config->keys_dir, undef, 'and it names no key directory' );
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	spew( "$out/.well-known/security.txt",       "Contact: mine\n" );
+	spew( "$out/.well-known/openpgpkey/policy",  "" );
+	spew( "$out/.well-known/openpgpkey/hu/ybndrfg8ejkmcpqxot1uwisza345h769",
+		"mine\n" );
+
+	ok( site( $config, $out )->build, 'a second build succeeds' );
+	ok( -e "$out/.well-known/security.txt",      'it keeps security.txt' );
+	ok( -e "$out/.well-known/openpgpkey/policy", 'and the policy' );
+
+	ok( !site( $config, $out )->clean, 'the clean refuses the tree' );
+	ok( -e "$out/.well-known/security.txt", 'and removes nothing' );
+};
+
+subtest 'a keyless description takes no foreign well-known tree' => sub {
+	# The clean of a foreign target reads the description that it
+	# can load. A .well-known directory alone must not make a tree
+	# read like a built site.
+	my ( $config, $reason ) = load( keyless() );
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	make_path("$out/.well-known");
+	spew( "$out/index.html", "<h1>Someone else</h1>\n" );
+	spew( "$out/style.css",  "body{}\n" );
+	spew( "$out/.well-known/security.txt", "Contact: theirs\n" );
+
+	ok( !site( $config, $out )->clean, 'the clean refuses' );
+	ok( -e "$out/.well-known/security.txt", 'and removes nothing' );
+};
+
+subtest 'a keyless description owns no well-known directory' => sub {
+	# The directory half of the rule. An empty tree carries no
+	# file, so the file guard never reaches it.
+	my ( $config, $reason ) = load( keyless() );
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	make_path("$out/.well-known/openpgpkey/hu");
+	spew( "$out/index.html", "<h1>Someone else</h1>\n" );
+
+	ok( !site( $config, $out )->clean, 'the clean refuses the tree' );
+	ok( -d "$out/.well-known/openpgpkey/hu", 'and removes nothing' );
+};
+
+subtest 'the build names the stray directory that it keeps' => sub {
+	# WEB-OUTPUT-4: the build keeps an entry that it may not
+	# write, and it reports it. A silent build would leave the
+	# operator to find the tree by hand.
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	make_path("$out/photos/2024/raw");
+
+	my $said = '';
+	open my $saved, '>&', \*STDERR or die "Cannot save stderr: $!";
+	close STDERR;
+	open STDERR, '>', \$said or die 'Cannot capture stderr';
+
+	my $again = App::FuguWeb::Site->new(
+		config => $config,
+		out    => $out,
+		render => App::FuguWeb::Render->new(
+			config  => $config,
+			mandoc  => '/bin/true',
+			lowdown => '/bin/true',
+		),
+	)->build;
+
+	close STDERR;
+	open STDERR, '>&', $saved or die "Cannot restore stderr: $!";
+
+	ok( $again, 'a second build succeeds' );
+	ok( -d "$out/photos/2024/raw", 'and it keeps the tree' );
+	like( $said, qr{photos/2024/raw is in the output},
+		'and it names the tree' );
+};
+
+subtest 'the clean refuses a directory of the source' => sub {
+	# The key files are the trust anchor of every release, and
+	# each one sits at the top level of the key directory, where
+	# the clean takes a plain file.
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	for my $target (qw(web web/keys)) {
+		my ($exit) = cli( $root, 'clean', '--out', $target );
+		isnt( $exit, 0, "the clean refuses $target" );
+	}
+
+	ok( -e "$root/web/keys/fugubsd-1-release.pub", 'the key survives' );
+	ok( -e "$root/web/keys/SHA256",       'the manifest survives' );
+	ok( -e "$root/web/keys/SHA256.sig",   'the signature survives' );
+	ok( -e "$root/web/index.body.html",   'the source survives' );
+};
+
 subtest 'the prune and the clean answer alike' => sub {
 	# WEB-OUTPUT-6: a build must never remove a file that the
 	# clean refuses. The two read one predicate, and this test
@@ -1699,37 +1842,60 @@ subtest 'the prune and the clean answer alike' => sub {
 		'stale.html',
 	);
 
+	# A directory answers the same rule, and an empty one is the
+	# case that no planted file reaches: the walk gives it as a
+	# leaf of its own.
+	my @dir = (
+		'photos',
+		'photos/2024/raw',
+		'keys/stale',
+		'.well-known/acme-challenge',
+	);
+
+	# The clean reads the description that it can load, so a
+	# project with no keys block must answer alike as well.
 	my $tested = 0;
-	for my $name (@name) {
-		my $root = project();
-		my ( $config, $reason ) = load($root);
-		ok( $config, "$name: the description loads" ) or next;
+	for my $maker ( \&project, \&keyless ) {
+		for my $name ( @name, @dir ) {
+			my $is_dir = grep { $_ eq $name } @dir;
 
-		next if grep { $_ eq $name } $config->inventory;
-		$tested++;
+			my $root = $maker->();
+			my ( $config, $reason ) = load($root);
+			ok( $config, "$name: the description loads" ) or next;
 
-		my $out = "$root/out";
-		ok( site( $config, $out )->build, "$name: the build succeeds" );
+			next if grep { $_ eq $name } $config->inventory;
+			$tested++;
 
-		spew( "$out/$name", "planted\n" );
-		my $takes = site( $config, $out )->clean ? 1 : 0;
+			my $out = "$root/out";
+			ok( site( $config, $out )->build,
+				"$name: the build succeeds" );
 
-		# The clean of a taken target removed the output, so
-		# the second run builds and plants again.
-		my $again = project();
-		my ($second) = load($again);
-		my $out2 = "$again/out";
-		site( $second, $out2 )->build;
-		spew( "$out2/$name", "planted\n" );
-		site( $second, $out2 )->build;
-		my $removes = -e "$out2/$name" ? 0 : 1;
+			$is_dir
+			    ? make_path("$out/$name")
+			    : spew( "$out/$name", "planted\n" );
+			my $takes = site( $config, $out )->clean ? 1 : 0;
 
-		is( $removes, $takes,
-			"$name: the prune and the clean answer alike" );
+			# The clean of a taken target removed the
+			# output, so the second run builds and plants
+			# again.
+			my $again = $maker->();
+			my ($second) = load($again);
+			my $out2 = "$again/out";
+			site( $second, $out2 )->build;
+			$is_dir
+			    ? make_path("$out2/$name")
+			    : spew( "$out2/$name", "planted\n" );
+			site( $second, $out2 )->build;
+			my $removes = -e "$out2/$name" ? 0 : 1;
+
+			is( $removes, $takes,
+				"$name: the prune and the clean answer alike"
+			);
+		}
 	}
 
 	# A filter that dropped every name would prove nothing.
-	cmp_ok( $tested, '>=', 8, 'the test reached most of the names' );
+	cmp_ok( $tested, '>=', 20, 'the test reached most of the names' );
 };
 
 subtest 'the shape of a Web Key Directory name' => sub {
@@ -2051,6 +2217,31 @@ subtest 'the build refuses a symlink in the output' => sub {
 
 	ok( !site( $config, $out )->build, 'a build with a linked tree fails' );
 	ok( !-e $elsewhere, 'and it writes no key through the link' );
+};
+
+subtest 'the build refuses a symlink at the staging directory' => sub {
+	# The skip comes before the first assertion. A plan that
+	# arrives after one turns a failed assertion into a pass.
+	my $probe = tempdir( CLEANUP => 1 );
+	plan skip_all => 'cannot make a symlink here'
+	    unless symlink '/nonexistent', "$probe/link";
+
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	# _prepare_output removes the staging path, so a link there
+	# would go without a word and the operator would lose it.
+	my $target = tempdir( CLEANUP => 1 );
+	symlink $target, "$out/" . App::FuguWeb::STAGING_DIR()
+	    or die "Cannot link: $!";
+
+	ok( !site( $config, $out )->build, 'a second build refuses' );
+	ok( -l "$out/" . App::FuguWeb::STAGING_DIR(), 'and it keeps the link' );
+	ok( -d $target, 'and the target as well' );
 };
 
 subtest 'the build keeps a symlink it never writes through' => sub {

@@ -267,8 +267,13 @@ sub _owns ( $self, $path, $named )
 #	key, and the clean must still take it.
 sub _key_dir ( $self, $path )
 {
+	# A description with no keys block publishes no key tree, so
+	# it owns no directory of one. A .well-known directory alone
+	# would otherwise make any tree read like a built site.
 	my $dir = $self->{config}->keys_dir;
-	return 1 if defined $dir && $path eq $dir;
+	return 0 unless defined $dir;
+
+	return 1 if $path eq $dir;
 
 	for my $known (
 		App::FuguWeb::Keys::WELL_KNOWN,
@@ -317,6 +322,11 @@ sub _check_target ($self)
 	# that the inventory carries, and a flat directory of files
 	# reads like a built site. A clean of it would take the
 	# content of the project with it.
+	#
+	# The rule reaches every directory below it, and the key
+	# directory is why. Its files are the trust anchor of every
+	# release, and each one sits at the top level of that
+	# directory, where the clean takes a plain file.
 	my $source =
 	    defined $self->{config}->source_dir
 	    ? _absolute( $self->{config}->source_path )
@@ -327,8 +337,11 @@ sub _check_target ($self)
 	$why = 'the home directory'
 	    if !$why && defined $home && $target eq $home;
 	$why = 'the project root' if !$why && $target eq $root;
-	$why = 'the source directory'
-	    if !$why && defined $source && $target eq $source;
+	$why = 'the source directory, or a directory of it'
+	    if !$why
+	    && defined $source
+	    && ( $target eq $source
+		|| App::FuguWeb::path_below( $target, $source ) );
 	$why = 'above the project'
 	    if !$why && App::FuguWeb::path_below( $root, $target );
 
@@ -359,10 +372,22 @@ sub _prune_output ($self)
 	for my $path (@$paths) {
 		next if $expected{$path};
 
-		# An empty directory is a leaf of the walk, and
-		# _prune_dirs removes it. A report here would name a
-		# directory that the same run then removes.
-		next if -d $self->{out} . "/$path";
+		# An empty directory is a leaf of the walk. The build
+		# owns one of the key tree, and _prune_dirs removes
+		# it, so a report here would name what the same run
+		# removes. Every other one is somebody else's.
+		if ( -d $self->{out} . "/$path" ) {
+			next
+			    if _holds( $named, $path )
+			    || $self->_key_dir($path);
+
+			$self->{log}->warning(
+				'%s is in the output, and the site does not'
+				    . ' name it',
+				$path
+			);
+			next;
+		}
 
 		# A plain file that a build writes, and nothing else. A
 		# file below a directory that the site does not hold
@@ -390,9 +415,15 @@ sub _prune_output ($self)
 }
 
 # $self->_prune_dirs:
-#	Remove every empty directory of the output. A key directory
-#	that the description dropped leaves its own directory behind.
-#	The next check would then report a tree that no site holds.
+#	Remove each empty directory that the build owns. A key
+#	directory that the description dropped leaves its own
+#	directory behind, and the next check would report a tree that
+#	no site holds.
+#
+#	The clean reads the same two tests, so the build can never
+#	remove a directory that the clean refuses. An operator
+#	directory therefore stays, empty or not, and the checks report
+#	it.
 #
 #	rmdir refuses a directory that still holds a name, so the walk
 #	needs no second test: a directory that the site still uses
@@ -411,17 +442,24 @@ sub _prune_dirs ($self)
 		},
 		$self->{out} );
 
-	# Every empty directory of the output, whatever made it. An
-	# empty directory holds no content, so no removal here can
-	# lose one, and a key directory that the description dropped
-	# leaves its own tree behind.
+	# A directory that the site holds a name below, or a directory
+	# of the key tree. The clean reads the same two tests, so a
+	# directory of the operator stays here and the checks report
+	# it.
 	#
 	# rmdir refuses a directory that still holds a name, so the
 	# walk needs no second test. The output directory itself
 	# stays: a site with no page is a build that failed, and a
 	# removed output directory would hide that from every check.
+	my $named = $self->_named;
+
 	for my $dir ( reverse sort @dirs ) {
 		next if $dir eq $self->{out};
+
+		my $relative = substr $dir, 1 + length $self->{out};
+		next
+		    unless _holds( $named, $relative )
+		    || $self->_key_dir($relative);
 
 		# rmdir refuses a directory that still holds a name,
 		# and that refusal is the test of this loop. Every
@@ -554,9 +592,14 @@ sub _check_links ($self)
 
 	# A link that the build never writes through is somebody
 	# else's, and a build leaves it. The build writes the
-	# inventory and no more. A link on one of those paths, or on a
-	# directory of one, is the whole rule.
-	my %named = map { $_ => 1 } $self->{config}->inventory;
+	# inventory and the staging directory, and no more. A link on
+	# one of those paths, or on a directory of one, is the whole
+	# rule.
+	#
+	# The staging directory needs the test as much as a page does.
+	# _prepare_output removes that path, so a link there goes
+	# without a word, and the operator loses it to a build.
+	my %named = map { $_ => 1 } ( $self->{config}->inventory, STAGING_DIR );
 	my %above;
 	for my $named ( keys %named ) {
 		my @parts = split m{/}, $named;

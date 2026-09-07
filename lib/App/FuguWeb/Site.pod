@@ -108,12 +108,18 @@ directory, so it owns the removal too.
 The build owns a plain file at the top level of the output, and a plain
 file below the root that the site names or that takes a shape of the
 key directory. It keeps every other entry and reports it, so an
-operator directory in the output survives a build.
+operator directory in the output survives a build, empty or not.
 
-The build removes every empty directory of the output, and the output
-directory itself always stays. An empty directory holds no content, so
-no removal there can lose one. C<rmdir> refuses a directory that still
-holds a name, so the walk needs no second test.
+A description with no C<keys> block owns no shape of the key directory
+and no directory of the key tree. A site of another maker holds
+F<.well-known/security.txt> too, and the clean must not delete that
+site.
+
+The build removes an empty directory that it owns: one that the site
+holds a name below, and one of the key tree. The output directory
+itself always stays. The clean reads the same two tests, so a build can
+never remove a directory that the clean refuses. C<rmdir> refuses a
+directory that still holds a name, so the walk needs no second test.
 
 The method returns true on success, and C<undef> with a message in the
 log otherwise.
@@ -152,16 +158,24 @@ nothing, and one flat directory of files is then the whole site that
 C<clean> knows.
 
 A description that drops its C<keys> block strands the published tree.
-The site names nothing there any more, so C<clean> refuses it and the
-checks report it. Remove the directory, or name the block again.
+The site names nothing there any more, so the build keeps it, C<clean>
+refuses it and the checks report it. Remove the directory, or name the
+block again.
 
 =head2 THE OUTPUT DIRECTORY
 
 Both C<build> and C<clean> refuse a target that no build may own: the
-root of the filesystem, the home directory, the project root, and any
-directory that holds the project. C<--out> reaches them both, and the
+root of the filesystem, the home directory, the project root, any
+directory that holds the project, the source directory, and any
+directory of the source directory. C<--out> reaches them both, and the
 C<out_dir> setting it overrides is checked in the description, so the
 guard has to sit here as well.
+
+The source directory needs the rule because it reads like a built site:
+a flat directory of files, and the key directory below it. Each key
+file sits at the top level of that directory, where the clean takes a
+plain file, so a clean of the source would take the trust anchor of
+every release with it.
 
 The rule is deliberately not "inside the project". The tests and the CI
 both build into a temporary directory outside it.
