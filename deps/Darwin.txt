@@ -2,5 +2,9 @@ runtime dist https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.g
 runtime pkg mandoc
 runtime pkg lowdown
 
+# t/fuguweb/rotate.t drives the rotation against the real command,
+# and the rotation signs the key manifest. A build signs nothing, so
+# this stays out of the runtime environment.
+test pkg signify-osx
 test cpan Perl::Critic
 test cpan Perl::Tidy

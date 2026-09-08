@@ -9,9 +9,11 @@
 
 use v5.36;
 use Test::More;
-use FindBin qw($RealBin);
+use FindBin  qw($RealBin);
+use File::Glob qw(bsd_glob);
 
-my $dir = "$RealBin/../../scripts";
+my $root = "$RealBin/../..";
+my $dir  = "$root/scripts";
 
 # Named, not globbed: a script that disappears must fail here. The
 # list must not shrink silently.
@@ -61,6 +63,56 @@ for my $name (@scripts) {
 
 	my @odd = grep { /[_.]/ } @found;
 	is_deeply( \@odd, [], 'no script name has an underscore or extension' );
+}
+
+subtest 'each manifest names an environment that deps installs' => sub {
+
+	# scripts/deps is a synced file, and its environment list
+	# grows in FuguBSD/Tooling. A manifest line that names a word
+	# the local copy does not know installs nothing, and it says
+	# nothing: a test that needed the package then skips, and the
+	# suite stays green.
+	my $script = _slurp("$dir/deps") or return;
+	my ($list) = $script =~ /^use constant ENVIRONMENTS => qw\(([^)]*)\)/m;
+	ok( $list, 'scripts/deps names its environments' ) or return;
+
+	my %known = map { $_ => 1 } split ' ', $list;
+	ok( %known, 'and the list holds a word' ) or return;
+
+	my @manifests = bsd_glob("$root/deps/*.txt");
+	ok( @manifests, 'the glob found a manifest' ) or return;
+
+	for my $path (@manifests) {
+		my ($file) = $path =~ m{([^/]+)\z};
+		next if $file eq 'KEYS.txt' || $file eq 'SHA256.txt';
+
+		my $text = _slurp($path) or next;
+		my $line = 0;
+		for my $entry ( split /\n/, $text ) {
+			$line++;
+			next if $entry =~ /^\s*(?:\#.*)?$/;
+
+			my ($env) = $entry =~ /^(\S+)/;
+			ok( $known{$env},
+				"deps/$file line $line names the environment"
+				    . " $env, which scripts/deps installs" );
+		}
+	}
+};
+
+# _slurp($path):
+#	Whole file as text, or undef with a failed assertion.
+sub _slurp ($path)
+{
+	open my $fh, '<', $path or do {
+		fail("$path is readable");
+		return;
+	};
+	local $/ = undef;
+	my $text = <$fh>;
+	close $fh;
+
+	return $text;
 }
 
 done_testing();

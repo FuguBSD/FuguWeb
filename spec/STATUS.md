@@ -15,11 +15,11 @@ unit IDs.
 
 ## Units
 
-| Unit                            | State | Done by | Note                                                                                                            |
-| ------------------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------- |
-| [WEB-KEYS](web.md#web-keys)     | done  | —       | [Keys.pm](../lib/App/FuguWeb/Keys.pm), [keys.t](../t/fuguweb/keys.t)                                            |
-| [WEB-OUTPUT](web.md#web-output) | done  | —       | [Site.pm](../lib/App/FuguWeb/Site.pm), [Config.pm](../lib/App/FuguWeb/Config.pm), [keys.t](../t/fuguweb/keys.t) |
-| [WEB-ROTATE](web.md#web-rotate) | open  | —       | No code implements the unit.                                                                                    |
+| Unit                            | State | Done by | Note                                                                                                              |
+| ------------------------------- | ----- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| [WEB-KEYS](web.md#web-keys)     | done  | —       | [Keys.pm](../lib/App/FuguWeb/Keys.pm), [keys.t](../t/fuguweb/keys.t)                                              |
+| [WEB-OUTPUT](web.md#web-output) | done  | —       | [Site.pm](../lib/App/FuguWeb/Site.pm), [Config.pm](../lib/App/FuguWeb/Config.pm), [keys.t](../t/fuguweb/keys.t)   |
+| [WEB-ROTATE](web.md#web-rotate) | done  | —       | [Rotate.pm](../lib/App/FuguWeb/Rotate.pm), [CLI.pm](../lib/App/FuguWeb/CLI.pm), [rotate.t](../t/fuguweb/rotate.t) |
 
 ## Retired IDs
 
