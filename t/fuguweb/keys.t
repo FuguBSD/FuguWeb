@@ -2072,6 +2072,79 @@ subtest 'a broken description keeps the org of its keys block' => sub {
 		'and the key of another org survives' );
 };
 
+subtest 'a broken description of the default layout' => sub {
+	# The build renders, so the skip comes before the first
+	# assertion. A plan that arrives after one is not a plan.
+	plan skip_all => 'a renderer is not installed' unless renderers();
+
+	# A description that names neither directory takes the two
+	# defaults, and the anonymous config must read them from the
+	# file and not invent them.
+	my $root = project( rc => $KEYS_BLOCK, files => {} );
+	spew( "$root/.fuguwebrc", <<"RC" );
+site = Example
+
+nav "index.html" {
+	label = Home
+}
+
+page "index.html" {
+	title = Home
+	body  = index.body.html
+}
+
+$KEYS_BLOCK
+RC
+
+	my ($code) = cli( $root, 'build' );
+	is( $code, 0, 'the build succeeds into web/build' ) or diag "exit=$code";
+	ok( -d "$root/web/build/keys", 'and it writes the key directory' );
+
+	break($root);
+
+	my ($exit) = cli( $root, 'clean', '--out', 'web/build' );
+	is( $exit, 0, 'the clean takes the default output directory' );
+	ok( !-e "$root/web/build",          'which is gone' );
+	ok( -e "$root/web/index.body.html", 'and the source survives' );
+};
+
+subtest 'a key name of another organization' => sub {
+	# The org comes from the description, and never from a name.
+	# A guard that read a fixed org would take the key of this
+	# site and refuse the key of any other one.
+	my $root = project(
+		rc => <<'RC'
+keys "keys" {
+	org = acme
+}
+
+key "acme-1-release" {
+	status = current
+}
+RC
+		,
+		keys => { 'acme-1-release.pub' => $SIGNIFY },
+	);
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'a description of another org loads' ) or diag $reason;
+	is( $config->keys_org, 'acme', 'and it names that org' );
+
+	ok( App::FuguWeb::Keys->shaped( $config, 'keys/acme-1-release.pub' ),
+		'the key of this site is shaped' );
+	ok( !App::FuguWeb::Keys->shaped( $config, 'keys/fugubsd-1-release.pub' ),
+		'and the key of another org is not' );
+
+	# The same holds when the description does not load.
+	break($root);
+	my ($anon) = ( App::FuguWeb::Config->anonymous($root) );
+	is( $anon->keys_org, 'acme', 'a broken description keeps the org' );
+	ok( App::FuguWeb::Keys->shaped( $anon, 'keys/acme-1-release.pub' ),
+		'and the key of this site stays shaped' );
+	ok( !App::FuguWeb::Keys->shaped( $anon, 'keys/fugubsd-1-release.pub' ),
+		'and the key of another org stays refused' );
+};
+
 subtest 'a keyless description keeps its guard when it breaks' => sub {
 	# A description that names no keys block owns no key shape,
 	# and a break must not give it one. Another maker's site holds
@@ -2549,6 +2622,67 @@ subtest 'the build refuses a symlink at the staging directory' => sub {
 	ok( !site( $config, $out )->build, 'a second build refuses' );
 	ok( -l "$out/" . App::FuguWeb::STAGING_DIR(), 'and it keeps the link' );
 	ok( -d $target, 'and the target as well' );
+};
+
+subtest 'the build refuses a symlink below the staging directory' => sub {
+	# The skip comes before the first assertion. A plan that
+	# arrives after one turns a failed assertion into a pass.
+	my $probe = tempdir( CLEANUP => 1 );
+	plan skip_all => 'cannot make a symlink here'
+	    unless symlink '/nonexistent', "$probe/link";
+
+	# _check_links reads the staging path itself, and never a name
+	# below it. _drop_staging is the guard of those, and a build
+	# writes one flat directory of plain files there.
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	my $staging = "$out/" . App::FuguWeb::STAGING_DIR();
+	make_path($staging);
+	my $target = tempdir( CLEANUP => 1 ) . '/theirs.1';
+	spew( $target, "theirs\n" );
+	symlink $target, "$staging/tool.1" or die "Cannot link: $!";
+
+	ok( !site( $config, $out )->build, 'a second build refuses' );
+	ok( -l "$staging/tool.1", 'and it keeps the link' );
+	ok( -e $target,           'and the target as well' );
+
+	ok( !site( $config, $out )->clean, 'the clean refuses it too' );
+};
+
+subtest 'the build refuses a symlink above a key path' => sub {
+	# The skip comes before the first assertion. A plan that
+	# arrives after one turns a failed assertion into a pass.
+	my $probe = tempdir( CLEANUP => 1 );
+	plan skip_all => 'cannot make a symlink here'
+	    unless symlink '/nonexistent', "$probe/link";
+
+	# A link at any directory of a written path sends the bytes
+	# through it, not only a link at the first segment. The key
+	# tree is three deep, so each level needs the rule.
+	my $hu = '.well-known/openpgpkey';
+
+	for my $where ( '.well-known', $hu, "$hu/hu" ) {
+		my $root = project();
+		my ($config) = load($root);
+		my $out = "$root/out";
+		ok( site( $config, $out )->build, "$where: the build succeeds" );
+
+		remove_tree("$out/.well-known");
+		make_path( "$out/" . ( $where =~ s{/[^/]+\z}{}r ) )
+		    if $where =~ m{/};
+
+		my $elsewhere = tempdir( CLEANUP => 1 );
+		symlink $elsewhere, "$out/$where" or die "Cannot link: $!";
+
+		ok( !site( $config, $out )->build, "$where: a build refuses" );
+		is_deeply( App::FuguWeb::list_tree($elsewhere), [],
+			"$where: and writes nothing through the link" );
+	}
 };
 
 subtest 'the build keeps a symlink of the top level' => sub {
