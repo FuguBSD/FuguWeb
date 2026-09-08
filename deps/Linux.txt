@@ -1,10 +1,13 @@
+# The runtime dist entry takes the signify tier, and scripts/deps
+# needs signify(1) to check that signature. The tool environment
+# installs before every other one, so the command is there when the
+# runtime chain reaches the entry. t/fuguweb/rotate.t uses the same
+# command, and deps-test depends on deps.
+tool pkg signify-openbsd
+
 runtime dist https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.gz
 runtime pkg mandoc
 runtime pkg lowdown
 
-# t/fuguweb/rotate.t drives the rotation against the real command,
-# and the rotation signs the key manifest. A build signs nothing, so
-# this stays out of the runtime environment.
-test pkg signify-openbsd
 test cpan Perl::Critic
 test cpan Perl::Tidy
