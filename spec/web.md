@@ -168,6 +168,24 @@ part of FuguWeb that needs `signify(1)`.
   retired name of a promote.
 - **WEB-ROTATE-14** — The command must reach no network and must hold no token.
   The caller holds the credential.
+- **WEB-ROTATE-16** — A mint must record the date of the run as `since` on the
+  new `key` block, and a promote must record it as `until` on the block of the
+  key that it retires. Both dates must read in UTC.
+- **WEB-ROTATE-17** — An absent `signify(1)` must fail the command with the exit
+  code of a missing tool, so a caller tells it from a rotation that failed.
+- **WEB-ROTATE-18** — A mint must refuse a `--secret` path that stands already,
+  and one that names the signer. The private half of a key is the one thing that
+  a rotation cannot make again, and a caller holds each one in one place.
+- **WEB-ROTATE-19** — Every key of one directory must hold one purpose. One
+  manifest covers the directory and one key signs it, so a second purpose leaves
+  the current key of the first unable to verify the pair. A mint of another
+  purpose must fail.
+- **WEB-ROTATE-20** — A step must refuse a key set that breaks the status rules
+  of `Fugu::KeyDir`, before it writes. A step over such a set could ask a
+  retired key to sign. A directory with no key is the state of a site before its
+  first mint, and it must stand.
+- **WEB-ROTATE-21** — The key directory word must name one directory below the
+  source directory, as WEB-KEYS-29 holds it.
 - **WEB-ROTATE-15** — A description with no `keys` block must take one, with the
   organization word and the published prefix that the caller names. The block
   and the first key must arrive in one change, because a block that names an

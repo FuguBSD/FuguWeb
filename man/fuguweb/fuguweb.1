@@ -202,6 +202,79 @@ It says nothing and exits 0 when the site is good.
 also notes every external link.
 The command never fetches one:
 the build and its checks touch no network.
+.It Cm rotate-key Fl Fl step Ar mint Ns | Ns Ar promote \
+Fl Fl purpose Ar word Fl Fl secret Ar path Op Fl Fl signer Ar path
+Write the key directory:
+mint the next key of a purpose,
+or promote the one that a mint made.
+.Pp
+A consumer verifies a release against the copy of the public key that it holds.
+A release that a new key signs therefore fails in each consumer
+that holds the old copy.
+One rotation runs in two steps,
+and the trust order carries the gap.
+.Pp
+.Fl Fl step Ar mint
+generates the next key of the purpose,
+writes its public half into the key directory,
+and writes its private half to
+.Fl Fl secret .
+The current key of the purpose signs the manifest that names the new key,
+so
+.Fl Fl signer
+names the private half of that key.
+The command refuses a mint that would sign with the key it generated.
+.Pp
+The first mint of a purpose finds no current key.
+That key is current at once,
+it signs its own manifest,
+and the command takes no
+.Fl Fl signer .
+A site that publishes its first key holds no
+.Ic keys
+block,
+so
+.Fl Fl org
+names the organization word,
+and
+.Fl Fl dir
+and
+.Fl Fl url
+name the directory and the published prefix.
+One commit carries the block and the key.
+.Pp
+.Fl Fl step Ar promote
+makes the
+.Ic next
+key current and retires the key that was current.
+.Fl Fl secret
+names the private half of the key that the step makes current,
+and that key signs the manifest.
+A retired key keeps its file and its URL,
+so a release that it signed still verifies.
+.Pp
+The command stages each file and verifies the signature
+before one byte reaches the key directory.
+A step that fails puts every file back,
+and the private half of a new key lands last of all.
+.Pp
+One manifest covers the whole directory,
+and one key signs it,
+so every key of one directory holds one purpose.
+.Fl Fl secret
+must name no file that stands,
+and it must not name
+.Fl Fl signer :
+a rotation cannot make a private half again.
+It prints one
+.Ql name=value
+line for each fact,
+so a caller appends the output to a file that its own steps read.
+.Pp
+The command needs
+.Xr signify 1 .
+It reaches no network and it holds no token:
+a caller stores the private key and declares the public one.
 .El
 .Sh FILES
 .Bl -tag -width "share/fuguweb/style.css" -compact
