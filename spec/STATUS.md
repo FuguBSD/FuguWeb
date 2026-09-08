@@ -19,6 +19,7 @@ unit IDs.
 | ------------------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------- |
 | [WEB-KEYS](web.md#web-keys)     | done  | —       | [Keys.pm](../lib/App/FuguWeb/Keys.pm), [keys.t](../t/fuguweb/keys.t)                                            |
 | [WEB-OUTPUT](web.md#web-output) | done  | —       | [Site.pm](../lib/App/FuguWeb/Site.pm), [Config.pm](../lib/App/FuguWeb/Config.pm), [keys.t](../t/fuguweb/keys.t) |
+| [WEB-ROTATE](web.md#web-rotate) | open  | —       | No code implements the unit.                                                                                    |
 
 ## Retired IDs
 
