@@ -101,14 +101,42 @@ The command checks the renderers first,
 and names the one that is missing.
 It then rejects a malformed manual source,
 because such a page must fail the build and not render badly.
+.Pp
+The command refuses a symlink on a path that it writes,
+or on a directory above one,
+before it writes one file.
+An open follows a link,
+so a build would write the site outside its own directory.
+A symlink that the build never writes through belongs to somebody else,
+and the build leaves it.
 .It Cm clean Op Fl Fl out Ar dir
 Remove the output directory.
+.Fl Fl out
+overrides the
+.Va out_dir
+setting,
+and a relative value is resolved against the project root,
+exactly as
+.Cm build
+resolves it.
+The working directory does not decide it,
+so
+.Ic clean Fl Fl out Ar build
+names one directory from anywhere in the project.
 .Pp
 The command removes a built site and refuses anything else.
-A build writes one flat directory of files,
-so a target that holds a subdirectory,
-a symlink,
-or anything else that no build made is refused by name.
+It deletes a tree without asking,
+so the rule is the site itself.
+.Pp
+A plain file of the top level is one that a build writes.
+A file below the root must be one that the site names,
+or one of the shapes that the key directory takes.
+A directory must hold a name of the site,
+or be a directory of the key tree.
+A symlink is never a thing that a build wrote.
+The command refuses every other entry,
+and it names the entry.
+A path that you type must never take the tree of somebody else with it.
 .Pp
 Both
 .Cm build
@@ -118,15 +146,43 @@ also refuse the root of the filesystem,
 the home directory,
 the project root,
 and any directory that holds the project.
+They refuse the source directory as well,
+and every directory of it.
+.Pp
+The source directory reads like a built site.
+The key directory is the worst case.
+Each key file sits at its top level,
+where the clean takes a plain file.
+A clean of it would take the trust anchor of every release.
+.Pp
+The output directory is the one exception below the source.
+The default output directory is
+.Pa web/build ,
+and it sits inside the default source directory
+.Pa web .
+The description names that path,
+so a build owns it.
+A description that names neither directory takes the two defaults.
 .Pp
 With
 .Fl Fl out
-the command needs no
-.Pa .fuguwebrc ,
-because the target is named on the command line.
+the command reads the
+.Pa .fuguwebrc
+when it can,
+because the description is what names the key directory.
+A description that does not load names nothing,
+and one flat directory of files is then the whole site that
 .Cm clean
-is the command you reach for when the description is the thing that is
-broken.
+knows.
+That fallback is weak,
+so the command asks for one more thing:
+the target must hold the stylesheet.
+Every build writes it,
+so a target without it is the output of no build.
+.Pp
+The staging directory holds one flat directory of plain files.
+The command refuses a staging directory of another shape,
+and the build refuses the same one and leaves it.
 .It Cm check Oo Fl Fl out Ar dir Oc Op Fl Fl verbose
 Check a built site:
 that every page and asset is there and is not empty,

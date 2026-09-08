@@ -2,7 +2,7 @@
 
 This register is the one record of implementation state. One row exists for each
 unit of the specification. The [conventions](index.md#conventions) define the
-unit IDs. The specification holds no unit yet, so the table holds no row.
+unit IDs.
 
 ## States
 
@@ -15,8 +15,10 @@ unit IDs. The specification holds no unit yet, so the table holds no row.
 
 ## Units
 
-| Unit | State | Done by | Note |
-| ---- | ----- | ------- | ---- |
+| Unit                            | State | Done by | Note                                                                                                            |
+| ------------------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------- |
+| [WEB-KEYS](web.md#web-keys)     | done  | —       | [Keys.pm](../lib/App/FuguWeb/Keys.pm), [keys.t](../t/fuguweb/keys.t)                                            |
+| [WEB-OUTPUT](web.md#web-output) | done  | —       | [Site.pm](../lib/App/FuguWeb/Site.pm), [Config.pm](../lib/App/FuguWeb/Config.pm), [keys.t](../t/fuguweb/keys.t) |
 
 ## Retired IDs
 

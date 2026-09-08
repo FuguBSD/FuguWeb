@@ -225,6 +225,16 @@ sub cmd_clean ( $self, $cli, @args )
 		return $failure if defined $failure;
 	}
 
+	# With --out the description still names the key directory,
+	# and the clean refuses a directory that it cannot account
+	# for. The load is therefore tried here. A failure is not an
+	# error: clean is the command an operator reaches for when a
+	# description is broken.
+	$self->{config} //= App::FuguWeb::Config->load(
+		root  => $self->{project},
+		error => \my $ignored,
+	);
+
 	$self->{config} //= App::FuguWeb::Config->anonymous( $self->{project}
 		    // File::Spec->curdir );
 
