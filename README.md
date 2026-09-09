@@ -20,8 +20,3 @@ make format-fix  # fix the Perl, Markdown, JSON and YAML formatting
 make dist        # build the release tarball
 make install     # install the binary, the modules, and the manual
 ```
-
-## Commit scopes
-
-`check`, `cli`, `config`, `index`, `manual`, `page`, `render`, `site`, `spec`,
-`deps`, `ci`.
