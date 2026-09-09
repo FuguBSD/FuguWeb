@@ -118,13 +118,13 @@ manifest parser. The renderer holds the wiring only.
 ## The key rotation
 
 `fuguweb build` and `fuguweb check` read the key directory, and
-`fuguweb rotate-key` writes it. One command holds both steps of a rotation, so
-the reader and the writer share one implementation of the name pattern, the
-status vocabulary and the manifest.
+`fuguweb rotate-key` writes it. One command holds both steps of a rotation. The
+reader and the writer share one implementation of the name pattern, the status
+vocabulary and the manifest.
 
 A consumer verifies a release against the copy of the public key that it holds.
 A release that a new key signs therefore fails in each consumer that holds the
-old copy. One rotation runs in two steps, and the trust order carries the gap: a
+old copy. One rotation runs in two steps, and the trust order carries the gap. A
 `mint` makes the next key, and a `promote` makes it current.
 
 This command signs, and the build signs nothing (WEB-KEYS-17). It is the one
@@ -132,10 +132,10 @@ part of FuguWeb that needs `signify(1)`.
 
 - **WEB-ROTATE-1** — `fuguweb rotate-key` must take a step of `mint` or
   `promote`, a purpose word, and the path of the private key file.
-- **WEB-ROTATE-2** — A mint must take the next serial of the purpose, generate a
-  signify pair with no passphrase, and write the public half into the key
-  directory. It must write the private half to the named path, and that file
-  must take no group mode and no other mode.
+- **WEB-ROTATE-2** — A mint must take the next serial of the purpose, and
+  generate a signify pair with no passphrase. It must write the public half into
+  the key directory. It must write the private half to the named path, and that
+  file must take no group mode and no other mode.
 - **WEB-ROTATE-3** — A mint must give the new key the status `current` when the
   purpose holds no current key, and the status `next` otherwise.
 - **WEB-ROTATE-4** — The command must read the status of each key from the
@@ -146,17 +146,17 @@ part of FuguWeb that needs `signify(1)`.
   private half of each mint in one place, so a second `next` key loses the
   private half of the first.
 - **WEB-ROTATE-6** — The current key of the purpose must sign the manifest. A
-  mint of a purpose that holds a current key must take the signer, and it must
-  never sign with the key that it generated. The first mint of a purpose is the
-  one exception: that key is current, and it signs its own manifest.
+  mint of a purpose that holds a current key must take the signer. It must never
+  sign with the key that it generated. The first mint of a purpose is the one
+  exception: that key is current, and it signs its own manifest.
 - **WEB-ROTATE-7** — The command must verify the new signature against the
   published public key of the signer. A signature that the key does not verify
   must fail the command.
 - **WEB-ROTATE-8** — The command must hold the old signature until a verified
   signature stands in its place. It must leave no directory that holds a
   manifest and no signature.
-- **WEB-ROTATE-9** — A promote must make the `next` key of the purpose current,
-  and it must retire the key that was current with an `until` date.
+- **WEB-ROTATE-9** — A promote must make the `next` key of the purpose current.
+  It must retire the key that was current with an `until` date.
 - **WEB-ROTATE-10** — The command must write the description once in each run. A
   second write leaves the file half changed when it fails.
 - **WEB-ROTATE-11** — The command must read the description back after it
@@ -164,20 +164,20 @@ part of FuguWeb that needs `signify(1)`.
 - **WEB-ROTATE-12** — The resulting key set must satisfy the status rules of
   `Fugu::KeyDir`, and the command must check the set before it returns.
 - **WEB-ROTATE-13** — The command must print one `name=value` line for each fact
-  that a caller needs: the file name, the stem, the serial, the status, and the
-  retired name of a promote.
+  that a caller needs. The facts are the file name, the stem, the serial, the
+  status, and the retired name of a promote.
 - **WEB-ROTATE-14** — The command must reach no network and must hold no token.
   The caller holds the credential.
 - **WEB-ROTATE-16** — A mint must record the date of the run as `since` on the
-  new `key` block, and a promote must record it as `until` on the block of the
-  key that it retires. Both dates must read in UTC.
+  new `key` block. A promote must record it as `until` on the block of the key
+  that it retires. Both dates must read in UTC.
 - **WEB-ROTATE-17** — An absent `signify(1)` must fail the command with the exit
-  code of a missing tool, so a caller tells it from a rotation that failed.
+  code of a missing tool. A caller then tells it from a rotation that failed.
 - **WEB-ROTATE-18** — A mint must refuse a `--secret` path that stands already,
   and one that names the signer. The private half of a key is the one thing that
-  a rotation cannot make again, and a caller holds each one in one place.
+  a rotation cannot make again. A caller holds each one in one place.
 - **WEB-ROTATE-19** — Every key of one directory must hold one purpose. One
-  manifest covers the directory and one key signs it, so a second purpose leaves
+  manifest covers the directory and one key signs it. A second purpose leaves
   the current key of the first unable to verify the pair. A mint of another
   purpose must fail.
 - **WEB-ROTATE-20** — A step must refuse a key set that breaks the status rules
@@ -267,5 +267,5 @@ it, so the build keeps it and the clean refuses the tree.
 - **WEB-OUTPUT-15** — The clean must refuse a target that holds no stylesheet,
   when the description does not load. Every build writes the stylesheet, so a
   target without it is the output of no build. The rule is a second guard, and
-  rule WEB-OUTPUT-13 is the first: a directory that holds a stylesheet of its
+  rule WEB-OUTPUT-13 is the first. A directory that holds a stylesheet of its
   own defeats this one alone.

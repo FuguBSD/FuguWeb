@@ -17,8 +17,8 @@ contract, the ID conventions, and the document tables.
   `Implements: WEB-BUILD without WEB-BUILD-2`.
 - A plan must cite each unit that it touches but defers, for example
   `Defers: WEB-CHECK`.
-- The change that implements a unit, or a part of a unit, must set the state of
-  the unit in [STATUS.md](STATUS.md) in the same change.
+- The change that implements a unit, or a part of one, must set the unit state
+  in [STATUS.md](STATUS.md) in the same change.
 
 <a id="conventions"></a>
 
