@@ -2,7 +2,7 @@
 
 FuguWeb runs on Perl v5.36 or later over the Fugu library, with `mandoc` and
 `lowdown` as the external renderers (`pod2man` ships with perl). There are two
-install flows: from a checkout with make, and from a release tarball with cpanm.
+install flows: from a checkout with make, and from CPAN with cpanm.
 
 `fuguweb rotate-key` also needs `signify(1)`, which `make deps-test` installs.
 No other command signs, so a build and a check run without it.
@@ -21,15 +21,14 @@ doas make install
 packages. `make install` copies `bin/fuguweb`, the modules, the manual, and the
 stylesheet. `make uninstall` removes them.
 
-## From a release tarball
+## From CPAN
 
-Every release carries a standard Perl distribution tarball. Install the latest
-Fugu release first, then FuguWeb; the stable URLs always serve the latest
-releases:
+Every release goes to CPAN as the
+[App-FuguWeb](https://metacpan.org/dist/App-FuguWeb) distribution. The
+distribution does not name Fugu as a prerequisite, so name both:
 
 ```sh
-cpanm --notest https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.gz
-cpanm --notest https://github.com/FuguBSD/FuguWeb/releases/latest/download/App-FuguWeb.tar.gz
+cpanm --notest Fugu App::FuguWeb
 ```
 
 The cpanm flow installs the modules, the binary, and the stylesheet. The mdoc(7)
