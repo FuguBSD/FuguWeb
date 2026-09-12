@@ -61,12 +61,15 @@ no attack here. A later plan can add one when a consumer does.
 
 ### WEB-ROTATE
 
+- The intro sentence that names `signify(1)` as the one need of FuguWeb changes.
+  The verbs run `signify(1)` through `Fugu::Signify`, and the check runs no
+  command, per WEB-TRUST-9.
 - WEB-ROTATE-1 names three verbs in place of one: `fuguweb mint-key`,
   `fuguweb import-key` and `fuguweb promote-key`. `rotate-key` goes. Each verb
   takes `--purpose`, and `mint-key` takes `--type` with the default `signify`.
 - WEB-ROTATE-6 names the current root as the signer of the manifest. The first
   root mint signs its own manifest, and a root promote signs with the new root.
-  A step of another purpose takes `--signer`, per WEB-TRUST-2.
+  Every other step takes `--signer`, per WEB-TRUST-2.
 - WEB-ROTATE-9 adds the chain binding and the removal of the retired binding to
   a promote, per WEB-TRUST-4 and WEB-TRUST-5.
 - WEB-ROTATE-13 adds the digest and the URL of a new key file to the facts.
@@ -98,11 +101,17 @@ Each verb reads each private half as a file, per D-03.
 | `--signer <path>`      | The private half of the current root, which signs `SHA256`.  |
 | `--retiring <path>`    | The private half of the key that a promote retires.          |
 | `--bind <stem>=<path>` | The private half of one subordinate key, for a root step.    |
+| `--file <path>`        | The public key file that `import-key` reads.                 |
 
-A step of the root purpose takes no `--signer`. A first root mint takes each
-`--bind`. A root promote takes `--secret`, `--retiring` and each `--bind`. A
-subordinate mint takes `--secret` and `--signer`. A subordinate promote takes
-`--signer` and `--retiring`.
+Every step takes `--signer`, with two exceptions. The first root mint takes
+none: no root exists, and the new key signs. A root promote takes none: the new
+root signs from `--secret`, and the retiring root comes as `--retiring`. A root
+mint of a `next` key takes `--secret` and `--signer`, because the current root
+signs, per WEB-TRUST-2. A first root mint takes `--secret` and each `--bind`. A
+root promote takes `--secret`, `--retiring` and each `--bind`. A subordinate
+mint takes `--secret` and `--signer`. A subordinate promote takes `--signer` and
+`--retiring`. An import takes `--file` beside the options of a mint of its
+purpose, per WEB-X509-2.
 
 ## The change
 

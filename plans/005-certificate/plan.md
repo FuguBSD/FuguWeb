@@ -53,8 +53,7 @@ DER reader for the subject and the dates, and a CMS signer and verifier through
 
 1. `lib/App/FuguWeb/Rotate.pm` gains the import: the copy of the certificate,
    the `key` block with its fingerprint, and the `.p7s` binding.
-2. `lib/App/FuguWeb/CLI.pm` gives `import-key` the `--file` option, and takes
-   `--type x509`.
+2. `lib/App/FuguWeb/CLI.pm` accepts `--type x509` on `import-key`.
 3. `lib/App/FuguWeb/Keys.pm` decodes a certificate, verifies a `.p7s` binding,
    compares the fingerprint, and reports an expired or a not yet valid
    certificate.
@@ -73,8 +72,9 @@ It signs no binary and it notarizes nothing. The certificate signs binaries in
 the release workflow of a project, and this directory publishes the certificate
 alone.
 
-It reads no PKCS#12 file. The workflow of plan 006 converts one to PEM with
-`openssl(1)` before it calls the verb, per WEB-X509-3.
+It reads no PKCS#12 file. The slot holds the PEM private key, per WEB-X509-3.
+The operator converts a PKCS#12 file once, with `openssl pkcs12`, before the
+first secret write. Neither the verbs nor the workflow of plan 006 read one.
 
 It checks no issuer. `Fugu::X509` knows no issuer by name, and the root manifest
 vouches for the certificate.

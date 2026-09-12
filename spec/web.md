@@ -232,14 +232,17 @@ renderer and the verbs hold the wiring only.
 - **WEB-TRUST-7** — A first root mint and a root promote must write the binding
   of each subordinate key again, in the one step. The step must take the private
   half of each `current` and `next` subordinate key as `--bind <stem>=<path>`.
-  It must refuse before it writes when one is absent.
+  It must refuse before it writes when one is absent. A root promote must remove
+  each binding whose target is the retired root, except a chain binding of
+  WEB-TRUST-4. A binding over the retired root fails WEB-TRUST-10.
 - **WEB-TRUST-8** — A step must verify each binding that it writes against the
   public key of the signer, before one byte reaches the directory. A signature
   that the key does not verify must fail the step.
 - **WEB-TRUST-9** — `fuguweb check` must verify each binding against the public
-  key of its signer, with the tool of that type. It must verify no `SHA256.sig`,
-  per WEB-KEYS-33. An absent tool for a type that the directory holds is a
-  problem.
+  key of its signer. It must use the verifier of that type in the Fugu library.
+  A signify binding needs no command. An absent gpg(1) or openssl(1), for a type
+  that the directory holds, is a problem. The check must verify no `SHA256.sig`,
+  per WEB-KEYS-33.
 - **WEB-TRUST-10** — The check must hold each binding to the retention rule. A
   binding whose signer is `current` or `next` must target the current root. A
   binding whose signer is `retired` must target a key of the same purpose with a
@@ -251,15 +254,16 @@ renderer and the verbs hold the wiring only.
 
 ## The OpenPGP rotation
 
-The renderer publishes an OpenPGP key, and no verb mints one. This unit adds the
-OpenPGP key to the verbs. gpg(1) makes the key and the binding, in a temporary
-home that dies with the run. The Fugu library holds each call, and the verbs
-hold the wiring.
+The renderer publishes an OpenPGP key, and the verbs mint one. gpg(1) makes the
+key and the binding, in a temporary home that dies with the run. The Fugu
+library holds each call, and the verbs hold the wiring.
 
 - **WEB-OPENPGP-1** — `fuguweb mint-key --type openpgp` must take an `--email`
-  address, and must generate one Ed25519 key with that address as its user id.
-  It must write the armored public half into the directory as `.asc`, and the
-  armored secret half to `--secret`.
+  address. It must generate one Ed25519 primary key with one Curve25519
+  encryption subkey, and that address as its user id. It must write the armored
+  public half into the directory as `.asc`, and the armored secret half to
+  `--secret`. The `Encryption` field of WEB-KEYS-15 names the key, and a reader
+  encrypts to the subkey.
 - **WEB-OPENPGP-2** — The mint must write the `email` and the `fingerprint` of
   the new key into its `key` block. It must read the fingerprint from the key
   that it generated, and never from an argument.
@@ -334,7 +338,9 @@ input, so an organization keeps the names that it has.
   name the step, the type, the purpose, and the directory. They must name the
   organization word, the published prefix, the environment, and the secret
   prefix. They must name the owner, the visibility list, the publish workflow of
-  the caller, and the subordinate purposes of a root step.
+  the caller, and the subordinate purposes of a root step. They must take the
+  `--email` and `--expires` of an OpenPGP mint, and the `--file` of an import.
+  Each of the three is optional.
 - **WEB-ACTIONS-2** — The workflow must output each fact of WEB-ROTATE-13, and
   the digest and the URL of a new key file. A caller declares the key with them.
 - **WEB-ACTIONS-3** — Two composite actions must hold the slots.

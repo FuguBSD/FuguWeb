@@ -42,9 +42,9 @@ already, so this plan changes nothing there.
 
 ## The change
 
-1. `lib/App/FuguWeb/Rotate.pm` calls `Fugu::OpenPGP` for the key, the export,
-   the binding and the expiry. It writes `email` and `fingerprint` into the
-   `key` block.
+1. `lib/App/FuguWeb/Rotate.pm` calls `Fugu::OpenPGP` for the key and its
+   encryption subkey, the export, the binding and the expiry. It writes `email`
+   and `fingerprint` into the `key` block.
 2. `lib/App/FuguWeb/CLI.pm` gives `mint-key` the `--email` and `--expires`
    options.
 3. `lib/App/FuguWeb/Keys.pm` verifies an `.asc` binding, and reads the expiry of

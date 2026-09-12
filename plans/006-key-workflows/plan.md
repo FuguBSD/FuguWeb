@@ -3,7 +3,8 @@
 ## Status
 
 Proposed. It waits on plan 003. A caller can add the OpenPGP type and the
-certificate type without a change here, because the type is an input.
+certificate type without a change here. The type, the email address, the expiry
+date and the key file are inputs, per WEB-ACTIONS-1.
 
 Implements: WEB-ACTIONS.
 
@@ -86,5 +87,6 @@ of WEB-ACTIONS-2 for it.
 It holds no caller. The organization site replaces its workflow with a thin
 caller when it pins the release that holds this plan.
 
-It reads no PKCS#12 file. A caller that imports a certificate converts the file
-in a step of its own, before it calls the verb.
+It reads no PKCS#12 file. The slot holds the PEM private key, per WEB-X509-3.
+The operator converts a PKCS#12 file once, with `openssl pkcs12`, before the
+first secret write. Neither the verbs nor the workflow read one.
