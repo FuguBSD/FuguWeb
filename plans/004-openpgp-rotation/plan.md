@@ -2,8 +2,10 @@
 
 ## Status
 
-Proposed. It waits on plan 003, and on a Fugu release that holds the generator
-and the detached signature of `Fugu::OpenPGP`, per Fugu LIB-OPENPGP.
+Proposed. It waits on plan 003, and on a Fugu release of `Fugu::OpenPGP`, per
+Fugu LIB-OPENPGP. That release must hold the detached signature, and a generator
+that makes the encryption subkey of WEB-OPENPGP-1. The Fugu plan of that unit
+must name the subkey before this plan lands.
 
 Implements: WEB-OPENPGP. Extends: WEB-ROTATE.
 
@@ -22,7 +24,9 @@ binds the key to the root.
 
 `Fugu::OpenPGP` decodes an armored key and computes the fingerprint and the Web
 Key Directory hash, with no command. It generates nothing and it signs nothing.
-The Fugu plan adds the command parts, through `gpg(1)` in a temporary home.
+The Fugu plan adds the command parts, through `gpg(1)` in a temporary home. Its
+generator makes one Ed25519 key with one user id, and names no encryption
+subkey.
 
 The research names the key transition statement as the OpenPGP practice: one
 text that both keys sign. The chain binding of WEB-TRUST-4 gives the same proof

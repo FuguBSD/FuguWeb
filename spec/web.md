@@ -234,7 +234,7 @@ renderer and the verbs hold the wiring only.
   half of each `current` and `next` subordinate key as `--bind <stem>=<path>`.
   It must refuse before it writes when one is absent. A root promote must remove
   each binding whose target is the retired root, except a chain binding of
-  WEB-TRUST-4. A binding over the retired root fails WEB-TRUST-10.
+  WEB-TRUST-4.
 - **WEB-TRUST-8** — A step must verify each binding that it writes against the
   public key of the signer, before one byte reaches the directory. A signature
   that the key does not verify must fail the step.

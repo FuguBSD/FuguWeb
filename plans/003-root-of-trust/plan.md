@@ -62,8 +62,9 @@ no attack here. A later plan can add one when a consumer does.
 ### WEB-ROTATE
 
 - The intro sentence that names `signify(1)` as the one need of FuguWeb changes.
-  The verbs run `signify(1)` through `Fugu::Signify`, and the check runs no
-  command, per WEB-TRUST-9.
+  The verbs run `signify(1)` through `Fugu::Signify`. The check verifies a
+  signify binding with no command, and runs `gpg(1)` or `openssl(1)` for the
+  other types, per WEB-TRUST-9.
 - WEB-ROTATE-1 names three verbs in place of one: `fuguweb mint-key`,
   `fuguweb import-key` and `fuguweb promote-key`. `rotate-key` goes. Each verb
   takes `--purpose`, and `mint-key` takes `--type` with the default `signify`.
