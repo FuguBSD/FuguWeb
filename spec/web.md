@@ -191,6 +191,192 @@ part of FuguWeb that needs `signify(1)`.
   and the first key must arrive in one change, because a block that names an
   empty directory fails every build.
 
+<a id="web-trust"></a>
+
+## The root of trust
+
+One signify key of a key directory is the root of trust. Its purpose word is
+`root`. The current root key signs the manifest, and every other key of the
+directory is a subordinate key. A signify key is vendor neutral, and one line
+holds it, so a consumer pins it with one line of its own.
+
+A binding is a detached signature by one key over the public key file of another
+key. A subordinate key binds to the current root, and that signature proves that
+the holder of the root also holds the subordinate key. A retiring key binds to
+the key that takes its place, so a consumer that trusts the old key reaches the
+new one. The file name of a binding is `<target file>.<signer stem>.<ext>`. The
+extension is `sig` for a signify signer, `asc` for an OpenPGP signer, and `p7s`
+for an X.509 signer.
+
+The generic parts live in the Fugu library. Those are the binding name pattern,
+the retention rule, and one signer and one verifier for each key type. The
+renderer and the verbs hold the wiring only.
+
+- **WEB-TRUST-1** — Each key directory must hold exactly one `current` key of
+  the purpose `root`, and that key must be a signify key. A directory with no
+  key is the one exception. The first mint of the root purpose must accept a
+  directory whose keys hold no root, and must bind each of them per WEB-TRUST-7.
+- **WEB-TRUST-2** — The current root key must sign `SHA256`, and no other key
+  must sign it. A step of a subordinate purpose must take the private half of
+  the current root as `--signer`.
+- **WEB-TRUST-3** — Each `current` and `next` key of a subordinate purpose must
+  hold one binding over the public key file of the current root.
+- **WEB-TRUST-4** — A promote must write a chain binding: the retiring key signs
+  the public key file of the key that becomes current. The promote must take the
+  private half of the retiring key as `--retiring`.
+- **WEB-TRUST-5** — A chain binding must stay published, as a retired key does.
+  A step that retires a subordinate key must remove the binding of WEB-TRUST-3
+  that the key holds.
+- **WEB-TRUST-6** — The manifest must name every key file and every binding
+  file, and nothing else.
+- **WEB-TRUST-7** — A first root mint and a root promote must write the binding
+  of each subordinate key again, in the one step. The step must take the private
+  half of each `current` and `next` subordinate key as `--bind <stem>=<path>`.
+  It must refuse before it writes when one is absent. A root promote must remove
+  each binding whose target is the retired root, except a chain binding of
+  WEB-TRUST-4.
+- **WEB-TRUST-8** — A step must verify each binding that it writes against the
+  public key of the signer, before one byte reaches the directory. A signature
+  that the key does not verify must fail the step.
+- **WEB-TRUST-9** — `fuguweb check` must verify each binding against the public
+  key of its signer. It must use the verifier of that type in the Fugu library.
+  A signify binding needs no command. An absent gpg(1) or openssl(1), for a type
+  that the directory holds, is a problem. The check must verify no `SHA256.sig`,
+  per WEB-KEYS-33.
+- **WEB-TRUST-10** — The check must hold each binding to the retention rule. A
+  binding whose signer is `current` or `next` must target the current root. A
+  binding whose signer is `retired` must target a key of the same purpose with a
+  higher serial. Every other binding is a problem.
+- **WEB-TRUST-11** — The human page must list each binding under the key that it
+  targets, with the signer and a link to the file.
+
+<a id="web-openpgp"></a>
+
+## The OpenPGP rotation
+
+The renderer publishes an OpenPGP key, and the verbs mint one. gpg(1) makes the
+key and the binding, in a temporary home that dies with the run. The Fugu
+library holds each call, and the verbs hold the wiring.
+
+- **WEB-OPENPGP-1** — `fuguweb mint-key --type openpgp` must take an `--email`
+  address. It must generate one Ed25519 primary key with one Curve25519
+  encryption subkey, and that address as its user id. It must write the armored
+  public half into the directory as `.asc`, and the armored secret half to
+  `--secret`. The `Encryption` field of WEB-KEYS-15 names the key, and a reader
+  encrypts to the subkey.
+- **WEB-OPENPGP-2** — The mint must write the `email` and the `fingerprint` of
+  the new key into its `key` block. It must read the fingerprint from the key
+  that it generated, and never from an argument.
+- **WEB-OPENPGP-3** — The mint must take an optional `--expires` date, and must
+  set the key expiry to it. A mint without one must set no expiry. The key
+  directory retires a key with an `until` date, and the machine rotates.
+- **WEB-OPENPGP-4** — The check must report a `current` or `next` OpenPGP key
+  whose expiry has passed. It must report a `current` key that expires within 30
+  days, when its purpose holds no `next` key.
+- **WEB-OPENPGP-5** — A binding by an OpenPGP key must be an armored detached
+  signature. The verifier must import the one public key of the signer into an
+  empty home, and a signature of another key must fail.
+- **WEB-OPENPGP-6** — An absent gpg(1) must fail a step with the exit code of a
+  missing tool, as WEB-ROTATE-17 holds for signify(1).
+
+<a id="web-x509"></a>
+
+## The certificate
+
+An X.509 certificate is the third key type. A code signing certificate of Apple
+Developer ID is one such key, and the renderer knows no issuer by name. An
+issuer makes the certificate, so no verb mints one: a verb imports it. The
+private key stays with the publisher, and it makes the binding.
+
+- **WEB-X509-1** — The extension `.pem` must select the type `x509`. The file
+  must hold one PEM certificate. The check must decode it, and must reject a
+  file that holds a private key or a second block.
+- **WEB-X509-2** — `fuguweb import-key` must take `--type`, `--purpose`,
+  `--file` and `--secret`. It must copy the certificate into the directory under
+  the next key name of the purpose, with the status of WEB-ROTATE-3. It must
+  write the binding with the private key. An import of another type must take
+  the same options, so a key that another tool made can enter the directory.
+- **WEB-X509-3** — The `--secret` of an X.509 key must be an unencrypted PEM
+  private key. The verbs take no passphrase. A caller that holds a PKCS#12 file
+  converts it first.
+- **WEB-X509-4** — A `key` block of an X.509 key must take an optional
+  `fingerprint` of 64 hexadecimal characters: the SHA-256 of the DER form. The
+  import must write it, and the check must compare it, as WEB-KEYS-22 holds for
+  an OpenPGP key.
+- **WEB-X509-5** — The human page must name the subject and the validity dates
+  of a certificate beside the fingerprint. A reader of the page compares the
+  subject with what a signed binary reports.
+- **WEB-X509-6** — The check must report a `current` or `next` certificate whose
+  `notAfter` has passed, and one whose `notBefore` has not come. It must report
+  a `current` certificate that expires within 30 days, when its purpose holds no
+  `next` key.
+- **WEB-X509-7** — A binding by an X.509 key must be a detached CMS signature in
+  PEM form. The verifier must pin the one certificate of the signer, and must
+  check no chain. The root manifest vouches for the certificate.
+- **WEB-X509-8** — The `KEYS` file and the Web Key Directory must skip a
+  certificate. Each one serves an OpenPGP reader.
+- **WEB-X509-9** — An absent openssl(1) must fail a step with the exit code of a
+  missing tool.
+
+<a id="web-actions"></a>
+
+## The workflows
+
+A publisher stores each private key in an organization secret, and no human
+handles it. This repository provides the GitHub Actions parts of that: one
+reusable workflow, and the composite actions that it composes. A caller
+repository holds the credential, the trigger, and its own follow-up. The verbs
+hold every trust rule, and the workflow holds the order of the steps.
+
+The pattern of the secret names is `<PREFIX>_<PURPOSE>_KEY_A`,
+`<PREFIX>_<PURPOSE>_KEY_B`, and the variable `<PREFIX>_<PURPOSE>_SLOT`. The two
+secret names are fixed for one purpose, and the variable moves. The prefix is an
+input, so an organization keeps the names that it has.
+
+- **WEB-ACTIONS-1** — The reusable workflow `.github/workflows/keys-rotate.yml`
+  must run one step of one purpose in the tree of the caller. Its inputs must
+  name the step, the type, the purpose, and the directory. They must name the
+  organization word, the published prefix, the environment, and the secret
+  prefix. They must name the owner, the visibility list, the publish workflow of
+  the caller, and the subordinate purposes of a root step. They must take the
+  `--email` and `--expires` of an OpenPGP mint, and the `--file` of an import.
+  Each of the three is optional.
+- **WEB-ACTIONS-2** — The workflow must output each fact of WEB-ROTATE-13, and
+  the digest and the URL of a new key file. A caller declares the key with them.
+- **WEB-ACTIONS-3** — Two composite actions must hold the slots.
+  `actions/keys-slot` reads the slot variable of one purpose and writes the
+  working key files. `actions/keys-store` writes a secret from a file and moves
+  the variable. A caller can compose the two on its own.
+- **WEB-ACTIONS-4** — Each secret must reach a step through the environment, and
+  never through the script text. The workflow must read a secret by a name that
+  an input forms, through the JSON form of the `secrets` context.
+- **WEB-ACTIONS-5** — The workflow must install `fuguweb` with `make deps` of
+  the caller, from the release tarballs that the deps manifest of the caller
+  pins. It must install nothing of its own. Each install must run before the
+  step that mints a token.
+- **WEB-ACTIONS-6** — The workflow must read the root slot, the purpose slot,
+  and the retiring key. It must give each one to the verb as a file. A slot that
+  holds nothing must leave an empty file.
+- **WEB-ACTIONS-7** — The workflow must mask each new private key, and must
+  write it into the idle slot before it commits. It must move the variable last,
+  after the published site serves each file that the run wrote, byte for byte.
+- **WEB-ACTIONS-8** — The workflow must start the publish workflow of the caller
+  itself, and must watch no run of it. A push that `GITHUB_TOKEN` makes raises
+  no workflow run.
+- **WEB-ACTIONS-9** — The workflow must hold no organization name, no domain,
+  and no repository list. Each one is an input.
+- **WEB-ACTIONS-10** — The workflow must open no pull request, and must declare
+  no key anywhere. The caller reads the outputs.
+- **WEB-ACTIONS-11** — The workflow must pin each action that it uses to a
+  commit, because it runs beside a private key.
+- **WEB-ACTIONS-12** — The workflow must remove every private key file that it
+  wrote, whatever the outcome of the run.
+- **WEB-ACTIONS-13** — The test `t/ci/keys-rotate.t` must hold the order of the
+  steps, and each guard above, as text.
+- **WEB-ACTIONS-14** — `environment` must bind in the callee job, from the
+  input. `permissions`, `concurrency`, and `secrets: inherit` must stay in the
+  caller.
+
 <a id="web-output"></a>
 
 ## The output directory

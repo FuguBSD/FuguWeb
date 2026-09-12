@@ -15,11 +15,15 @@ unit IDs.
 
 ## Units
 
-| Unit                            | State | Done by | Note                                                                                                              |
-| ------------------------------- | ----- | ------- | ----------------------------------------------------------------------------------------------------------------- |
-| [WEB-KEYS](web.md#web-keys)     | done  | —       | [Keys.pm](../lib/App/FuguWeb/Keys.pm), [keys.t](../t/fuguweb/keys.t)                                              |
-| [WEB-OUTPUT](web.md#web-output) | done  | —       | [Site.pm](../lib/App/FuguWeb/Site.pm), [Config.pm](../lib/App/FuguWeb/Config.pm), [keys.t](../t/fuguweb/keys.t)   |
-| [WEB-ROTATE](web.md#web-rotate) | done  | —       | [Rotate.pm](../lib/App/FuguWeb/Rotate.pm), [CLI.pm](../lib/App/FuguWeb/CLI.pm), [rotate.t](../t/fuguweb/rotate.t) |
+| Unit                              | State | Done by | Note                                                                                                              |
+| --------------------------------- | ----- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| [WEB-KEYS](web.md#web-keys)       | done  | —       | [Keys.pm](../lib/App/FuguWeb/Keys.pm), [keys.t](../t/fuguweb/keys.t)                                              |
+| [WEB-OUTPUT](web.md#web-output)   | done  | —       | [Site.pm](../lib/App/FuguWeb/Site.pm), [Config.pm](../lib/App/FuguWeb/Config.pm), [keys.t](../t/fuguweb/keys.t)   |
+| [WEB-ROTATE](web.md#web-rotate)   | done  | —       | [Rotate.pm](../lib/App/FuguWeb/Rotate.pm), [CLI.pm](../lib/App/FuguWeb/CLI.pm), [rotate.t](../t/fuguweb/rotate.t) |
+| [WEB-TRUST](web.md#web-trust)     | open  | —       | Nothing implements it.                                                                                            |
+| [WEB-OPENPGP](web.md#web-openpgp) | open  | —       | Nothing implements it.                                                                                            |
+| [WEB-X509](web.md#web-x509)       | open  | —       | Nothing implements it.                                                                                            |
+| [WEB-ACTIONS](web.md#web-actions) | open  | —       | Nothing implements it.                                                                                            |
 
 ## Retired IDs
 
