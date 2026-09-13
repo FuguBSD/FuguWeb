@@ -5,12 +5,14 @@
 #
 # The test builds each key directory in a File::Temp directory, and it
 # never reads the repository. The key material is a fixture, so the
-# test needs neither signify(1) nor gpg(1).
+# test needs no signify(1). The fixture holds one binding that gpg(1)
+# made, and every assertion which reads that binding needs gpg(1).
 #
 # A few subtests drive the real command through App::FuguWeb::CLI,
 # which renders. Those need the renderers, so each one skips without
-# them. The skip sits inside the subtest, and never after an
-# assertion.
+# them. Every skip sits inside its subtest. A plan skip_all comes
+# before the first assertion, and a SKIP block guards an assertion
+# that follows one.
 
 use v5.36;
 use Test::More;
