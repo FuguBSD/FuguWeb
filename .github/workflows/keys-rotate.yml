@@ -1,0 +1,729 @@
+name: Rotate a key
+
+# WEB-ACTIONS. One step of one key directory, in the tree of the
+# caller. The caller holds the credential, the trigger and its own
+# follow-up, and this workflow holds the order of the steps.
+#
+# The verbs hold every trust rule: fuguweb reads each status from the
+# description, refuses a second next key, never signs with the key
+# that it makes, and verifies each signature against the published
+# key. WEB-ROTATE and WEB-TRUST state each rule.
+#
+# Two secrets hold the private halves of one purpose, and one variable
+# names the slot that holds the current key:
+#
+#   <PREFIX>_<PURPOSE>_KEY_A   secret     a private key
+#   <PREFIX>_<PURPOSE>_KEY_B   secret     the other slot
+#   <PREFIX>_<PURPOSE>_SLOT    variable   A or B
+#
+# The two secret names are fixed for one purpose, and the variable
+# moves. The prefix is an input, so an organization keeps the names
+# that it has. The GitHub App of the caller takes the same prefix:
+#
+#   <PREFIX>_APP_ID            secret     the App that writes a secret
+#   <PREFIX>_APP_PRIVATE_KEY   secret     its private key
+#
+# The secrets context takes no name from an input, and its JSON form
+# does. WEB-ACTIONS-4 rests on that read, and every secret below
+# reaches its step through the environment.
+#
+# The order of the steps is the design. The key directory reaches the
+# branch and the site serves it, and only then does the variable move
+# (WEB-ACTIONS-7). A run that moved it earlier and then failed would
+# name a key that no consumer can fetch.
+on:
+  workflow_call:
+    inputs:
+      step:
+        description: mint, import or promote
+        required: true
+        type: string
+      purpose:
+        description: What the key signs, for example release
+        required: true
+        type: string
+      type:
+        description: >-
+          The key type of a mint or an import. An empty value takes the default
+          of the verb, and a promote must take an empty value.
+        required: false
+        type: string
+        default: ""
+      directory:
+        description: The key directory in the tree of the caller
+        required: true
+        type: string
+      org:
+        description: The organization word, which leads every key name
+        required: true
+        type: string
+      url:
+        description: The published prefix of the key directory
+        required: true
+        type: string
+      environment:
+        description: The environment that holds the App secrets
+        required: true
+        type: string
+      secret_prefix:
+        description: The first field of each secret name and of the variable
+        required: true
+        type: string
+      owner:
+        description: The organization that holds the secrets and the variable
+        required: true
+        type: string
+      visibility:
+        description: >-
+          The repositories that read a key secret, separated by commas. An empty
+          value gives it to every repository of the owner.
+        required: false
+        type: string
+        default: ""
+      publish_workflow:
+        description: The workflow of the caller that publishes the site
+        required: true
+        type: string
+      subordinate_purposes:
+        description: >-
+          The subordinate purposes of a root step, separated by spaces. A root
+          step binds each key of them again, per WEB-TRUST-7.
+        required: false
+        type: string
+        default: ""
+      email:
+        description: The address of an OpenPGP mint
+        required: false
+        type: string
+        default: ""
+      expires:
+        description: The expiry date of an OpenPGP mint
+        required: false
+        type: string
+        default: ""
+      file:
+        description: The public key file of an import
+        required: false
+        type: string
+        default: ""
+
+    # WEB-ACTIONS-2. A caller declares the new key with these facts,
+    # so it reads none of them from the tree.
+    outputs:
+      name:
+        description: The file name of the key of this step
+        value: ${{ jobs.rotate.outputs.name }}
+      stem:
+        description: The name of the key file without its extension
+        value: ${{ jobs.rotate.outputs.stem }}
+      serial:
+        description: The serial of the key inside its purpose
+        value: ${{ jobs.rotate.outputs.serial }}
+      status:
+        description: The status of the key after the step
+        value: ${{ jobs.rotate.outputs.status }}
+      retired:
+        description: The file name of the key that a promote retired
+        value: ${{ jobs.rotate.outputs.retired }}
+      digest:
+        description: The SHA-256 digest of a new key file
+        value: ${{ jobs.rotate.outputs.digest }}
+      url:
+        description: The published URL of a new key file
+        value: ${{ jobs.rotate.outputs.url }}
+
+# WEB-ACTIONS-14. permissions, concurrency and secrets: inherit stay
+# in the caller. A called job cannot widen either one, and the caller
+# holds the trigger that needs them.
+
+jobs:
+  rotate:
+    name: Rotate
+    runs-on: ubuntu-latest
+    # WEB-ACTIONS-14. The environment binds here, from the input. The
+    # App secrets live in it, and a job without the binding reads
+    # neither one.
+    environment: ${{ inputs.environment }}
+
+    outputs:
+      name: ${{ steps.verb.outputs.name }}
+      stem: ${{ steps.verb.outputs.stem }}
+      serial: ${{ steps.verb.outputs.serial }}
+      status: ${{ steps.verb.outputs.status }}
+      retired: ${{ steps.verb.outputs.retired }}
+      digest: ${{ steps.verb.outputs.digest }}
+      url: ${{ steps.verb.outputs.url }}
+
+    steps:
+      # The guard runs first, so an input that this workflow cannot
+      # serve reaches no credential. Each word below becomes part of
+      # a secret name, a key file name or a path.
+      - name: Refuse an input that this workflow cannot serve
+        env:
+          STEP: ${{ inputs.step }}
+          PURPOSE: ${{ inputs.purpose }}
+          TYPE: ${{ inputs.type }}
+          PREFIX: ${{ inputs.secret_prefix }}
+          OWNER: ${{ inputs.owner }}
+          DIRECTORY: ${{ inputs.directory }}
+          SUBORDINATE: ${{ inputs.subordinate_purposes }}
+          FILE: ${{ inputs.file }}
+          URL: ${{ inputs.url }}
+          WORKFLOW: ${{ inputs.publish_workflow }}
+        run: |
+          # The guard splits each list into words, so pathname
+          # expansion stays off and no word becomes a file name.
+          set -f
+          fault=""
+
+          case "$STEP" in
+            mint | import | promote) ;;
+            *) fault="the step $STEP is not mint, import or promote" ;;
+          esac
+
+          # A required input takes an empty value. The loop below
+          # reads the words of a value, and an empty value holds no
+          # word. The purpose becomes a field of each secret name,
+          # and of each key file name.
+          if [ -z "$PURPOSE" ]; then
+            fault="the purpose is empty"
+          fi
+
+          for word in $PURPOSE $SUBORDINATE; do
+            case "$word" in
+              [a-z] | [a-z][a-z0-9-]*) ;;
+              *) fault="the purpose $word is no lower-case word" ;;
+            esac
+          done
+
+          case "$PREFIX" in
+            [A-Z] | [A-Z][A-Z0-9_]*) ;;
+            *) fault="the secret prefix $PREFIX is no upper-case word" ;;
+          esac
+
+          case "$OWNER" in
+            [A-Za-z0-9] | [A-Za-z0-9][A-Za-z0-9-]*) ;;
+            *) fault="the owner $OWNER is no organization name" ;;
+          esac
+
+          case "$DIRECTORY" in
+            /* | *..*) fault="the directory $DIRECTORY leaves the tree" ;;
+            "") fault="the directory is empty" ;;
+          esac
+
+          # The URL reaches curl and the workflow name reaches gh. A
+          # value that opens with a dash becomes a flag of the
+          # command, and the command then reads no such argument.
+          case "$URL" in
+            -*) fault="the url $URL opens with a dash" ;;
+          esac
+
+          case "$WORKFLOW" in
+            -*) fault="the publish workflow $WORKFLOW opens with a dash" ;;
+          esac
+
+          # An import publishes a key that another tool made, so it
+          # reads one file. Every other step makes the key itself.
+          if [ "$STEP" = import ] && [ -z "$FILE" ]; then
+            fault="an import needs the public key file"
+          fi
+          if [ "$STEP" != import ] && [ -n "$FILE" ]; then
+            fault="a $STEP reads no public key file"
+          fi
+
+          # WEB-ROTATE-1. mint-key and import-key declare --type, and
+          # promote-key declares none: a promote takes the type of
+          # the key that it promotes.
+          if [ "$STEP" = promote ] && [ -n "$TYPE" ]; then
+            fault="a promote reads no key type"
+          fi
+
+          # WEB-TRUST-7. A first root mint and a root promote write
+          # the binding of each subordinate key again. No step of
+          # another purpose writes one, so a subordinate list there
+          # names work that no step of this run does.
+          if [ "$PURPOSE" != root ] && [ -n "$SUBORDINATE" ]; then
+            fault="a step of $PURPOSE binds no subordinate purpose"
+          fi
+
+          if [ -n "$fault" ]; then
+            echo "keys-rotate: $fault" >&2
+            exit 1
+          fi
+
+      - name: Checkout
+        # v4.4.0. WEB-ACTIONS-11 pins each action of another owner to
+        # a commit, because this job runs beside a private key.
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+
+      # WEB-ACTIONS-5. The install comes from the deps manifest of the
+      # caller, which pins each release, and this workflow installs
+      # nothing of its own. It runs before the token step, so no
+      # unpinned code runs beside a credential.
+      - name: Install the dependencies
+        run: |
+          make deps
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          # cpanm with no root writes to the default local library of
+          # the user, and PATH does not hold its bin directory. With
+          # root it writes to /usr/local/bin, which PATH holds
+          # already, so the extra entry is harmless.
+          echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
+
+      # The install must leave fuguweb on PATH. A run that found no
+      # command would fail many steps later, with a key already made.
+      - name: Confirm that fuguweb runs
+        run: fuguweb --help >/dev/null
+
+      # A GITHUB_TOKEN writes no organization secret, so the App of
+      # the caller does. An installation token lives an hour, so a
+      # leak expires and no expiry date can be missed.
+      - name: Mint an installation token
+        id: app
+        # v3.2.0. WEB-ACTIONS-11.
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
+        with:
+          app-id:
+            ${{ fromJSON(toJSON(secrets))[format('{0}_APP_ID',
+            inputs.secret_prefix)] }}
+          private-key:
+            ${{ fromJSON(toJSON(secrets))[format('{0}_APP_PRIVATE_KEY',
+            inputs.secret_prefix)] }}
+          owner: ${{ inputs.owner }}
+
+      # A token with no organization permission fails at the secret
+      # write, and that message names neither the App nor the absent
+      # permission. The report therefore comes first, and it prints no
+      # token.
+      - name: Report the reach of the token
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+        run: |
+          gh api /installation/repositories --jq \
+            '"repositories: " + ([.repositories[].full_name] | join(", "))'
+
+      # WEB-ACTIONS-6. Both slots of the purpose become files: the
+      # active one holds the current key, and the idle one holds the
+      # next key. A mint signs with the current root, and a promote
+      # retires the current key of its purpose.
+      - name: Read the slot of the purpose
+        id: slot
+        uses: FuguBSD/FuguWeb/actions/keys-slot@main
+        with:
+          purpose: ${{ inputs.purpose }}
+          secret-prefix: ${{ inputs.secret_prefix }}
+          owner: ${{ inputs.owner }}
+          token: ${{ steps.app.outputs.token }}
+          secrets: ${{ toJSON(secrets) }}
+          work: ${{ runner.temp }}/keys
+
+      # The current root key signs the manifest of every step of a
+      # subordinate purpose, per WEB-TRUST-2. A root step reads that
+      # slot above, so this step serves another purpose only.
+      - name: Read the root slot
+        if: inputs.purpose != 'root'
+        uses: FuguBSD/FuguWeb/actions/keys-slot@main
+        with:
+          purpose: root
+          secret-prefix: ${{ inputs.secret_prefix }}
+          owner: ${{ inputs.owner }}
+          token: ${{ steps.app.outputs.token }}
+          secrets: ${{ toJSON(secrets) }}
+          work: ${{ runner.temp }}/keys
+
+      # WEB-TRUST-7. A first root mint and a root promote write the
+      # binding of each current and next subordinate key again, so
+      # each of those private halves reaches the verb as a file. The
+      # action takes the whole list, and one place therefore reads a
+      # slot, per WEB-ACTIONS-3.
+      #
+      # WEB-ACTIONS-6. A root step binds each subordinate key again on
+      # one condition: a root promote, or a first root mint, which
+      # finds no root slot. Every other root step binds nothing, and
+      # it therefore writes no subordinate private key to disk.
+      - name: Read the slot of each subordinate purpose
+        if: >-
+          inputs.purpose == 'root' && inputs.subordinate_purposes != '' &&
+          (inputs.step == 'promote' || steps.slot.outputs.active == '')
+        uses: FuguBSD/FuguWeb/actions/keys-slot@main
+        with:
+          purpose: ${{ inputs.subordinate_purposes }}
+          secret-prefix: ${{ inputs.secret_prefix }}
+          owner: ${{ inputs.owner }}
+          token: ${{ steps.app.outputs.token }}
+          secrets: ${{ toJSON(secrets) }}
+          work: ${{ runner.temp }}/keys
+
+      # WEB-ROTATE-6, WEB-TRUST-2 and WEB-TRUST-7. A first root mint
+      # and a root promote sign with the root key of this run, and
+      # they write the binding of each subordinate key again. Every
+      # other root step signs with the current root and binds nothing.
+      #
+      # This step answers which of the two the run is, and the verb
+      # step below reads that one answer.
+      - name: Name the bound keys of a root step
+        id: bind
+        if: inputs.purpose == 'root'
+        env:
+          WORK: ${{ runner.temp }}/keys
+          STEP: ${{ inputs.step }}
+          SUBORDINATE: ${{ inputs.subordinate_purposes }}
+        run: |
+          # The step splits the purpose list into words, so pathname
+          # expansion stays off and no word becomes a file name.
+          set -f
+          umask 077
+          : > "$WORK/bind.args"
+
+          if [ "$STEP" != promote ] && [ -s "$WORK/root-active.sec" ]; then
+            # The step above reads no subordinate slot on this
+            # condition, so the run drops the list. It says so, and a
+            # caller that expected each binding reads the reason.
+            if [ -n "$SUBORDINATE" ]; then
+              echo "keys-rotate: the root key of the current slot" \
+                "signs this $STEP, and the step binds no key of:" \
+                "$SUBORDINATE"
+            fi
+            echo "bind=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "bind=yes" >> "$GITHUB_OUTPUT"
+
+          # WEB-ROTATE-4. The description carries the status of each
+          # key, and the verb reads it from there as well. The block
+          # below reads the cases that a key block takes: a # opens a
+          # comment, each end of the line loses its whitespace, and a
+          # value loses its quotation marks. The two key patterns are
+          # the two block name forms of _with_statuses in Rotate.pm,
+          # which rewrites the status of each key of a step.
+          #
+          # Fugu::Config reads more than these two forms: _parse_header
+          # takes a block header of several arguments, and reads the
+          # last one as the name. Neither pattern below matches such a
+          # header, and neither does _with_statuses.
+          statuses=$(awk '
+            {
+              line = $0
+              sub(/#.*/, "", line)
+              sub(/^[[:space:]]+/, "", line)
+              sub(/[[:space:]]+$/, "", line)
+            }
+            line == "}" {
+              stem = ""
+              next
+            }
+            line ~ /^key[[:space:]]+"[^"]*"[[:space:]]*\{$/ {
+              stem = line
+              sub(/^key[[:space:]]+"/, "", stem)
+              sub(/"[[:space:]]*\{$/, "", stem)
+              next
+            }
+            line ~ /^key[[:space:]]+[^"[:space:]]+[[:space:]]*\{$/ {
+              stem = line
+              sub(/^key[[:space:]]+/, "", stem)
+              sub(/[[:space:]]*\{$/, "", stem)
+              next
+            }
+            stem != "" && line ~ /^status[[:space:]=]/ {
+              value = line
+              sub(/^status[[:space:]]*=?[[:space:]]*/, "", value)
+              if (value ~ /^".*"$/) {
+                sub(/^"/, "", value)
+                sub(/"$/, "", value)
+              }
+              print stem "\t" value
+              stem = ""
+            }
+          ' .fuguwebrc)
+
+          # A key stem is <org>-<serial>-<purpose>, and the step above
+          # wrote the two slot files of each subordinate purpose. The
+          # org word and the serial hold no hyphen, and a purpose word
+          # does, so the match drops the two leading fields and holds
+          # the rest against the whole purpose. A suffix match would
+          # give the key of pre-release to the purpose release.
+          for purpose in $SUBORDINATE; do
+            while IFS=$'\t' read -r stem status; do
+              case "$stem" in
+                *-*-*) ;;
+                *) continue ;;
+              esac
+              rest="${stem#*-}"
+              if [ "${rest#*-}" != "$purpose" ]; then
+                continue
+              fi
+              case "$status" in
+                current) role=active ;;
+                next) role=idle ;;
+                *) continue ;;
+              esac
+
+              if [ ! -s "$WORK/$purpose-$role.sec" ]; then
+                echo "keys-rotate: the $role slot of $purpose holds" \
+                  "no key, and the step binds $stem again" >&2
+                exit 1
+              fi
+
+              printf '%s=%s\n' "$stem" "$WORK/$purpose-$role.sec" \
+                >> "$WORK/bind.args"
+            done <<< "$statuses"
+          done
+
+      # fuguweb holds every trust rule of the step, per WEB-ROTATE and
+      # WEB-TRUST. Exit code 6 means that a tool of the key type is
+      # absent, and 1 means that the step failed.
+      #
+      # WEB-ROTATE-13. The verb prints one name=value line for each
+      # fact, so the redirect makes each one a step output.
+      - name: Run the rotation step
+        id: verb
+        env:
+          WORK: ${{ runner.temp }}/keys
+          STEP: ${{ inputs.step }}
+          PURPOSE: ${{ inputs.purpose }}
+          TYPE: ${{ inputs.type }}
+          ORG: ${{ inputs.org }}
+          URL: ${{ inputs.url }}
+          DIRECTORY: ${{ inputs.directory }}
+          EMAIL: ${{ inputs.email }}
+          EXPIRES: ${{ inputs.expires }}
+          FILE: ${{ inputs.file }}
+          BIND: ${{ steps.bind.outputs.bind }}
+        run: |
+          root="$WORK/root-active.sec"
+          args=(--purpose "$PURPOSE")
+
+          # WEB-ROTATE-1. mint-key and import-key declare --type, and
+          # promote-key declares none. The guard step refuses a
+          # promote that names a type, so this value is empty there.
+          if [ -n "$TYPE" ]; then
+            args+=(--type "$TYPE")
+          fi
+
+          # WEB-ROTATE-6 and WEB-TRUST-2. A step of a subordinate
+          # purpose signs the manifest with the current root. A root
+          # step that binds signs with the root key of this run: a
+          # first mint with the key that it makes, and a promote with
+          # the key that it makes current. Neither one takes a
+          # signer, and the step above answers which run this is.
+          bind="${BIND:-no}"
+          signer=yes
+          if [ "$bind" = yes ]; then
+            signer=no
+          fi
+
+          case "$STEP" in
+            mint)
+              # WEB-ROTATE-18. The verb refuses a path that stands,
+              # because a rotation cannot make a private half again.
+              args+=(--secret "$WORK/new.sec")
+              # WEB-KEYS-5 and WEB-ROTATE-15. The description names
+              # the directory once it holds a keys block, and these
+              # three words bootstrap the block of a first key.
+              args+=(--org "$ORG" --dir "$(basename "$DIRECTORY")")
+              args+=(--url "$URL")
+              # WEB-OPENPGP-1 and WEB-OPENPGP-3. An OpenPGP mint
+              # takes an address and an expiry date.
+              if [ -n "$EMAIL" ]; then
+                args+=(--email "$EMAIL")
+              fi
+              if [ -n "$EXPIRES" ]; then
+                args+=(--expires "$EXPIRES")
+              fi
+              ;;
+            import)
+              # WEB-X509-2. The caller holds the private half of a
+              # key that another tool made, in the idle slot.
+              #
+              # WEB-ACTIONS-6. A slot that holds nothing leaves an
+              # empty file, and the verb would read one as a key, so
+              # the step names the empty slot first.
+              if [ ! -s "$WORK/$PURPOSE-idle.sec" ]; then
+                echo "keys-rotate: the idle slot of $PURPOSE holds no" \
+                  "key, and an import publishes a key that the caller" \
+                  "holds already" >&2
+                exit 1
+              fi
+              args+=(--file "$FILE" --secret "$WORK/$PURPOSE-idle.sec")
+              args+=(--org "$ORG" --dir "$(basename "$DIRECTORY")")
+              args+=(--url "$URL")
+              ;;
+            promote)
+              # WEB-TRUST-4. The retiring key signs the public key
+              # file of the key that becomes current.
+              if [ ! -s "$WORK/$PURPOSE-active.sec" ]; then
+                echo "keys-rotate: the active slot of $PURPOSE holds" \
+                  "no key, and the retiring key writes the chain" \
+                  "binding" >&2
+                exit 1
+              fi
+              args+=(--retiring "$WORK/$PURPOSE-active.sec")
+              if [ "$signer" = no ]; then
+                if [ ! -s "$WORK/$PURPOSE-idle.sec" ]; then
+                  echo "keys-rotate: the idle slot of $PURPOSE holds" \
+                    "no key to promote" >&2
+                  exit 1
+                fi
+                args+=(--secret "$WORK/$PURPOSE-idle.sec")
+              fi
+              ;;
+          esac
+
+          if [ "$signer" = yes ]; then
+            if [ ! -s "$root" ]; then
+              echo "keys-rotate: the root slot holds no key, and this" \
+                "step signs the manifest with the current root" >&2
+              exit 1
+            fi
+            args+=(--signer "$root")
+          fi
+
+          if [ "$bind" = yes ]; then
+            while IFS= read -r pair; do
+              args+=(--bind "$pair")
+            done < "$WORK/bind.args"
+          fi
+
+          fuguweb "$STEP-key" "${args[@]}" >> "$GITHUB_OUTPUT"
+
+      # WEB-ACTIONS-7. The runner redacts the key from every later
+      # line of the log, whatever a command prints.
+      - name: Mask the new private key
+        if: inputs.step == 'mint'
+        env:
+          WORK: ${{ runner.temp }}/keys
+        run: |
+          while read -r line; do
+            if [ -n "$line" ]; then
+              echo "::add-mask::$line"
+            fi
+          done < "$WORK/new.sec"
+
+      # WEB-ACTIONS-7. The new private key reaches the idle slot
+      # before the commit, so no published key lacks its private half.
+      - name: Store the new private key
+        if: inputs.step == 'mint'
+        uses: FuguBSD/FuguWeb/actions/keys-store@main
+        with:
+          purpose: ${{ inputs.purpose }}
+          secret-prefix: ${{ inputs.secret_prefix }}
+          owner: ${{ inputs.owner }}
+          token: ${{ steps.app.outputs.token }}
+          slot: ${{ steps.slot.outputs.idle }}
+          file: ${{ runner.temp }}/keys/new.sec
+          visibility: ${{ inputs.visibility }}
+
+      - name: Commit the key directory
+        env:
+          DIRECTORY: ${{ inputs.directory }}
+          NAME: ${{ steps.verb.outputs.name }}
+          STEP: ${{ inputs.step }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .fuguwebrc "$DIRECTORY"
+          git commit -m "feat(keys): $STEP $NAME"
+          git push origin "HEAD:$BRANCH"
+
+      # WEB-ACTIONS-8. GitHub raises no workflow run from a push that
+      # GITHUB_TOKEN makes, so the publish never starts by itself.
+      # workflow_dispatch is the one event that the token can raise.
+      #
+      # The step watches no run. A run identifier is a race: the
+      # publish holds a concurrency group, so GitHub can cancel a
+      # queued run, and another run then publishes the same commit.
+      # The step below reads the site itself.
+      - name: Publish the site
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WORKFLOW: ${{ inputs.publish_workflow }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          gh workflow run "$WORKFLOW" \
+            --repo "$GITHUB_REPOSITORY" --ref "$BRANCH"
+
+      # WEB-ACTIONS-7. The variable moves only after the site serves
+      # every file that this run wrote, byte for byte. A consumer
+      # fetches these bytes, so a cache that answers with stale bytes
+      # is a failure of this run.
+      #
+      # The list comes from the commit above, so it holds each key
+      # file and each binding that the step wrote, and no more.
+      - name: Confirm the published site serves what this run wrote
+        env:
+          DIRECTORY: ${{ inputs.directory }}
+          URL: ${{ inputs.url }}
+        run: |
+          # The step splits the list into words, so pathname
+          # expansion stays off and no name becomes another file.
+          set -f
+          files=$(git diff --name-only --diff-filter=d HEAD^ HEAD \
+            -- "$DIRECTORY")
+
+          # WEB-ACTIONS-7. The variable moves on the proof of this
+          # step, and an empty list proves nothing.
+          if [ -z "$files" ]; then
+            echo "keys-rotate: the commit wrote no file of" \
+              "$DIRECTORY, and this step proves nothing" >&2
+            exit 1
+          fi
+
+          for _ in $(seq 1 40); do
+            stale=""
+            for file in $files; do
+              url="$URL/$(basename "$file")"
+              code=$(curl -sS -H 'Cache-Control: no-cache' \
+                -o "$RUNNER_TEMP/served" -w '%{http_code}' "$url" || true)
+              if [ "$code" != 200 ]; then
+                stale="$file answers $code"
+                break
+              fi
+              if ! cmp -s "$RUNNER_TEMP/served" "$file"; then
+                stale="$file answers 200 with other bytes"
+                break
+              fi
+            done
+
+            if [ -z "$stale" ]; then
+              echo "the site serves every file that this run wrote"
+              exit 0
+            fi
+
+            echo "$stale"
+            sleep 20
+          done
+
+          echo "keys-rotate: the site never served what this run" \
+            "wrote: $stale" >&2
+          exit 1
+
+      # WEB-ACTIONS-7. The variable moves last of all. Every reader of
+      # the slot reads it, so a run that moved it earlier and then
+      # failed would name a key that the site does not serve.
+      #
+      # A promote makes the key of the idle slot current. A first step
+      # of a purpose finds no active slot, and it also names the slot
+      # that it wrote. Every other mint leaves the variable for the
+      # promote, so the current key stays current and a consumer that
+      # holds the old public key can still verify a release.
+      - name: Move the slot variable
+        if: inputs.step == 'promote' || steps.slot.outputs.active == ''
+        uses: FuguBSD/FuguWeb/actions/keys-store@main
+        with:
+          purpose: ${{ inputs.purpose }}
+          secret-prefix: ${{ inputs.secret_prefix }}
+          owner: ${{ inputs.owner }}
+          token: ${{ steps.app.outputs.token }}
+          slot: ${{ steps.slot.outputs.idle }}
+          visibility: ${{ inputs.visibility }}
+          move: "yes"
+
+      # WEB-ACTIONS-12. Every private key file of the run lives in
+      # this directory, and it goes whatever the outcome of the run.
+      - name: Remove the working directory
+        if: always()
+        env:
+          WORK: ${{ runner.temp }}/keys
+        run: rm -rf "$WORK"

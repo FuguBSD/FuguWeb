@@ -368,9 +368,12 @@ input, so an organization keeps the names that it has.
 - **WEB-ACTIONS-2** — The workflow must output each fact of WEB-ROTATE-13, and
   the digest and the URL of a new key file. A caller declares the key with them.
 - **WEB-ACTIONS-3** — Two composite actions must hold the slots.
-  `actions/keys-slot` reads the slot variable of one purpose and writes the
-  working key files. `actions/keys-store` writes a secret from a file and moves
-  the variable. A caller can compose the two on its own.
+  `actions/keys-slot` reads the slot variable of each purpose that the caller
+  names, and writes the working key files. `actions/keys-store` writes a secret
+  from a file and moves the variable. A caller can compose the two on its own.
+  One place must read a slot variable, and the workflow must read none itself.
+  The `active` and `idle` outputs of `actions/keys-slot` must answer the first
+  purpose of the list.
 - **WEB-ACTIONS-4** — Each secret must reach a step through the environment, and
   never through the script text. The workflow must read a secret by a name that
   an input forms, through the JSON form of the `secrets` context.
@@ -379,8 +382,10 @@ input, so an organization keeps the names that it has.
   pins. It must install nothing of its own. Each install must run before the
   step that mints a token.
 - **WEB-ACTIONS-6** — The workflow must read the root slot, the purpose slot,
-  and the retiring key. It must give each one to the verb as a file. A slot that
-  holds nothing must leave an empty file.
+  and the retiring key. A root step that binds each subordinate key again must
+  also read the slot of each subordinate purpose. Every other step must read
+  none of them. It must give each slot to the verb as a file. A slot that holds
+  nothing must leave an empty file.
 - **WEB-ACTIONS-7** — The workflow must mask each new private key, and must
   write it into the idle slot before it commits. It must move the variable last,
   after the published site serves each file that the run wrote, byte for byte.

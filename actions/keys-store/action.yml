@@ -1,0 +1,113 @@
+name: Store a key slot
+description: >-
+  Write the private half of a key into the idle slot of a purpose, and move the
+  slot variable when the caller asks.
+
+# WEB-ACTIONS-3 and WEB-ACTIONS-7. A rotation writes the new private
+# key into the idle slot before it commits, and it moves the variable
+# last of all. The two writes are therefore two calls of this action:
+# the first names a file, and the second asks for the move.
+#
+# The token comes from the caller. A GITHUB_TOKEN writes no
+# organization secret, so the caller mints a GitHub App token.
+
+inputs:
+  purpose:
+    description: The purpose word of the key, for example release
+    required: true
+  secret-prefix:
+    description: The first field of each secret name and of the variable
+    required: true
+  owner:
+    description: The organization that holds the secrets and the variable
+    required: true
+  token:
+    description: A token that writes an organization secret and variable
+    required: true
+  slot:
+    description: The slot letter that takes the key, A or B
+    required: true
+  file:
+    description: The private key file to store. An empty value stores none.
+    required: false
+    default: ""
+  visibility:
+    description: >-
+      The repositories that read the secret, separated by commas. An empty value
+      gives it to every repository of the organization.
+    required: false
+    default: ""
+  move:
+    description: Move the slot variable to the slot letter, yes or no
+    required: false
+    default: "no"
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        PURPOSE: ${{ inputs.purpose }}
+        PREFIX: ${{ inputs.secret-prefix }}
+        OWNER: ${{ inputs.owner }}
+        GH_TOKEN: ${{ inputs.token }}
+        SLOT: ${{ inputs.slot }}
+        FILE: ${{ inputs.file }}
+        VISIBILITY: ${{ inputs.visibility }}
+        MOVE: ${{ inputs.move }}
+      run: |
+        # The $scope value below reaches gh unquoted, and the shell
+        # splits it into words. Pathname expansion stays off, so no
+        # word of it becomes a file name.
+        set -f
+
+        if [ -z "$SLOT" ]; then
+          echo "keys-store: the slot letter is empty" >&2
+          exit 1
+        fi
+
+        # The list names the repositories with commas between them,
+        # and it reaches gh as one word. The first pattern refuses a
+        # space with every other character that no repository name
+        # takes, and a value that opens with a dash becomes a flag of
+        # the command.
+        case "$VISIBILITY" in
+          *[!A-Za-z0-9._/,-]*)
+            echo "keys-store: the visibility list holds a character" \
+              "that no repository name takes" >&2
+            exit 1
+            ;;
+          -*)
+            echo "keys-store: the visibility list opens with a dash" >&2
+            exit 1
+            ;;
+        esac
+
+        upper=$(printf '%s' "$PURPOSE" | tr '[:lower:]-' '[:upper:]_')
+
+        # One visibility governs the secret and the variable, so a
+        # reader of the variable also reads the secret that it names.
+        if [ -n "$VISIBILITY" ]; then
+          scope="--visibility selected --repos $VISIBILITY"
+        else
+          scope="--visibility all"
+        fi
+
+        # gh secret set has no file flag. It reads the value from
+        # standard input, and a redirect keeps the key off the command
+        # line, where the process table shows it.
+        if [ -n "$FILE" ]; then
+          if [ ! -s "$FILE" ]; then
+            echo "keys-store: $FILE holds no key" >&2
+            exit 1
+          fi
+          # shellcheck disable=SC2086
+          gh secret set "${PREFIX}_${upper}_KEY_$SLOT" \
+            --org "$OWNER" $scope < "$FILE"
+        fi
+
+        if [ "$MOVE" = yes ]; then
+          # shellcheck disable=SC2086
+          gh variable set "${PREFIX}_${upper}_SLOT" \
+            --org "$OWNER" $scope --body "$SLOT"
+        fi
