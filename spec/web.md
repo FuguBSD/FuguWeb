@@ -225,11 +225,11 @@ the retention rule, and one signer and one verifier for each key type. The
 renderer and the verbs hold the wiring only.
 
 - **WEB-TRUST-1** — Each key directory must hold exactly one `current` key of
-  the purpose `root`, and that key must be a signify key. A step of the root
-  purpose must refuse a key of another type, and it must refuse before it
-  generates one. A directory with no key is the one exception. The first mint of
-  the root purpose must accept a directory whose keys hold no root, and must
-  bind each of them per WEB-TRUST-7.
+  the purpose `root`, and that key must be a signify key. A mint and an import
+  of the root purpose must refuse a key of another type. The mint must refuse
+  before it generates one. A directory with no key is the one exception. The
+  first mint of the root purpose must accept a directory whose keys hold no
+  root, and must bind each of them per WEB-TRUST-7.
 - **WEB-TRUST-2** — The current root key must sign `SHA256`, and no other key
   must sign it. A step of a subordinate purpose must take the private half of
   the current root as `--signer`.
@@ -291,10 +291,12 @@ library holds each call, and the verbs hold the wiring.
 - **WEB-OPENPGP-4** — The check must report a `current` or `next` OpenPGP key
   whose expiry has passed. It must report a `current` key that expires within 30
   days, when its purpose holds no `next` key. A step of the rotation must not
-  fail for either report. An expired `current` key stays `current` until a
-  promote retires it, so the mint that the promote needs could never be made.
-  The 30-day report reads the whole directory, so it would fail a step of
-  another purpose, and that step cannot answer it.
+  fail for either report. An expired `current` key stays `current`, so a step
+  that failed for that report could never mint the successor. The 30-day report
+  reads the whole directory, so it would fail a step of another purpose, and
+  that step cannot answer it. A promote of an expired OpenPGP key fails in the
+  signer. WEB-TRUST-4 makes the retiring key sign the chain binding, and gpg(1)
+  signs nothing with an expired key.
 - **WEB-OPENPGP-5** — A binding by an OpenPGP key must be an armored detached
   signature. The verifier must import the one public key of the signer into an
   empty home, and a signature of another key must fail.

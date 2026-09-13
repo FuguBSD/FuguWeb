@@ -811,8 +811,13 @@ subtest 'a mint guards the options of its key type' => sub {
 			);
 			1;
 		};
+
+		# $@ is global, and each statement after the eval can
+		# clear it. The reason is read here, so the
+		# diagnostic holds the croak of the date.
+		my $died = $@;
 		ok( $lived, "the expiry date $bad gives a reason and no die" )
-		    or diag($@);
+		    or diag($died);
 		ok( !$facts, "the expiry date $bad fails" );
 		like(
 			$error,
@@ -822,22 +827,26 @@ subtest 'a mint guards the options of its key type' => sub {
 	}
 
 	# WEB-OPENPGP-3. February holds 29 days in a leap year, so
-	# this date passes the guard. The step then fails on the
-	# secret path, which stands already, and it generates nothing.
-	( $facts, $error ) = _mint(
-		$root,
-		type    => 'openpgp',
-		email   => $EMAIL,
-		expires => '2060-02-29',
-		secret  => "$root/rel1.sec",
-		signer  => "$root/root1.sec"
-	);
-	ok( !$facts, 'the leap day of a leap year passes the date guard' );
-	like(
-		$error,
-		qr/^\Q$root\E\/rel1[.]sec stands already, and a mint writes/,
-		'and the step fails on the secret path instead'
-	);
+	# each of these dates passes the guard. The four year rule
+	# makes 2060 a leap year, and the 400 year clause makes 2400
+	# one. The step then fails on the secret path, which stands
+	# already, and it generates nothing.
+	for my $leap (qw(2060-02-29 2400-02-29)) {
+		( $facts, $error ) = _mint(
+			$root,
+			type    => 'openpgp',
+			email   => $EMAIL,
+			expires => $leap,
+			secret  => "$root/rel1.sec",
+			signer  => "$root/root1.sec"
+		);
+		ok( !$facts, "the leap day $leap passes the date guard" );
+		like(
+			$error,
+			qr/^\Q$root\E\/rel1[.]sec stands already, and a mint writes/,
+			'and the step fails on the secret path instead'
+		);
+	}
 
 	# WEB-OPENPGP-3. A key that expired already signs nothing, so
 	# the step refuses the day of the run and each earlier date.
@@ -860,6 +869,31 @@ subtest 'a mint guards the options of its key type' => sub {
 			'and the reason names the date of the caller'
 		);
 	}
+
+	# WEB-OPENPGP-3. The day after the run is the nearest date
+	# that the guard accepts. The test reads the clock, and the
+	# guard reads it again, so the case runs once more when the
+	# UTC day moves between the two reads.
+	my ( $day, $tomorrow );
+	do {
+		($day)      = _utc_day(0);
+		($tomorrow) = _utc_day(1);
+		( $facts, $error ) = _mint(
+			$root,
+			type    => 'openpgp',
+			email   => $EMAIL,
+			expires => $tomorrow,
+			secret  => "$root/rel1.sec",
+			signer  => "$root/root1.sec"
+		);
+	} while ( ( _utc_day(0) )[0] ne $day );
+
+	ok( !$facts, "the expiry date $tomorrow passes the date guard" );
+	like(
+		$error,
+		qr/^\Q$root\E\/rel1[.]sec stands already, and a mint writes/,
+		'and the step fails on the secret path instead'
+	);
 
 	# WEB-TRUST-1. The root of trust is a signify key, and no
 	# later read of a step holds a root to that type. This key
@@ -937,10 +971,10 @@ subtest 'the check reports a current OpenPGP key that expires soon' => sub {
 	my ($first) = _root( $root, secret => "$root/root1.sec" );
 	ok( $first, 'the first root mint succeeds' ) or return;
 
-	# The bar is 30 days, and these two dates bracket it. The
-	# start of the day 30 days out is never later than 30 days
-	# from now, and the start of the day 31 days out is always
-	# later, so neither date depends on the hour of the run.
+	# The bar is 30 days, and this date stands inside it at every
+	# hour. The start of the day 30 days out is never later than
+	# 30 days from now, and a UTC midnight between the mint and
+	# the check brings it nearer.
 	my ($soon)  = _utc_day(30);
 	my $rotate  = _rotate($root);
 	my $current = $rotate->mint(
@@ -964,9 +998,13 @@ subtest 'the check reports a current OpenPGP key that expires soon' => sub {
 	);
 
 	# The other side of the bar. This key is current, its purpose
-	# holds no next key, and it stands one day outside the bar, so
-	# it adds no problem.
-	my ($edge) = _utc_day(31);
+	# holds no next key, and it stands outside the bar, so it adds
+	# no problem. The mint reads the clock, and the check reads it
+	# again: a run that crosses UTC midnight between the two
+	# brings the key one day nearer. The start of the day 32 days
+	# out therefore stands more than 30 days from the check at
+	# every hour, and the answer never depends on the hour.
+	my ($edge) = _utc_day(32);
 	$rotate = _rotate($root);
 	my $outside = $rotate->mint(
 		purpose => 'notify',
@@ -985,7 +1023,7 @@ subtest 'the check reports a current OpenPGP key that expires soon' => sub {
 	like(
 		$problems[0],
 		qr{^keys/fugubsd-1-contact[.]asc: },
-		'and a key one day outside the bar adds none'
+		'and a key outside the bar adds none'
 	);
 
 	# A step reads its own work back, and it must not fail for

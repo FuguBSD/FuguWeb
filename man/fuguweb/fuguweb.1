@@ -215,7 +215,6 @@ Publish a key that another tool made, under the next name of the
 purpose.
 The command takes
 .Fl Fl purpose ,
-.Fl Fl secret ,
 .Fl Fl signer
 and
 .Fl Fl bind
@@ -240,8 +239,15 @@ block takes one from
 and
 .Fl Fl url ,
 as a mint does.
-It writes no key file of its own: the caller holds the private half,
-which signs the binding of the new key.
+.Fl Fl secret
+names the private half of the key in
+.Fl Fl file ,
+and that file must stand.
+The command writes no key file of its own, and that private half
+signs the binding of the new key.
+A mint refuses a
+.Fl Fl secret
+that stands already, because a mint writes one.
 See
 .Sx KEY ROTATION .
 .It Xo Cm promote-key
@@ -692,10 +698,9 @@ key, because one rotation runs in two steps.
 A key with no expiry reaches neither rule.
 .Pp
 A key verb does not fail for either report, so
-.Cm mint-key ,
-.Cm import-key
+.Cm mint-key
 and
-.Cm promote-key
+.Cm import-key
 each run on a directory that
 .Cm check
 rejects for an expiry.
@@ -709,6 +714,14 @@ The 30-day report reads the whole directory, so it would fail a step
 of another purpose, which writes no
 .Cm next
 key of the purpose that the report names.
+.Pp
+.Cm promote-key
+fails when the key that retires is an OpenPGP key whose expiry
+passed.
+That key signs the chain binding, and
+.Xr gpg 1
+signs nothing with an expired key.
+Promote the successor before the current key expires.
 .Sh KEY ROTATION
 A consumer verifies a release against the copy of the public key that
 it holds.
@@ -721,10 +734,12 @@ word is
 .Cm root .
 The current root key signs the manifest, and every other key binds to
 it.
-A step of the
+.Cm mint-key
+and
+.Cm import-key
+refuse a key of another type for the
 .Cm root
-purpose refuses a key of another type, and it refuses before it
-generates one.
+purpose, and the mint refuses before it generates one.
 Every step takes the private half of the current root as
 .Fl Fl signer ,
 with two exceptions below.
