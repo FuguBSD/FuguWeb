@@ -43,7 +43,9 @@ on:
         required: true
         type: string
       type:
-        description: The key type. An empty value takes the default of the verb.
+        description: >-
+          The key type of a mint or an import. An empty value takes the default
+          of the verb, and a promote must take an empty value.
         required: false
         type: string
         default: ""
@@ -166,6 +168,8 @@ jobs:
           DIRECTORY: ${{ inputs.directory }}
           SUBORDINATE: ${{ inputs.subordinate_purposes }}
           FILE: ${{ inputs.file }}
+          URL: ${{ inputs.url }}
+          WORKFLOW: ${{ inputs.publish_workflow }}
         run: |
           # The guard splits each list into words, so pathname
           # expansion stays off and no word becomes a file name.
@@ -205,6 +209,17 @@ jobs:
           case "$DIRECTORY" in
             /* | *..*) fault="the directory $DIRECTORY leaves the tree" ;;
             "") fault="the directory is empty" ;;
+          esac
+
+          # The URL reaches curl and the workflow name reaches gh. A
+          # value that opens with a dash becomes a flag of the
+          # command, and the command then reads no such argument.
+          case "$URL" in
+            -*) fault="the url $URL opens with a dash" ;;
+          esac
+
+          case "$WORKFLOW" in
+            -*) fault="the publish workflow $WORKFLOW opens with a dash" ;;
           esac
 
           # An import publishes a key that another tool made, so it
@@ -321,8 +336,15 @@ jobs:
       # each of those private halves reaches the verb as a file. The
       # action takes the whole list, and one place therefore reads a
       # slot, per WEB-ACTIONS-3.
+      #
+      # WEB-ACTIONS-6. A root step binds each subordinate key again on
+      # one condition: a root promote, or a first root mint, which
+      # finds no root slot. Every other root step binds nothing, and
+      # it therefore writes no subordinate private key to disk.
       - name: Read the slot of each subordinate purpose
-        if: inputs.purpose == 'root' && inputs.subordinate_purposes != ''
+        if: >-
+          inputs.purpose == 'root' && inputs.subordinate_purposes != '' &&
+          (inputs.step == 'promote' || steps.slot.outputs.active == '')
         uses: FuguBSD/FuguWeb/actions/keys-slot@main
         with:
           purpose: ${{ inputs.subordinate_purposes }}
@@ -354,6 +376,14 @@ jobs:
           : > "$WORK/bind.args"
 
           if [ "$STEP" != promote ] && [ -s "$WORK/root-active.sec" ]; then
+            # The step above reads no subordinate slot on this
+            # condition, so the run drops the list. It says so, and a
+            # caller that expected each binding reads the reason.
+            if [ -n "$SUBORDINATE" ]; then
+              echo "keys-rotate: the root key of the current slot" \
+                "signs this $STEP, and the step binds no key of:" \
+                "$SUBORDINATE"
+            fi
             echo "bind=no" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -361,10 +391,16 @@ jobs:
 
           # WEB-ROTATE-4. The description carries the status of each
           # key, and the verb reads it from there as well. The block
-          # below reads a line as Fugu::Config reads one: a # opens a
+          # below reads the cases that a key block takes: a # opens a
           # comment, each end of the line loses its whitespace, and a
           # value loses its quotation marks. The two key patterns are
-          # the two block name forms of _with_statuses in Rotate.pm.
+          # the two block name forms of _with_statuses in Rotate.pm,
+          # which rewrites the status of each key of a step.
+          #
+          # Fugu::Config reads more than these two forms: _parse_header
+          # takes a block header of several arguments, and reads the
+          # last one as the name. Neither pattern below matches such a
+          # header, and neither does _with_statuses.
           statuses=$(awk '
             {
               line = $0
@@ -400,14 +436,22 @@ jobs:
             }
           ' .fuguwebrc)
 
-          # The last field of a key name is its purpose, and the step
-          # above wrote the two slot files of each subordinate one.
+          # A key stem is <org>-<serial>-<purpose>, and the step above
+          # wrote the two slot files of each subordinate purpose. The
+          # org word and the serial hold no hyphen, and a purpose word
+          # does, so the match drops the two leading fields and holds
+          # the rest against the whole purpose. A suffix match would
+          # give the key of pre-release to the purpose release.
           for purpose in $SUBORDINATE; do
             while IFS=$'\t' read -r stem status; do
               case "$stem" in
-                *-"$purpose") ;;
+                *-*-*) ;;
                 *) continue ;;
               esac
+              rest="${stem#*-}"
+              if [ "${rest#*-}" != "$purpose" ]; then
+                continue
+              fi
               case "$status" in
                 current) role=active ;;
                 next) role=idle ;;

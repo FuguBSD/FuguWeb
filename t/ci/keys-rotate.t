@@ -110,6 +110,8 @@ subtest 'the workflow and the two actions hold each guard' => sub {
 			'a $STEP reads no public key file',
 			'a promote reads no key type',
 			'a step of $PURPOSE binds no subordinate purpose',
+			'the url $URL opens with a dash',
+			'the publish workflow $WORKFLOW opens with a dash',
 			'keys-rotate: the $role slot of $purpose holds',
 			'no key, and the step binds $stem again',
 			'the root slot holds no key, and this',
@@ -121,6 +123,7 @@ subtest 'the workflow and the two actions hold each guard' => sub {
 		],
 		$slot => [
 			'keys-slot: the purpose list is empty',
+			'keys-slot: the purpose $purpose is no',
 			'keys-slot: cannot read the slot variable of'
 			    . ' $purpose',
 		],
@@ -238,10 +241,10 @@ subtest 'each body that splits a value runs set -f' => sub {
 };
 
 # WEB-ACTIONS-11. The job runs beside a private key, so every action
-# of another owner carries a commit. An action of this repository
-# takes its pin in the commit after the merge, because a commit
-# cannot name its own SHA, and spec/STATUS.md records that part as
-# absent. This test therefore reads the name of each action of this
+# of another owner carries a commit. Each action of this repository
+# carries @main, because a commit cannot name its own SHA, and
+# spec/STATUS.md names that pin as the absent part of WEB-ACTIONS.
+# This test therefore reads the name of each action of this
 # repository, and it holds no reference of one.
 subtest 'every action of another owner carries a commit pin' => sub {
 	my $pinned = 0;
@@ -343,6 +346,27 @@ subtest 'the actions hold the slots' => sub {
 	like( $text, qr/^\s+BIND: \$\{\{ steps\.bind\.outputs\.bind \}\}$/m,
 		'the verb step reads the binding answer of the step above' );
 
+	# WEB-ACTIONS-6. The condition names a root promote, and a
+	# first root mint, which finds no root slot. Every other root
+	# step binds nothing, and it reads no subordinate slot, so it
+	# writes no private key of another purpose to the runner.
+	my ($gate) = $text =~ m{
+		^\ {6}-\ name:\ Read\ the\ slot\ of\ each\ subordinate\ purpose\n
+		(.+?)
+		^\ {8}uses:
+	}msx;
+	ok( $gate, 'the subordinate slot read holds a condition' );
+
+	for my $part (
+		q{inputs.purpose == 'root'},
+		q{inputs.subordinate_purposes != ''},
+		q{inputs.step == 'promote'},
+		q{steps.slot.outputs.active == ''} )
+	{
+		like( $gate // q{}, qr/\Q$part\E/,
+			"the subordinate slot read tests $part" );
+	}
+
 	# WEB-ACTIONS-7. One call stores the key, and a second call
 	# moves the variable, so the two never run as one step.
 	like( $store_text, qr/^\s+if \[ "\$MOVE" = yes \]; then$/m,
@@ -361,11 +385,13 @@ sub _awk ($body)
 }
 
 # WEB-ROTATE-4. The description carries the status of each key, and
-# the root step reads it to name the bound keys. Fugu::Config takes a
-# comment behind a value, and t/fuguweb/rotate.t holds a description
-# that carries one. A read that missed it would drop the key, and the
-# step would write no binding for it.
-subtest 'the root step reads a status as Fugu::Config does' => sub {
+# the root step reads it to name the bound keys. _with_statuses of
+# Rotate.pm reads a key block in two forms alone, and the two
+# patterns of the step take those two. Fugu::Config takes a comment
+# behind a value, and t/fuguweb/rotate.t holds a description that
+# carries one. A read that missed it would drop the key, and the step
+# would write no binding for it.
+subtest 'the root step reads the status of each key block' => sub {
 	my $program = _awk($text);
 	ok( $program, 'the root step holds one awk program' ) or return;
 
@@ -415,6 +441,147 @@ subtest 'the root step reads a status as Fugu::Config does' => sub {
 		],
 		'each key answers its status, and no comment joins one'
 	) or diag($out);
+};
+
+# _step_body($name):
+#	The body of the run: block of one named step, as text. The
+#	body keeps the indentation of the block, which no shell reads.
+sub _step_body ($name)
+{
+	my ( $indent, @block );
+
+	my $at;
+	for my $i ( 0 .. $#lines ) {
+		next unless $lines[$i] eq "      - name: $name";
+		$at = $i;
+		last;
+	}
+	return unless defined $at;
+
+	for my $j ( $at + 1 .. $#lines ) {
+		unless ( defined $indent ) {
+			last if $lines[$j] =~ /^      - name: /;
+			next unless $lines[$j] =~ /^(\s+)run: \|$/;
+			$indent = length $1;
+			next;
+		}
+
+		last
+		    if $lines[$j] =~ /\S/
+		    && $lines[$j] =~ /^(\s*)/
+		    && length($1) <= $indent;
+		push @block, $lines[$j];
+	}
+
+	return join "\n", @block;
+}
+
+# WEB-TRUST-7. A key stem is <org>-<serial>-<purpose>, and a purpose
+# word holds a hyphen of its own. A match on the last field alone
+# would give the key of pre-release to the purpose release, and the
+# step would then bind it with the private half of another purpose.
+# The step reads a description and two slot files, so it needs no
+# runner and this subtest runs it over a fixture.
+subtest 'the root step binds each key to the slot of its purpose' => sub {
+	my $body = _step_body('Name the bound keys of a root step');
+	ok( $body, 'the root step holds one run body' ) or return;
+
+	my $dir  = File::Temp->newdir;
+	my $work = "$dir/work";
+	mkdir $work or die "mkdir $work: $!";
+
+	_write( "$dir/step.sh", "$body\n" );
+	_write( "$work/$_.sec", "the private half of the $_ key\n" )
+	    for qw(release-active release-idle pre-release-active
+	    pre-release-idle);
+
+	# Two purposes, and the name of the first ends the name of the
+	# second. Each one holds a current key and a next key.
+	_write( "$dir/.fuguwebrc", <<~'RC' );
+		key "fugubsd-1-release" {
+			status = current
+		}
+
+		key "fugubsd-2-release" {
+			status = next
+		}
+
+		key "fugubsd-1-pre-release" {
+			status = current
+		}
+
+		key "fugubsd-2-pre-release" {
+			status = next
+		}
+		RC
+
+	# A first root mint finds no root slot file, so the step binds
+	# each subordinate key again.
+	my $cmd =
+	      qq{cd "$dir" && WORK="$work" STEP=mint }
+	    . qq{SUBORDINATE="release pre-release" }
+	    . qq{GITHUB_OUTPUT="$dir/output" bash step.sh 2>&1};
+	my $out = qx{$cmd};
+	is( $?, 0, 'the step answers zero' ) or diag($out);
+
+	my $args = _slurp("$work/bind.args") // q{};
+	is_deeply(
+		[ split /\n/, $args ],
+		[
+			"fugubsd-1-release=$work/release-active.sec",
+			"fugubsd-2-release=$work/release-idle.sec",
+			"fugubsd-1-pre-release=$work/pre-release-active.sec",
+			"fugubsd-2-pre-release=$work/pre-release-idle.sec",
+		],
+		'each key takes the slot file of its own purpose'
+	) or diag($args);
+
+	# WEB-TRUST-7. A root mint that finds the root key of the
+	# current slot binds nothing, and the run drops the list. The
+	# step says so, and it names the purposes that it drops.
+	_write( "$work/root-active.sec", "the private half of the root\n" );
+	my $second = qx{$cmd};
+	is( $?, 0, 'the second root mint answers zero' ) or diag($second);
+	like(
+		$second,
+		qr/binds no key of: release pre-release/,
+		'the step names the subordinate list that it drops'
+	);
+	like( _slurp("$dir/output") // q{},
+		qr/^bind=no$/m, 'the step answers bind=no' );
+};
+
+# WEB-ACTIONS-3. A caller can compose keys-slot on its own, and that
+# caller passes no guard of the workflow. A list of whitespace holds
+# no word, and the action would write no file and answer an empty
+# slot. A word that leaves the directory would write a private key
+# outside it. Each guard runs before the first read of a variable, so
+# this subtest needs no token and no runner.
+subtest 'keys-slot refuses a purpose list that names no key' => sub {
+	my ($body) = _bodies( _slurp($slot) // q{} );
+	ok( $body, 'keys-slot holds one run body' ) or return;
+
+	my $dir = File::Temp->newdir;
+	_write( "$dir/action.sh", "$body\n" );
+
+	my @cases = (
+		[ '   ',        'keys-slot: the purpose list is empty' ],
+		[ '../../evil', 'is no lower-case word' ],
+		[ '-flag',      'is no lower-case word' ],
+	);
+
+	for my $case (@cases) {
+		my ( $purpose, $want ) = @{$case};
+		my $cmd =
+		      qq{cd "$dir" && PURPOSE="$purpose" }
+		    . qq{WORK="$dir/work" bash action.sh 2>&1};
+		my $out = qx{$cmd};
+
+		isnt( $?, 0, "keys-slot refuses the list '$purpose'" )
+		    or diag($out);
+		like( $out, qr/\Q$want\E/, "and it names the fault: $want" )
+		    or diag($out);
+	}
 };
 
 done_testing();

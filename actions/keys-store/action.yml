@@ -56,9 +56,9 @@ runs:
         VISIBILITY: ${{ inputs.visibility }}
         MOVE: ${{ inputs.move }}
       run: |
-        # The action splits the repository list into words, so
-        # pathname expansion stays off and no word becomes a file
-        # name.
+        # The $scope value below reaches gh unquoted, and the shell
+        # splits it into words. Pathname expansion stays off, so no
+        # word of it becomes a file name.
         set -f
 
         if [ -z "$SLOT" ]; then
@@ -66,9 +66,11 @@ runs:
           exit 1
         fi
 
-        # The list reaches gh as words, and each word must name one
-        # repository. A word that opens with a dash becomes a flag
-        # of the command.
+        # The list names the repositories with commas between them,
+        # and it reaches gh as one word. The first pattern refuses a
+        # space with every other character that no repository name
+        # takes, and a value that opens with a dash becomes a flag of
+        # the command.
         case "$VISIBILITY" in
           *[!A-Za-z0-9._/,-]*)
             echo "keys-store: the visibility list holds a character" \

@@ -65,14 +65,31 @@ runs:
         chmod 700 "$WORK"
 
         # An empty list writes no file, and a caller that read the
-        # size of an absent file would take it for an empty slot.
-        if [ -z "$PURPOSE" ]; then
+        # size of an absent file would take it for an empty slot. A
+        # list of whitespace holds no word, so the count of the words
+        # answers and not the length of the value.
+        set -- $PURPOSE
+        if [ $# -eq 0 ]; then
           echo "keys-slot: the purpose list is empty" >&2
           exit 1
         fi
 
         first=yes
         for purpose in $PURPOSE; do
+          # WEB-ACTIONS-3 blesses a caller that composes this action
+          # alone, and that caller passes no guard of the workflow.
+          # The word below becomes part of a secret name and of a
+          # file name, so a word that holds a solidus or two dots
+          # would write a private key outside the work directory.
+          case "$purpose" in
+            [a-z] | [a-z][a-z0-9-]*) ;;
+            *)
+              echo "keys-slot: the purpose $purpose is no" \
+                "lower-case word" >&2
+              exit 1
+              ;;
+          esac
+
           # A purpose word is lower case, and a secret name is upper
           # case. No expression changes the case, so the shell does.
           upper=$(printf '%s' "$purpose" | tr '[:lower:]-' '[:upper:]_')
