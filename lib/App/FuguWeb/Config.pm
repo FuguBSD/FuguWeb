@@ -383,8 +383,9 @@ sub assets ($self)
 #	directory. The build and the checks read the same list, so the
 #	two can never disagree about what the site holds.
 #
-#	Every name but the key paths is one segment. The key directory
-#	is the one part of a site that is not one flat directory.
+#	Every name but the key paths is one segment. Each key
+#	directory is one part below the root, so its entries hold a
+#	solidus.
 sub inventory ($self)
 {
 	return ( map { $_->{file} } $self->pages ),
@@ -734,6 +735,19 @@ sub _read_keys_block ( $self, $reason, $block )
 		my $why = length $@ ? $@ : 'the org is not usable';
 		$why =~ s/\s+\z//;
 		return $self->_fail( $reason, "keys \"$name\": $why" );
+	}
+
+	# WEB-KEYS-2. A key name carries the org word and no directory
+	# name, and the serial of a purpose counts inside one
+	# directory. A mint of the second block would therefore write
+	# a name that the first block publishes already.
+	for my $held ( @{ $self->{keys_order} } ) {
+		next unless $self->{keys_block}{$held}{org} eq $org;
+
+		return $self->_fail( $reason,
+			      "keys \"$name\" and keys \"$held\" both name"
+			    . " the org $org, and one org word names one"
+			    . ' directory' );
 	}
 
 	# WEB-KEYS-3. A site publishes one security.txt, so one block

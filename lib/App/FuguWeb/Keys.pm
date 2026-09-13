@@ -100,6 +100,14 @@ use constant ROOT_PURPOSE => 'root';
 # the warning.
 use constant EXPIRY_WARNING => 30 * 24 * 60 * 60;
 
+# The rank of each status in the publication order, which
+# Fugu::KeyDir states. A reader wants the key in force first, so
+# current leads and retired trails.
+my %STATUS_RANK = do {
+	my $rank = 0;
+	map { $_ => $rank++ } Fugu::KeyDir::STATUSES;
+};
+
 # The verifier of each binding type. Every class follows Fugu::Signer,
 # so one call shape reads all three. Fugu::Signify verifies in Perl,
 # and the other two need their command.
@@ -240,7 +248,7 @@ sub paths ($self)
 	push @paths, $self->_in_dir(KEYS_FILE) if $self->_armored(@keys);
 	push @paths, $self->_in_dir(INDEX_PAGE);
 
-	my @wkd = _addresses( $self->_published(@keys) );
+	my @wkd = _addresses( _published(@keys) );
 	if (@wkd) {
 		push @paths, WKD_DIR . "/hu/$_" for @wkd;
 		push @paths, WKD_POLICY;
@@ -260,9 +268,10 @@ sub paths ($self)
 #	The site holds one well-known tree, and each directory writes
 #	into it. The Web Key Directory file of one address therefore
 #	gathers the keys of that address across every directory, in
-#	publication order, per WEB-KEYS-14. The directories arrive in
-#	file order, so two builds of one checkout write one byte
-#	sequence.
+#	publication order, per WEB-KEYS-14. The order of one address
+#	comes from the keys themselves and never from the directory
+#	that holds them, so a retired key of one directory trails a
+#	current key of the other.
 #
 #	One block alone names the contact, per WEB-KEYS-3, so one
 #	directory writes security.txt. Each policy file names the
@@ -271,7 +280,7 @@ sub site_generated ( $class, $config )
 {
 	my $address = WKD_DIR . '/hu/';
 
-	my %out;
+	my ( %out, %wkd );
 	for my $dir ( $config->keys_dirs ) {
 		my $keys = $class->new( config => $config, dir => $dir );
 
@@ -279,13 +288,25 @@ sub site_generated ( $class, $config )
 		return ( undef, "$dir: " . $keys->error ) unless $made;
 
 		for my $path ( sort keys %$made ) {
-			if ( index( $path, $address ) == 0 ) {
-				$out{$path} .= $made->{$path};
-				next;
-			}
-
+			next if index( $path, $address ) == 0;
 			$out{$path} = $made->{$path};
 		}
+
+		# The site gathers each address itself, because one
+		# address can hold a key of every directory. The order
+		# of the whole is the rule, and so is the rule of an
+		# address that serves nothing.
+		my $addressed = $keys->wkd_keys;
+		return ( undef, "$dir: " . $keys->error ) unless $addressed;
+
+		push @{ $wkd{ $_->{wkd} } }, $_ for @{$addressed};
+	}
+
+	for my $hash ( keys %wkd ) {
+		my @live = _published( @{ $wkd{$hash} } ) or next;
+
+		$out{ $address . $hash } = join '',
+		    map { $_->{bytes} } sort { _publication( $a, $b ) } @live;
 	}
 
 	return \%out;
@@ -362,15 +383,13 @@ sub generated ($self)
 	# key, and a reader takes the whole file. One file for each key
 	# would give one path two keys, and only the last one written
 	# would publish.
-	my @wkd = $self->_published(@$ordered);
-	for my $key (@wkd) {
-		my $binary = $self->{openpgp}->decode_armor( $key->{armor} );
-		return $self->_fail(
-			"$key->{name}: " . $self->{openpgp}->error )
-		    unless defined $binary;
-
-		$out{ WKD_DIR . "/hu/$key->{wkd}" } .= $binary;
-	}
+	#
+	# A site with several key directories gathers each address
+	# again, in site_generated. This answer is the part of one
+	# directory.
+	my $addressed = $self->_wkd_keys($ordered) or return;
+	my @wkd       = _published(@$addressed);
+	$out{ WKD_DIR . "/hu/$_->{wkd}" } .= $_->{bytes} for @wkd;
 	$out{ WKD_POLICY() } = $self->_policy if @wkd;
 
 	if ( defined $self->{config}->keys_contact( $self->{dir} ) ) {
@@ -379,6 +398,29 @@ sub generated ($self)
 	}
 
 	return \%out;
+}
+
+# $self->wkd_keys:
+#	Every OpenPGP key of this directory that names an address, as
+#	an array reference of key entries. Each entry carries the
+#	binary body of its key in bytes. The method returns undef on a
+#	failure, and error holds the reason.
+#
+#	The entries arrive in the publication order of this directory,
+#	and the liveness rule of WEB-KEYS-28 runs on none of them: one
+#	address can hold a key of every directory, so the site decides
+#	both the order and the service of that address, per
+#	WEB-KEYS-14.
+sub wkd_keys ($self)
+{
+	$self->{error} = undef;
+
+	my $set = $self->key_set or return;
+
+	my $ordered = $self->{keydir}->order($set)
+	    or return $self->_fail( $self->{keydir}->error );
+
+	return $self->_wkd_keys($ordered);
 }
 
 # $self->key_set:
@@ -484,10 +526,61 @@ sub problems ( $self, %args )
 	push @problems, $self->_manifest_problems( \@keys );
 	push @problems, $self->_signature_problems;
 	push @problems, $self->_fingerprint_problems($set);
+	push @problems, $self->_encryption_problems($set);
 	push @problems, $self->_expiry_problems($set)
 	    if $args{expiry} // 1;
 
 	return @problems;
+}
+
+# $self->_encryption_problems($set):
+#	The rule of WEB-KEYS-15 that reads the whole site. The block
+#	that names the contact writes security.txt, and the
+#	Encryption field names the current OpenPGP key of that block.
+#
+#	A block that names a url and holds no such key writes no
+#	field, and a key of another directory cannot fill it: each
+#	directory holds its own root of trust, per D-02, and a binding
+#	never crosses a directory. A site that publishes no OpenPGP
+#	key at all writes no field either, and that one is no
+#	problem, so the report needs a key of another directory.
+sub _encryption_problems ( $self, $set )
+{
+	my $config = $self->{config};
+	my $dir    = $self->{dir};
+
+	return () unless defined $config->keys_contact($dir);
+	return () unless defined $config->keys_url($dir);
+	return () if _current_openpgp($set);
+
+	my @elsewhere;
+	for my $other ( $config->keys_dirs ) {
+		next if $other eq $dir;
+
+		my $key = _current_openpgp( [ $config->site_keys($other) ] )
+		    or next;
+		push @elsewhere, "$other/$key->{name}";
+	}
+
+	return () unless @elsewhere;
+
+	return
+	      "$dir: it names a url and no current OpenPGP key, so"
+	    . ' security.txt carries no Encryption field, and '
+	    . join( ' and ', @elsewhere )
+	    . ' holds one';
+}
+
+# _current_openpgp($keys):
+#	The first current OpenPGP key of a key list, or undef when the
+#	list holds none.
+sub _current_openpgp ($keys)
+{
+	my ($key) =
+	    grep { $_->{type} eq 'openpgp' && $_->{status} eq 'current' }
+	    @$keys;
+
+	return $key;
 }
 
 # $self->_root_problems($set):
@@ -1073,7 +1166,7 @@ sub _armored ( $self, @keys )
 	return scalar grep { $_->{type} eq 'openpgp' } @keys;
 }
 
-# $self->_published(@keys):
+# _published(@keys):
 #	Every OpenPGP key that the Web Key Directory serves. A key
 #	with no email address has no address to answer for, so the
 #	directory holds no file for it.
@@ -1083,7 +1176,7 @@ sub _armored ( $self, @keys )
 #	retired key is the one key that must not answer that. A
 #	retired key beside a current one still serves, because the
 #	current key leads the file.
-sub _published ( $self, @keys )
+sub _published (@keys)
 {
 	my @named =
 	    grep { $_->{type} eq 'openpgp' && defined $_->{email} } @keys;
@@ -1094,6 +1187,51 @@ sub _published ( $self, @keys )
 	}
 
 	return grep { $live{ $_->{wkd} } } @named;
+}
+
+# $self->_wkd_keys($ordered):
+#	Each key of the ordered set that the Web Key Directory can
+#	serve, with the binary body of that key in bytes. The method
+#	returns undef on a failure, and error holds the reason.
+#
+#	A key with no email address has no address to answer for, so
+#	the directory holds no file for it.
+sub _wkd_keys ( $self, $ordered )
+{
+	my @out;
+	for my $key (@$ordered) {
+		next
+		    unless $key->{type} eq 'openpgp'
+		    && defined $key->{email};
+
+		my $binary = $self->{openpgp}->decode_armor( $key->{armor} );
+		return $self->_fail(
+			"$key->{name}: " . $self->{openpgp}->error )
+		    unless defined $binary;
+
+		push @out, { %$key, bytes => $binary };
+	}
+
+	return \@out;
+}
+
+# _publication($one, $two):
+#	Order two keys as Fugu::KeyDir orders the keys of one
+#	directory: the status first, then the serial from the highest
+#	down, then the purpose and the name.
+#
+#	One address can hold a key of each key directory, and two
+#	directories carry two organization words, so Fugu::KeyDir
+#	cannot order that set: it parses each name against one word.
+#	The vocabulary stays there all the same, and this module reads
+#	the rank from it.
+sub _publication ( $one, $two )
+{
+	return
+	       $STATUS_RANK{ $one->{status} } <=> $STATUS_RANK{ $two->{status} }
+	    || $two->{serial}                 <=> $one->{serial}
+	    || $one->{purpose}                cmp $two->{purpose}
+	    || $one->{name}                   cmp $two->{name};
 }
 
 # _signify_problem($bytes):

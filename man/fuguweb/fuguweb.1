@@ -48,7 +48,8 @@
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
 .Op Fl Fl email Ar address
 .Op Fl Fl expires Ar date
-.Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
+.Op Fl Fl dir Ar name
+.Op Fl Fl bootstrap Fl Fl org Ar word Op Fl Fl url Ar prefix
 .Nm fuguweb
 .Cm import-key
 .Fl Fl purpose Ar word
@@ -57,7 +58,8 @@
 .Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
-.Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
+.Op Fl Fl dir Ar name
+.Op Fl Fl bootstrap Fl Fl org Ar word Op Fl Fl url Ar prefix
 .Nm fuguweb
 .Cm promote-key
 .Fl Fl purpose Ar word
@@ -65,6 +67,7 @@
 .Op Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
+.Op Fl Fl dir Ar name
 .Nm fuguweb
 .Cm help
 .Op Ar command
@@ -186,7 +189,7 @@ holds no stylesheet, because every build writes one.
 .Op Fl Fl email Ar address
 .Op Fl Fl expires Ar date
 .Op Fl Fl dir Ar name
-.Op Fl Fl org Ar word Op Fl Fl url Ar prefix
+.Op Fl Fl bootstrap Fl Fl org Ar word Op Fl Fl url Ar prefix
 .Xc
 Mint the next key of a purpose.
 The
@@ -211,7 +214,7 @@ See
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
 .Op Fl Fl dir Ar name
-.Op Fl Fl org Ar word Op Fl Fl url Ar prefix
+.Op Fl Fl bootstrap Fl Fl org Ar word Op Fl Fl url Ar prefix
 .Xc
 Publish a key that another tool made, under the next name of the
 purpose.
@@ -258,6 +261,7 @@ contact.
 A directory with no
 .Ic keys
 block takes one from
+.Fl Fl bootstrap ,
 .Fl Fl dir ,
 .Fl Fl org
 and
@@ -714,8 +718,9 @@ directory holds one current signify key of the purpose
 that each binding verifies against the public key of its signer and
 holds the retention rule, that the manifest names every key file and
 every binding file with the digest that it has and nothing else, that
-every declared fingerprint equals the computed one, and that the
-signature has the shape of a
+every declared fingerprint equals the computed one, that the block
+which names the contact holds the current OpenPGP key of the site, and
+that the signature has the shape of a
 .Xr signify 1
 signature.
 .Pp
@@ -924,14 +929,32 @@ It refuses before it writes when one private half is absent.
 A directory with no
 .Ic keys
 block takes one from the command line:
+.Fl Fl bootstrap
+states the intent to make that directory,
 .Fl Fl dir
-names the directory, which defaults to
+names it, which defaults to
 .Pa keys ,
 .Fl Fl org
 names the organization word, and
 .Fl Fl url
 names the published prefix.
 A second key directory of a site arrives the same way.
+.Pp
+A step without
+.Fl Fl bootstrap
+refuses a
+.Fl Fl dir
+that no
+.Ic keys
+block names.
+Each key directory holds a root of trust of its own, so a mistyped
+name would otherwise publish a second root in silence.
+.Cm mint-key
+and
+.Cm import-key
+take the option, and
+.Cm promote-key
+makes no directory.
 .Ss The root promote
 A root promote signs the manifest with the key that it makes current,
 so it takes
@@ -1010,7 +1033,7 @@ $ fuguweb check --out /tmp/site
 .Pp
 Publish the root key and the first release key of an organization:
 .Bd -literal -offset indent
-$ fuguweb mint-key --purpose root \e
+$ fuguweb mint-key --purpose root --bootstrap \e
 	--secret ~/keys/root-1.sec --org fugubsd \e
 	--url https://www.fugubsd.org/keys
 $ fuguweb mint-key --purpose release \e
@@ -1019,7 +1042,7 @@ $ fuguweb mint-key --purpose release \e
 .Pp
 Publish a second key directory, for the keys of one project:
 .Bd -literal -offset indent
-$ fuguweb mint-key --purpose root --dir project \e
+$ fuguweb mint-key --purpose root --dir project --bootstrap \e
 	--secret ~/keys/project-root-1.sec --org fuguproj \e
 	--url https://www.fugubsd.org/project
 $ fuguweb mint-key --purpose release --dir project \e

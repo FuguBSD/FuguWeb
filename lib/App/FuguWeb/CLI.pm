@@ -70,8 +70,14 @@ my %KEY_OPTION = (
 # The words that describe the key directory. A directory that
 # publishes its first key holds no keys block, so the first mint takes
 # them.
+#
+# WEB-ROTATE-22. A step that makes a key directory states that
+# intent, because that directory takes a root of trust of its own. A
+# step without the word refuses a --dir that no keys block names.
 my %BLOCK_OPTION = (
-	'org=s' => 'bootstrap the keys block with this org',
+	'bootstrap' => 'make the keys block of a directory that the '
+	    . 'description does not name',
+	'org=s' => 'the organization word of a new keys block',
 	'url=s' => 'the published prefix of the directory',
 );
 
@@ -110,7 +116,8 @@ my %COMMANDS = (
 		usage   => '--purpose <word> [--type <type>] --secret <path>'
 		    . ' [--signer <path>] [--bind <stem>=<path>]'
 		    . ' [--email <address>] [--expires <date>]'
-		    . ' [--dir <name>] [--org <word> [--url <prefix>]]',
+		    . ' [--dir <name>]'
+		    . ' [--bootstrap --org <word> [--url <prefix>]]',
 		options => {
 			%KEY_OPTION, %BLOCK_OPTION,
 
@@ -133,7 +140,8 @@ my %COMMANDS = (
 		usage   => '--purpose <word> [--type <type>] --file <path>'
 		    . ' --secret <path> [--signer <path>]'
 		    . ' [--bind <stem>=<path>]'
-		    . ' [--dir <name>] [--org <word> [--url <prefix>]]',
+		    . ' [--dir <name>]'
+		    . ' [--bootstrap --org <word> [--url <prefix>]]',
 		options => {
 			%KEY_OPTION, %BLOCK_OPTION,
 
@@ -440,10 +448,11 @@ sub _key_step ( $self, $cli, $need, $step )
 	# describes it, per WEB-ROTATE-15, so the words that describe
 	# the directory reach the step and not a separate one.
 	my $rotate = App::FuguWeb::Rotate->new(
-		config => $self->{config},
-		org    => $cli->option('org'),
-		dir    => $cli->option('dir'),
-		url    => $cli->option('url'),
+		config    => $self->{config},
+		org       => $cli->option('org'),
+		dir       => $cli->option('dir'),
+		url       => $cli->option('url'),
+		bootstrap => $cli->option('bootstrap'),
 	);
 
 	my $facts = $step->($rotate);

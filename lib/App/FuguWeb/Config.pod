@@ -105,8 +105,8 @@ A C<keys> block adds its own rules. The description is rejected when:
 
 =item *
 
-a second C<keys> block appears, or a C<key> block stands with no
-C<keys> block;
+two C<keys> blocks name one directory, or one C<org> word, or a C<key>
+block stands with no C<keys> block;
 
 =item *
 

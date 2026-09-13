@@ -412,6 +412,99 @@ RC
 	return project( rc => "$KEYS_BLOCK\n$rc", files => \%file );
 }
 
+# shared_address($first, $second, $one, $two):
+#	A project with two key directories, where one address holds one
+#	OpenPGP key of each directory. $one is the status of the key of
+#	the first directory, and $two the status of the key of the
+#	second.
+#
+#	The second key carries the higher serial, so the publication
+#	order of WEB-KEYS-14 and the file order of the directories
+#	disagree.
+sub shared_address ( $first, $second, $one, $two )
+{
+	my %file = map { ( "web/other/$_" => $second->{$_} ) } keys %$second;
+	$file{'web/other/SHA256'}     = manifest(%$second);
+	$file{'web/other/SHA256.sig'} = $SIGNATURE;
+
+	return project(
+		keys  => $first,
+		files => \%file,
+		rc    => <<"RC" );
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = $one
+	email  = security\@fugubsd.org
+}
+
+keys "other" {
+	org = other
+}
+
+key "other-1-root" {
+	status = current
+}
+
+key "other-2-contact" {
+	status = $two
+	email  = security\@fugubsd.org
+}
+RC
+}
+
+# contact_site($second):
+#	A project whose first block names the contact, the expiry and
+#	the published prefix, and holds one signify root key alone. The
+#	second directory holds the keys that the caller names.
+sub contact_site ($second)
+{
+	my %file = map { ( "web/other/$_" => $second->{$_} ) } keys %$second;
+	$file{'web/other/SHA256'}     = manifest(%$second);
+	$file{'web/other/SHA256.sig'} = $SIGNATURE;
+
+	my $rc = <<'RC';
+keys "keys" {
+	org     = fugubsd
+	contact = mailto:security@fugubsd.org
+	expires = 2027-09-07T00:00:00Z
+	url     = https://www.fugubsd.org/keys
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+keys "other" {
+	org = other
+}
+
+key "other-1-root" {
+	status = current
+}
+RC
+
+	$rc .= <<'RC' if $second->{'other-1-contact.asc'};
+
+key "other-1-contact" {
+	status = current
+	email  = security@fugubsd.org
+}
+RC
+
+	return project(
+		keys  => { 'fugubsd-1-root.pub' => $ROOT },
+		files => \%file,
+		rc    => $rc
+	);
+}
+
 # load($root):
 #	Load the description of the project, and return it with the
 #	reason of a failure.
@@ -664,6 +757,178 @@ RC
 	);
 };
 
+# WEB-KEYS-14. The publication order of one address comes from the
+# keys, and never from the directory that holds them.
+subtest 'one address orders the keys of every directory' => sub {
+	my %first = (
+		'fugubsd-1-root.pub'    => $ROOT,
+		'fugubsd-1-contact.asc' => $OPENPGP,
+	);
+	my %second = (
+		'other-1-root.pub'    => $ROOT,
+		'other-2-contact.asc' => $OPENPGP_TWO,
+	);
+
+	# The serial of the second key is the higher one, and the two
+	# keys hold one status, so the publication order puts the
+	# second directory first. The file order puts it last.
+	my $root = shared_address( \%first, \%second, 'current', 'current' );
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $pgp = Fugu::OpenPGP->new;
+	my ( $generated, $why ) =
+	    App::FuguWeb::Keys->site_generated($config);
+	ok( $generated, 'the site generates' ) or diag $why;
+	is(
+		$generated->{ '.well-known/openpgpkey/hu/' . WKD_HASH },
+		$pgp->decode_armor($OPENPGP_TWO) . $pgp->decode_armor($OPENPGP),
+		'the higher serial leads, whatever directory holds it'
+	);
+
+	# WEB-KEYS-28 reads the address of the site. A retired key
+	# beside a current one still serves, and the current key of
+	# another directory is such a key.
+	$root = shared_address( \%first, \%second, 'retired', 'current' );
+	( $config, $reason ) = load($root);
+	ok( $config, 'a retired key of the first directory loads' )
+	    or diag $reason;
+
+	( $generated, $why ) = App::FuguWeb::Keys->site_generated($config);
+	ok( $generated, 'the site generates' ) or diag $why;
+	is(
+		$generated->{ '.well-known/openpgpkey/hu/' . WKD_HASH },
+		$pgp->decode_armor($OPENPGP_TWO) . $pgp->decode_armor($OPENPGP),
+		'the current key leads the retired key of the other directory'
+	);
+
+	# An address whose keys are all retired serves nothing, and
+	# the rule reads every directory of the site.
+	$root = shared_address( \%first, \%second, 'retired', 'retired' );
+	( $config, $reason ) = load($root);
+	ok( $config, 'two retired keys of one address load' ) or diag $reason;
+
+	( $generated, $why ) = App::FuguWeb::Keys->site_generated($config);
+	ok( $generated, 'the site generates' ) or diag $why;
+	is( scalar( grep { m{openpgpkey/hu/} } keys %$generated ),
+		0, 'and the address serves no file' );
+};
+
+# WEB-KEYS-14. The policy file names the site, and every key
+# directory writes the same bytes there.
+subtest 'the policy file names the site' => sub {
+	my ( $config, $reason ) = load( two() );
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my ( $generated, $why ) =
+	    App::FuguWeb::Keys->site_generated($config);
+	ok( $generated, 'the site generates' ) or diag $why;
+	is(
+		$generated->{'.well-known/openpgpkey/policy'},
+		"# The Web Key Directory of Example. It sets no policy"
+		    . " flag.\n",
+		'the policy file names the site of the description'
+	);
+
+	# The site name is free-form, and the file carries comment
+	# lines alone. A description cannot write a newline into that
+	# name: Fugu::Config reads one value from one line, so the
+	# value stops at the end of its line.
+	my $root = project();
+	my $rc   = slurp("$root/.fuguwebrc");
+	$rc =~ s/^site(\s+)= Example$/site$1= "Example\nnot a comment"/m
+	    or die 'the fixture writes no site name';
+	spew( "$root/.fuguwebrc", $rc );
+
+	( $config, $reason ) = load($root);
+	ok( $config, 'a site name of two lines loads' ) or diag $reason;
+	unlike( $config->site, qr/\n/, 'and the name holds no newline' );
+
+	my $keys =
+	    App::FuguWeb::Keys->new( config => $config, dir => 'keys' );
+	my $made = $keys->generated;
+	ok( $made, 'the key directory generates' ) or diag $keys->error;
+
+	my @line = grep { length } split /\n/,
+	    $made->{'.well-known/openpgpkey/policy'} // '';
+	is( scalar( grep { /\A\#/ } @line ),
+		scalar(@line), 'and every line of the policy file is a comment'
+	);
+};
+
+# WEB-KEYS-15. The Encryption field names a key of the block that
+# names the contact, and a key of another directory cannot fill it.
+subtest 'the contact block holds no current OpenPGP key' => sub {
+	my %second = (
+		'other-1-root.pub'    => $ROOT,
+		'other-1-contact.asc' => $OPENPGP,
+	);
+	my $root = contact_site( \%second );
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my @problems =
+	    App::FuguWeb::Keys->new( config => $config, dir => 'keys' )
+	    ->problems( expiry => 0 );
+	ok(
+		scalar grep {
+			$_ eq 'keys: it names a url and no current OpenPGP'
+			    . ' key, so security.txt carries no Encryption'
+			    . ' field, and other/other-1-contact.asc holds one'
+		} @problems,
+		'the check names the directory that holds the key'
+	);
+
+	# A site that publishes no OpenPGP key at all writes no such
+	# field either, and that one is no problem.
+	delete $second{'other-1-contact.asc'};
+	( $config, $reason ) = load( contact_site( \%second ) );
+	ok( $config, 'the description without that key loads' ) or diag $reason;
+
+	is_deeply(
+		[
+			App::FuguWeb::Keys->new(
+				config => $config,
+				dir    => 'keys'
+			)->problems( expiry => 0 )
+		],
+		[],
+		'and a site with no OpenPGP key reports nothing'
+	);
+};
+
+# WEB-KEYS-9 and WEB-KEYS-18. The load holds every declared
+# directory to what a published one carries.
+subtest 'the load reads each key directory' => sub {
+	my $root = two();
+	unlink "$root/web/other/SHA256" or die "unlink: $!";
+
+	my ( $config, $reason ) = load($root);
+	ok( !$config, 'a second directory with no manifest is refused' );
+	like( $reason, qr{keys "other" holds no SHA256 in},
+		'and the reason names that directory' );
+
+	# A keys block with no key block cannot load, and the rule
+	# reads every block.
+	$root = two(
+		keys => { 'other-1-root.pub' => $ROOT },
+		rc   => <<'RC'
+keys "other" {
+	org = other
+}
+RC
+	);
+
+	( $config, $reason ) = load($root);
+	ok( !$config, 'a second directory with no key block is refused' );
+	like(
+		$reason,
+		qr{keys "other" holds no key block},
+		'and the reason names that directory too'
+	);
+};
+
 subtest 'the build writes every key directory' => sub {
 	my ( $config, $reason ) = load( two() );
 	ok( $config, 'the description loads' ) or diag $reason;
@@ -688,12 +953,51 @@ subtest 'the build writes every key directory' => sub {
 	ok( !-e $out, 'and it removes the whole output' );
 };
 
+# WEB-OUTPUT-12 and WEB-OUTPUT-4. A directory that the description
+# dropped keeps its files, and the check reports them.
+subtest 'a key directory that the description dropped' => sub {
+	my $root = two();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+	ok( -f "$out/other/other-1-root.pub",
+		'and it writes both key directories' );
+
+	# The block goes, and the source directory goes with it: a
+	# keys block that names an empty directory fails every build.
+	my $rc = slurp("$root/.fuguwebrc");
+	$rc =~ s/\nkeys "other" \{.*\z/\n/s
+	    or die 'the fixture drops no block';
+	spew( "$root/.fuguwebrc", $rc );
+	remove_tree("$root/web/other");
+
+	my ( $dropped, $why ) = load($root);
+	ok( $dropped, 'the description loads without that block' )
+	    or diag $why;
+
+	ok( site( $dropped, $out )->build, 'the build succeeds again' );
+	ok( -f "$out/other/other-1-root.pub",
+		'and it keeps each file of the dropped directory' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $dropped, out => $out )->run;
+	ok(
+		scalar grep {
+			$_ eq 'other/other-1-root.pub: in the output but not'
+			    . ' in the site'
+		} @problems,
+		'the check reports the key that the site no longer names'
+	);
+};
+
 subtest 'a key stem that two directories hold' => sub {
 	my $root = two(
 		keys => { 'fugubsd-1-release.pub' => $SIGNIFY },
 		rc   => <<'RC'
 keys "other" {
-	org = fugubsd
+	org = other
 }
 RC
 	);
@@ -706,6 +1010,31 @@ RC
 		$reason,
 		qr{key "fugubsd-1-release" names keys/fugubsd-1-release\.pub and other/fugubsd-1-release\.pub},
 		'because one stem names a file in each directory'
+	);
+};
+
+# WEB-KEYS-2. A key name carries the org word and no directory name,
+# and the serial of a purpose counts inside one directory.
+subtest 'two key directories of one organization word' => sub {
+	my $root = two(
+		keys => { 'fugubsd-2-root.pub' => $ROOT },
+		rc   => <<'RC'
+keys "other" {
+	org = fugubsd
+}
+
+key "fugubsd-2-root" {
+	status = current
+}
+RC
+	);
+
+	my ( $config, $reason ) = load($root);
+	ok( !$config, 'the description is refused' );
+	like(
+		$reason,
+		qr{keys "other" and keys "keys" both name the org fugubsd},
+		'because a mint of the second would write a name of the first'
 	);
 };
 

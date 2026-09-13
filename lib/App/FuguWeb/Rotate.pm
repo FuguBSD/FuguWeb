@@ -127,8 +127,8 @@ sub new ( $class, %args )
 		config       => $config,
 		tool_missing => 0,
 		bootstrap    => $fresh,
+		asked        => $args{bootstrap} ? 1 : 0,
 		dir          => $dir,
-		dirs         => \@dirs,
 		org          => $config->keys_org($dir) // $args{org},
 		url          => $config->keys_url($dir) // $args{url},
 		error        => undef,
@@ -136,18 +136,41 @@ sub new ( $class, %args )
 }
 
 # $self->_selected:
-#	Hold a step to one key directory. The method answers 1, or
-#	undef with a reason in $self->error.
+#	Hold a step to one key directory that it can write. The method
+#	answers 1, or undef with a reason in $self->error.
 #
 #	WEB-ROTATE-21. A description with several keys blocks names no
 #	one directory, and a step writes one. The caller names it.
+#	The word names one directory below the source directory, as
+#	WEB-KEYS-29 holds it. A word that held a solidus or a dot
+#	would write the key outside the site.
+#
+#	WEB-ROTATE-22. A word that no keys block names makes a key
+#	directory, with a root of trust of its own, so the caller
+#	states that intent. A mistyped word would otherwise publish a
+#	second root in silence, and the description of the site would
+#	then name a block that holds no key file.
+#
+#	The list of directories comes from the description of today,
+#	because a step of this object reloads it.
 sub _selected ($self)
 {
-	return 1 if defined $self->{dir};
+	my $dir = $self->{dir};
+	unless ( defined $dir ) {
+		return $self->_fail( 'the description holds the key'
+			    . ' directories '
+			    . join( ' and ', $self->{config}->keys_dirs )
+			    . ', so the step needs --dir' );
+	}
 
-	return $self->_fail( 'the description holds the key directories '
-		    . join( ' and ', @{ $self->{dirs} } )
-		    . ', so the step needs --dir' );
+	return $self->_fail("the key directory $dir is not one name")
+	    if $dir eq '.' || $dir eq '..' || $dir =~ m{[/\\]};
+
+	return $self->_fail( "the description names no key directory $dir,"
+		    . ' and a mint or an import makes one with --bootstrap' )
+	    if $self->{bootstrap} && !$self->{asked};
+
+	return 1;
 }
 
 # $self->config:
@@ -367,12 +390,11 @@ sub _add ( $self, $verb, %args )
 		    . " purpose takes no $type key" )
 	    if $purpose eq ROOT && $type ne TYPE;
 
-	# WEB-ROTATE-21. The word names one directory below the source
-	# directory, as WEB-KEYS-29 holds it. A word that held a
-	# solidus or a dot would write the key outside the site.
-	my $dir = $self->{dir};
-	return $self->_fail("the key directory $dir is not one name")
-	    if $dir eq '.' || $dir eq '..' || $dir =~ m{[/\\]};
+	# The organization word reaches Fugu::KeyDir before the step
+	# makes one directory. A word that no key name can carry fails
+	# here, and a bootstrap that names none fails with it, so a
+	# failed step leaves no empty directory in the source tree.
+	my $keydir = $self->_keydir or return;
 
 	return $self->_fail( 'cannot make ' . $self->_dir )
 	    unless Fugu::File->ensure_dir( $self->_dir );
@@ -396,7 +418,6 @@ sub _add ( $self, $verb, %args )
 	my $status =
 	    _by_status( $set, $purpose, 'current' ) ? 'next' : 'current';
 
-	my $keydir = $self->_keydir or return;
 	my $serial = $keydir->next_serial( [ keys %$set ], $purpose )
 	    or return $self->_fail( $keydir->error );
 	my $name = $keydir->name_for(
@@ -1437,8 +1458,11 @@ sub _with_block ( $self, $stem, $status, $settings = [] )
 		return $self->_fail('the first key needs the organization word')
 		    unless defined $self->{org} && length $self->{org};
 
+		# A site can hold a second key directory, so the comment
+		# names the organization word of this one and never the
+		# organization of the site.
 		$bytes .=
-		      "\n# The published keys of the organization. The"
+		      "\n# The published keys of $self->{org}. The"
 		    . " rotation\n# writes this directory.\n"
 		    . "keys \"$self->{dir}\" {\n\torg = $self->{org}\n";
 		$bytes .= "\turl = $self->{url}\n"

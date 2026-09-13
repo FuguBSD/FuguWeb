@@ -103,7 +103,9 @@ file.
 
 An address whose keys are all C<retired> serves no file. C<gpg
 --locate-keys> reads that file to encrypt a message, and a retired key
-is the one key that must not answer it.
+is the one key that must not answer it. The rule reads the address of
+the site, so a C<current> key of one directory keeps the address of
+another directory in service.
 
 =head1 METHODS
 
@@ -147,6 +149,20 @@ Every file that the build writes itself for this directory, as a hash
 reference of output path to bytes. The method returns C<undef> on a
 failure, and C<error> holds the reason.
 
+=head2 wkd_keys
+
+    $keys->wkd_keys
+
+Every OpenPGP key of this directory that names an address, as an array
+reference of key entries. Each entry carries the binary body of its
+key in C<bytes>. The method returns C<undef> on a failure, and
+C<error> holds the reason.
+
+The entries arrive in the publication order of this directory, and no
+liveness rule runs on them. One address can hold a key of every
+directory, so C<site_generated> decides both the order of that address
+and whether it serves.
+
 =head2 site_generated
 
     App::FuguWeb::Keys->site_generated($config)
@@ -157,7 +173,12 @@ that reference, or C<undef> with the reason behind it.
 
 The Web Key Directory file of one address gathers the keys of that
 address across every directory, in publication order, so the build
-writes one file where two directories name one address.
+writes one file where two directories name one address. The order
+comes from the keys, and never from the directory that holds them: a
+C<current> key of one directory leads a C<retired> key of the other.
+
+An address serves no file when every key of it is C<retired>, in every
+directory of the site.
 
 =head2 key_set
 
@@ -248,6 +269,13 @@ one holds the retention rule of L<Fugu::KeyDir>.
 
 C<SHA256> names every key file and every binding file, with the digest
 that the file has, and it names nothing else.
+
+=item *
+
+The block that names the contact holds a C<current> OpenPGP key, when
+it names a C<url> and another key directory holds one. F<security.txt>
+would otherwise carry no C<Encryption> field, and the field must not
+name a key of another directory.
 
 =item *
 

@@ -30,7 +30,10 @@ manifest parser. The renderer holds the wiring only.
   block name must name a directory below the source directory, and must be one
   path segment. Two blocks must not name one directory.
 - **WEB-KEYS-2** — The `keys` block must take an `org` word, which is the first
-  field of every key name. A description without one is an error.
+  field of every key name. A description without one is an error. Two blocks
+  must not name one `org` word. The serial of a purpose counts inside one
+  directory. A mint of the second block would write a name that the first block
+  publishes.
 - **WEB-KEYS-3** — The `keys` block must take an optional `contact` value and an
   optional `expires` value. A description that names one and not the other is an
   error. The `expires` value must be a timestamp of RFC 3339. One block alone
@@ -89,14 +92,19 @@ manifest parser. The renderer holds the wiring only.
   `.well-known/openpgpkey/policy` beside it. The site must hold one such tree,
   and each key directory must write into it. The file must hold the binary form
   of each OpenPGP key of that address, across every directory, in publication
-  order.
+  order. The order must come from the keys, and never from the directory that
+  holds them. The policy file must name the site, and no `org` word. One site
+  serves one such file, and each directory writes the same bytes there.
 - **WEB-KEYS-28** — An address whose keys are all `retired` must serve no file.
-  A reader of that file encrypts a message with the key that it holds.
+  A reader of that file encrypts a message with the key that it holds. The rule
+  must read the address across every key directory of the site.
 - **WEB-KEYS-15** — The build must generate `.well-known/security.txt` when a
   `keys` block names a contact. The file must carry an `Encryption` field when
   that block names a `url`. The key set of that block must also hold a `current`
   OpenPGP key. The field must name the first such key of the publication order
-  of that block.
+  of that block. The field must not name a key of another key directory, because
+  a binding never crosses one. The checks must report a block that names a `url`
+  and holds no `current` OpenPGP key, when another key directory holds one.
 - **WEB-KEYS-16** — The inventory must name every path above, and each binding
   file, so the build and the checks read one list.
 - **WEB-KEYS-17** — The build must sign nothing and must verify nothing.
@@ -221,6 +229,11 @@ command, and it runs the command of another type, per WEB-TRUST-9.
   block and the first key must arrive in one change, because a block that names
   an empty directory fails every build. A second key directory of a site must
   arrive the same way.
+- **WEB-ROTATE-22** — A step that makes a key directory must state that intent.
+  The word is `--bootstrap`, and `mint-key` and `import-key` alone must take it.
+  A step without it must refuse a `--dir` that no `keys` block names, and must
+  refuse before it writes one byte. Each directory holds a root of trust of its
+  own, so a mistyped `--dir` would otherwise publish a second root in silence.
 
 <a id="web-trust"></a>
 
@@ -383,7 +396,10 @@ input, so an organization keeps the names that it has.
   prefix. They must name the owner, the visibility list, the publish workflow of
   the caller, and the subordinate purposes of a root step. They must take the
   `--email` and `--expires` of an OpenPGP mint, and the `--file` of an import.
-  Each of the three is optional.
+  Each of the three is optional. They must take the `--bootstrap` of a step that
+  makes the key directory, per WEB-ROTATE-22, and that input is optional too.
+  Every step must name the directory, a promote included, because a site can
+  hold several.
 - **WEB-ACTIONS-2** — The workflow must output each fact of WEB-ROTATE-13, and
   the digest and the URL of a new key file. A caller declares the key with them.
 - **WEB-ACTIONS-3** — Two composite actions must hold the slots.
