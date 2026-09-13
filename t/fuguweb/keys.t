@@ -161,10 +161,10 @@ RC
 # assertion that reads the whole report skips there.
 my $GPG = Fugu::OpenPGP->new->is_available;
 
-# The program that the renderer probe of a fixture runs. The probe
-# needs a program that exists, and no fixture of this file calls a
-# renderer. OpenBSD and Linux hold true(1) in /bin, and macOS holds it
-# in /usr/bin.
+# The program that the renderer probe of a fixture runs. A fixture
+# names a renderer and calls none, so the name must be a program that
+# stands. The probe takes the first path of the list that is
+# executable.
 my $TRUE = ( grep { -x } qw(/usr/bin/true /bin/true) )[0];
 
 # digest($bytes):
