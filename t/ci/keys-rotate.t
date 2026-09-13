@@ -110,6 +110,7 @@ subtest 'the workflow and the two actions hold each guard' => sub {
 			'an import needs the public key file',
 			'a $STEP reads no public key file',
 			'a promote reads no key type',
+			'a promote makes no key directory',
 			'a step of $PURPOSE binds no subordinate purpose',
 			'the url $URL opens with a dash',
 			'the publish workflow $WORKFLOW opens with a dash',
@@ -529,6 +530,43 @@ subtest 'the verb step passes an option that the verb declares' => sub {
 
 		ok( $declared{$step}{$option}, "$step-key declares --$option" );
 	}
+};
+
+# WEB-ROTATE-21 and WEB-ROTATE-22. Every step writes one key
+# directory, and the word selects it. A step that makes that
+# directory states the intent, and a promote makes none. A workflow
+# that named neither would fail on a site with two directories, or
+# would publish a second root of trust in silence.
+subtest 'the verb step names the key directory of every step' => sub {
+	my $body = _step_body('Run the rotation step');
+	ok( $body, 'the verb step holds one run body' ) or return;
+
+	my @steps = $body =~ /^\s*(\w+)\)$/gm;
+	ok( scalar @steps, 'the verb step names one step word at least' );
+
+	my @arguments = _arguments( $body, @steps );
+	my %passes;
+	for my $argument (@arguments) {
+		my ( $step, $option ) = @{$argument};
+		$passes{$step}{$option} = 1;
+	}
+
+	for my $step (@steps) {
+		ok( $passes{$step}{dir}, "a $step names the key directory" );
+	}
+
+	ok( $passes{mint}{bootstrap},   'a mint states the bootstrap intent' );
+	ok( $passes{import}{bootstrap}, 'and so does an import' );
+	ok( !$passes{promote}{bootstrap},
+		'and a promote makes no key directory' );
+
+	# The word reaches the verb from the input alone, so a caller
+	# that leaves it false makes no directory.
+	like(
+		$body,
+		qr/if \[ "\$BOOTSTRAP" = true \]; then\n\s*args\+=\(--bootstrap\)/,
+		'the intent reaches the verb from the input'
+	);
 };
 
 # _awk($text):

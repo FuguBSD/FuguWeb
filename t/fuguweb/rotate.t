@@ -122,6 +122,11 @@ RC
 # _rotate($root):
 #	A rotation over the description of the project, with the
 #	bootstrap words that a first mint needs.
+#
+#	WEB-ROTATE-22. The word states the intent of a step that makes
+#	the key directory. A step of a directory that the description
+#	names reads it as nothing, so every step of this file takes
+#	it.
 sub _rotate ($root)
 {
 	my $reason;
@@ -130,9 +135,10 @@ sub _rotate ($root)
 	    or die "load $root: $reason\n";
 
 	return App::FuguWeb::Rotate->new(
-		config => $config,
-		org    => $ORG,
-		url    => $URL,
+		config    => $config,
+		org       => $ORG,
+		url       => $URL,
+		bootstrap => 1,
 	);
 }
 
@@ -289,7 +295,8 @@ sub _manifest ($root)
 }
 
 # _problems($root):
-#	What App::FuguWeb::Keys reports about the directory.
+#	What App::FuguWeb::Keys reports about each key directory of
+#	the project, as fuguweb check reads them.
 sub _problems ($root)
 {
 	my $reason;
@@ -297,20 +304,23 @@ sub _problems ($root)
 		error => \$reason )
 	    or return ("load: $reason");
 
-	return App::FuguWeb::Keys->new( config => $config )->problems;
+	return map {
+		App::FuguWeb::Keys->new( config => $config, dir => $_ )
+		    ->problems
+	} $config->keys_dirs;
 }
 
-# _keys($root):
-#	An App::FuguWeb::Keys over the description of the project, so
-#	a subtest can drive one rule of the check alone.
-sub _keys ($root)
+# _keys($root, $dir):
+#	An App::FuguWeb::Keys over one key directory of the project,
+#	so a subtest can drive one rule of the check alone.
+sub _keys ( $root, $dir = 'keys' )
 {
 	my $reason;
 	my $config = App::FuguWeb::Config->load( root => $root,
 		error => \$reason )
 	    or die "load $root: $reason\n";
 
-	return App::FuguWeb::Keys->new( config => $config );
+	return App::FuguWeb::Keys->new( config => $config, dir => $dir );
 }
 
 # _block($root, $stem):
@@ -424,6 +434,14 @@ subtest 'the first root mint bootstraps and signs its own manifest' => sub {
 	my $rc = Fugu::File->read("$root/.fuguwebrc");
 	like( $rc, qr/^keys "keys" \{$/m, 'the description takes a keys block' );
 	like( $rc, qr/^\torg = \Q$ORG\E$/m, 'with the organization word' );
+
+	# A site can hold a second key directory, so the comment above
+	# the block names the organization word of this one.
+	like(
+		$rc,
+		qr/^\# The published keys of \Q$ORG\E\. The rotation$/m,
+		'and a comment that names that word'
+	);
 	like( $rc, qr/^\turl = \Q$URL\E$/m, 'and the published prefix' );
 	like(
 		$rc,
@@ -2118,15 +2136,16 @@ subtest 'the published prefix reaches the description' => sub {
 		error => \$reason )
 	    or die "load: $reason\n";
 	my $rotate = App::FuguWeb::Rotate->new(
-		config => $config,
-		org    => $ORG,
-		url    => 'https://example.invalid/other',
+		config    => $config,
+		org       => $ORG,
+		url       => 'https://example.invalid/other',
+		bootstrap => 1,
 	);
 	ok( $rotate->mint( purpose => 'root', secret => "$root/root1.sec" ),
 		'the mint succeeds' )
 	    or diag( $rotate->error );
 
-	is( $rotate->config->keys_url, 'https://example.invalid/other',
+	is( $rotate->config->keys_url('keys'), 'https://example.invalid/other',
 		'the description carries the prefix that the caller named' );
 };
 
@@ -2165,7 +2184,7 @@ RC
 		'the mint fails'
 	);
 
-	my %stem = map { $_->{stem} => 1 } $rotate->config->site_keys;
+	my %stem = map { $_->{stem} => 1 } $rotate->config->site_keys('keys');
 	ok( !$stem{'fugubsd-3-release'},
 		'the description of the object names no key that it wrote' );
 	ok( $stem{'fugubsd-1-release'}, 'and it still names the current key' );
@@ -2286,8 +2305,9 @@ subtest 'an organization word that no key name carries fails' => sub {
 		error => \$reason )
 	    or die "load: $reason\n";
 	my $rotate = App::FuguWeb::Rotate->new(
-		config => $config,
-		org    => 'Fugu BSD',
+		config    => $config,
+		org       => 'Fugu BSD',
+		bootstrap => 1,
 	);
 	ok( !$rotate->mint( purpose => 'root', secret => "$root/k.sec" ),
 		'the mint fails' );
@@ -2306,9 +2326,10 @@ subtest 'the key directory word names one directory' => sub {
 			error => \$reason )
 		    or die "load: $reason\n";
 		my $rotate = App::FuguWeb::Rotate->new(
-			config => $config,
-			org    => $ORG,
-			dir    => $dir,
+			config    => $config,
+			org       => $ORG,
+			dir       => $dir,
+			bootstrap => 1,
 		);
 		ok(
 			!$rotate->mint(
@@ -2316,6 +2337,199 @@ subtest 'the key directory word names one directory' => sub {
 				secret  => "$root/k.sec"
 			),
 			"the word $dir fails the mint"
+		);
+		like( $rotate->error, qr/is not one name/,
+			'and the reason says why' );
+	}
+
+	ok( !-e "$root/escaped", 'and no directory stands outside the source' );
+};
+
+# WEB-ROTATE-21. The directory word selects the key directory that a
+# step writes. A description with one keys block needs none, and every
+# subtest above reads that.
+subtest 'a step names the key directory that it writes' => sub {
+	my $root = _keyed();
+
+	# The description holds no block of the second directory yet,
+	# so the mint takes the intent, the name, the organization word
+	# and the prefix, per WEB-ROTATE-15 and WEB-ROTATE-22.
+	my $reason;
+	my $config =
+	    App::FuguWeb::Config->load( root => $root, error => \$reason )
+	    or die "load: $reason\n";
+	my $second = App::FuguWeb::Rotate->new(
+		config    => $config,
+		dir       => 'other',
+		org       => 'other',
+		url       => 'https://www.example.net/other',
+		bootstrap => 1,
+	);
+	ok(
+		$second->mint(
+			purpose => 'root',
+			secret  => "$root/other1.sec"
+		),
+		'the first root mint of a second directory succeeds'
+	) or diag( $second->error );
+
+	ok( -f "$root/web/other/other-1-root.pub",
+		'the key lands in the directory that the caller named' );
+	ok( -f "$root/web/other/SHA256", 'with a manifest of its own' );
+	ok( !-e "$root/web/keys/other-1-root.pub",
+		'and never in the first directory' );
+
+	my $both =
+	    App::FuguWeb::Config->load( root => $root, error => \$reason )
+	    or die "load: $reason\n";
+	is_deeply( [ $both->keys_dirs ],
+		[ 'keys', 'other' ], 'the description names both directories' );
+
+	# A description with several blocks names no one directory, so
+	# a step that names none refuses before it writes.
+	my $blind = App::FuguWeb::Rotate->new( config => $both );
+	ok(
+		!$blind->mint(
+			purpose => 'release',
+			secret  => "$root/blind.sec",
+			signer  => "$root/root1.sec"
+		),
+		'a step that names no directory fails'
+	);
+	like(
+		$blind->error,
+		qr{the description holds the key directories keys and other, so the step needs --dir},
+		'and the reason names each directory'
+	);
+	ok( !-e "$root/blind.sec", 'and the step writes no private half' );
+
+	# The named directory is the one that the step writes, and the
+	# root of that directory signs its manifest, per D-02.
+	my $named = App::FuguWeb::Rotate->new( config => $both, dir => 'other' );
+	ok(
+		$named->mint(
+			purpose => 'release',
+			secret  => "$root/other-rel1.sec",
+			signer  => "$root/other1.sec"
+		),
+		'a step that names the second directory succeeds'
+	) or diag( $named->error );
+
+	ok( -f "$root/web/other/other-1-release.pub",
+		'the new key lands in the named directory' );
+	ok( !-e "$root/web/keys/other-1-release.pub",
+		'and the first directory keeps its own keys' );
+	is( join( '; ', _problems($root) ),
+		'', 'and every directory passes the checks' );
+
+	# Every verb takes the word, so a promote of a second
+	# directory reaches its own keys.
+	my ( $exit, $out, $err ) = _run(
+		'--project',  $root, 'promote-key',
+		'--purpose',  'release',
+		'--dir',      'other',
+		'--signer',   "$root/other1.sec",
+		'--retiring', "$root/other-rel1.sec",
+	);
+	is( $exit, 1, 'a promote with no next key fails the step' );
+	like( $err, qr/the purpose release holds no next key/,
+		'and the reason reads the keys of the named directory' );
+};
+
+# WEB-ROTATE-22. A step that makes a key directory states that
+# intent, because each directory holds a root of trust of its own.
+subtest 'a step that makes a key directory states that intent' => sub {
+	my $root = _keyed();
+
+	my $reason;
+	my $config =
+	    App::FuguWeb::Config->load( root => $root, error => \$reason )
+	    or die "load: $reason\n";
+
+	# A mistyped word names no block of the description, and it
+	# reads as a directory that no key file stands in.
+	my $typo = App::FuguWeb::Rotate->new(
+		config => $config,
+		dir    => 'keyz',
+		org    => $ORG,
+	);
+	ok(
+		!$typo->mint( purpose => 'root', secret => "$root/typo.sec" ),
+		'a mint of a directory that no keys block names fails'
+	);
+	like(
+		$typo->error,
+		qr{the description names no key directory keyz, and a mint or an import makes one with --bootstrap},
+		'and the reason names the word that makes one'
+	);
+
+	# The refusal comes before the first write, so a mistyped word
+	# leaves no directory and no key behind.
+	ok( !-e "$root/web/keyz", 'and the source tree holds no such'
+		    . ' directory' );
+	ok( !-e "$root/typo.sec", 'and the step writes no private half' );
+	unlike( Fugu::File->read("$root/.fuguwebrc"),
+		qr/keyz/, 'and the description names no second block' );
+
+	# The organization word reaches Fugu::KeyDir before the step
+	# makes the directory, so a bootstrap that names none leaves no
+	# empty directory either.
+	my $nameless = App::FuguWeb::Rotate->new(
+		config    => $config,
+		dir       => 'other',
+		bootstrap => 1,
+	);
+	ok(
+		!$nameless->mint(
+			purpose => 'root',
+			secret  => "$root/other.sec"
+		),
+		'a bootstrap with no organization word fails'
+	);
+	like( $nameless->error, qr/needs the organization word/,
+		'and the reason names the word' );
+	ok( !-e "$root/web/other",
+		'and the source tree holds no empty directory' );
+
+	# The same step with the intent and the word makes the
+	# directory.
+	my $asked = App::FuguWeb::Rotate->new(
+		config    => $config,
+		dir       => 'other',
+		org       => 'other',
+		bootstrap => 1,
+	);
+	ok(
+		$asked->mint(
+			purpose => 'root',
+			secret  => "$root/other.sec"
+		),
+		'a mint that states the intent succeeds'
+	) or diag( $asked->error );
+	ok( -f "$root/web/other/other-1-root.pub",
+		'and the key lands in the new directory' );
+};
+
+# WEB-ROTATE-21 and WEB-KEYS-29. Every verb holds the word to one
+# directory below the source directory.
+subtest 'a promote names one key directory' => sub {
+	my $root = _keyed();
+
+	for my $dir ( '../escaped', 'a/b', '..', '.' ) {
+		my $reason;
+		my $config = App::FuguWeb::Config->load( root => $root,
+			error => \$reason )
+		    or die "load: $reason\n";
+		my $rotate = App::FuguWeb::Rotate->new(
+			config => $config,
+			dir    => $dir,
+		);
+		ok(
+			!$rotate->promote(
+				purpose  => 'release',
+				retiring => "$root/rel1.sec"
+			),
+			"the word $dir fails the promote"
 		);
 		like( $rotate->error, qr/is not one name/,
 			'and the reason says why' );
@@ -2336,6 +2550,7 @@ subtest 'an absent signify takes the code of a missing tool' => sub {
 			'--purpose', 'root',
 			'--secret',  "$root/root1.sec",
 			'--org',     $ORG,
+			'--bootstrap',
 		);
 	};
 	is( $exit, 6, 'the command takes the missing tool code' );
@@ -2379,6 +2594,7 @@ subtest 'the verbs guard their options and print their facts' => sub {
 		'--secret',  "$root/root1.sec",
 		'--org',     $ORG,
 		'--url',     $URL,
+		'--bootstrap',
 	);
 	is( $exit, 0, 'the mint succeeds' ) or diag($err);
 

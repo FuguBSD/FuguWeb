@@ -100,6 +100,14 @@ use constant ROOT_PURPOSE => 'root';
 # the warning.
 use constant EXPIRY_WARNING => 30 * 24 * 60 * 60;
 
+# The rank of each status in the publication order, which
+# Fugu::KeyDir states. A reader wants the key in force first, so
+# current leads and retired trails.
+my %STATUS_RANK = do {
+	my $rank = 0;
+	map { $_ => $rank++ } Fugu::KeyDir::STATUSES;
+};
+
 # The verifier of each binding type. Every class follows Fugu::Signer,
 # so one call shape reads all three. Fugu::Signify verifies in Perl,
 # and the other two need their command.
@@ -111,23 +119,32 @@ my %VERIFIER = (
 
 # App::FuguWeb::Keys->new(%args):
 #	config => $config	the site description (required)
+#	dir    => $name		the key directory (required)
 #
-#	The method dies when the description holds no keys block. A
-#	caller tests keys_dir first, so an absent block is a
+#	One object reads one key directory. A description can name
+#	several, and each one holds its own root of trust, per D-02.
+#
+#	The method dies when the description holds no such block. A
+#	caller reads keys_dirs first, so an absent block is a
 #	programming error and not a failure of the site.
 sub new ( $class, %args )
 {
 	my $config = $args{config};
 	die 'config parameter required'
 	    unless defined $config;
-	die "the description holds no keys block\n"
-	    unless defined $config->keys_dir;
+
+	my $dir = $args{dir};
+	die 'dir parameter required'
+	    unless defined $dir;
+	die "the description holds no keys block $dir\n"
+	    unless grep { $_ eq $dir } $config->keys_dirs;
 
 	# The reader of each key type needs no command of its own. The
 	# expiry of an OpenPGP key is the one read that runs gpg(1).
 	return bless {
 		config  => $config,
-		keydir  => Fugu::KeyDir->new( org => $config->keys_org ),
+		dir     => $dir,
+		keydir  => Fugu::KeyDir->new( org => $config->keys_org($dir) ),
 		openpgp => Fugu::OpenPGP->new,
 		x509    => Fugu::X509->new,
 		error   => undef,
@@ -152,10 +169,14 @@ sub error ($self)
 #	inventory names what the site holds today.
 #
 #	The set is bounded, and every member takes a fixed shape: a
-#	generated name of the key directory, a key file that
+#	generated name of a key directory, a key file that
 #	Fugu::KeyDir parses, or one of the well-known paths. A path of
 #	another shape belongs to whoever made it, so a target that
 #	holds keys/notes.txt is no site.
+#
+#	The method reads each declared directory. A directory that the
+#	description dropped keeps its files: the build reports them,
+#	per WEB-OUTPUT-4, and the operator removes them by hand.
 #
 #	The prune and the clean read this one answer, so a build can
 #	never remove a file that the clean refuses.
@@ -166,13 +187,15 @@ sub shaped ( $class, $config, $path )
 	# trap: a site of another maker holds security.txt too, and a
 	# clean that took it would delete that site.
 	#
-	# A description that did not load names the block all the
-	# same: App::FuguWeb::Config reads that one name out of the
-	# file that failed. A description that truly names none owns
-	# no path here, whether it loaded or not.
-	my $dir = $config->keys_dir;
-	return 0 unless defined $dir;
+	# A description that did not load names each block all the
+	# same: App::FuguWeb::Config reads those names out of the file
+	# that failed. A description that truly names none owns no
+	# path here, whether it loaded or not.
+	my @dirs = $config->keys_dirs;
+	return 0 unless @dirs;
 
+	# The well-known tree is one tree of the site, and every
+	# directory writes into it.
 	return 1 if $path eq SECURITY_TXT;
 	return 1 if $path eq WKD_POLICY;
 
@@ -181,23 +204,30 @@ sub shaped ( $class, $config, $path )
 		return $hash =~ WKD_NAME ? 1 : 0;
 	}
 
-	my ($name) = $path =~ m{\A\Q$dir\E/(.+)\z};
-	return 0 unless defined $name;
-	return 1 if $GENERATED_NAME{$name};
+	for my $dir (@dirs) {
+		my ($name) = $path =~ m{\A\Q$dir\E/(.+)\z};
+		next unless defined $name;
+		return 1 if $GENERATED_NAME{$name};
 
-	# A description that did not load names no org, and the key
-	# files of the output carry it. The name gives its own, and
-	# Fugu::KeyDir then holds the whole shape.
-	my $org = $config->keys_org // ( $name =~ /\A([a-z][a-z0-9]*)-/ )[0];
-	return 0 unless defined $org;
+		# A description that did not load names no org, and
+		# the key files of the output carry it. The name gives
+		# its own, and Fugu::KeyDir then holds the whole
+		# shape.
+		my $org = $config->keys_org($dir)
+		    // ( $name =~ /\A([a-z][a-z0-9]*)-/ )[0];
+		next unless defined $org;
 
-	my $keydir = Fugu::KeyDir->new( org => $org );
+		my $keydir = Fugu::KeyDir->new( org => $org );
 
-	return 1 if $keydir->parse_name($name);
+		return 1 if $keydir->parse_name($name);
 
-	# A binding is the signature of one key file by another key,
-	# and the directory publishes it beside the two keys.
-	return $keydir->parse_binding($name) ? 1 : 0;
+		# A binding is the signature of one key file by
+		# another key, and the directory publishes it beside
+		# the two keys.
+		return 1 if $keydir->parse_binding($name);
+	}
+
+	return 0;
 }
 
 # $self->paths:
@@ -208,23 +238,75 @@ sub shaped ( $class, $config, $path )
 #	one directory listing and no more.
 sub paths ($self)
 {
-	my @keys = $self->{config}->site_keys;
+	my @keys = $self->{config}->site_keys( $self->{dir} );
 
 	my @paths = map { $self->_in_dir( $_->{name} ) } @keys;
 	push @paths,
-	    map { $self->_in_dir( $_->{name} ) } $self->{config}->site_bindings;
+	    map { $self->_in_dir( $_->{name} ) }
+	    $self->{config}->site_bindings( $self->{dir} );
 	push @paths, $self->_in_dir(MANIFEST), $self->_in_dir(SIGNATURE);
 	push @paths, $self->_in_dir(KEYS_FILE) if $self->_armored(@keys);
 	push @paths, $self->_in_dir(INDEX_PAGE);
 
-	my @wkd = _addresses( $self->_published(@keys) );
+	my @wkd = _addresses( _published(@keys) );
 	if (@wkd) {
 		push @paths, WKD_DIR . "/hu/$_" for @wkd;
 		push @paths, WKD_POLICY;
 	}
-	push @paths, SECURITY_TXT if defined $self->{config}->keys_contact;
+	push @paths, SECURITY_TXT
+	    if defined $self->{config}->keys_contact( $self->{dir} );
 
 	return @paths;
+}
+
+# App::FuguWeb::Keys->site_generated($config):
+#	Every file that a build generates for the key directories of
+#	the site, as a hash reference of output path to bytes. The
+#	method answers the reference, or undef with the reason behind
+#	it.
+#
+#	The site holds one well-known tree, and each directory writes
+#	into it. The Web Key Directory file of one address therefore
+#	gathers the keys of that address across every directory, in
+#	publication order, per WEB-KEYS-14. The order of one address
+#	comes from the keys themselves and never from the directory
+#	that holds them, so a retired key of one directory trails a
+#	current key of the other.
+#
+#	One block alone names the contact, per WEB-KEYS-3, so one
+#	directory writes security.txt. One policy file names the site,
+#	and this method writes it beside the addresses.
+#
+#	This method holds the address rule alone. _generated answers
+#	the files of one directory, and the keys of its addresses
+#	beside them, so each directory is read and ordered once.
+sub site_generated ( $class, $config )
+{
+	my ( %out, %wkd );
+	for my $dir ( $config->keys_dirs ) {
+		my $keys = $class->new( config => $config, dir => $dir );
+
+		my ( $made, $addressed ) = $keys->_generated;
+		return ( undef, "$dir: " . $keys->error ) unless $made;
+
+		$out{$_} = $made->{$_} for keys %$made;
+		push @{ $wkd{ $_->{wkd} } }, $_ for @{$addressed};
+	}
+
+	# WEB-KEYS-28. An address whose keys are all retired serves no
+	# file, and the rule reads that address across the site.
+	my $served = 0;
+	for my $hash ( sort keys %wkd ) {
+		my @live = _published( @{ $wkd{$hash} } ) or next;
+
+		$out{ WKD_DIR . "/hu/$hash" } = join '',
+		    map { $_->{bytes} } sort { _publication( $a, $b ) } @live;
+		$served = 1;
+	}
+
+	$out{ WKD_POLICY() } = _policy($config) if $served;
+
+	return \%out;
 }
 
 # $self->copies:
@@ -236,24 +318,43 @@ sub copies ($self)
 	my $config = $self->{config};
 
 	my @names = (
-		( map { $_->{name} } $config->site_keys ),
-		( map { $_->{name} } $config->site_bindings ),
-		MANIFEST, SIGNATURE
+		( map { $_->{name} } $config->site_keys( $self->{dir} ) ),
+		( map { $_->{name} } $config->site_bindings( $self->{dir} ) ),
+		MANIFEST,
+		SIGNATURE
 	);
 
-	return
-	    map { { from => $config->keys_path($_), to => $self->_in_dir($_) } }
-	    @names;
+	return map {
+		{
+			from => $config->keys_path( $self->{dir}, $_ ),
+			to   => $self->_in_dir($_) }
+	} @names;
 }
 
 # $self->generated:
-#	Every file that the build writes itself, as a hash reference
-#	of output path to bytes. The method returns undef on a
-#	failure, and error holds the reason.
+#	Every file that the build writes itself for this directory, as
+#	a hash reference of output path to bytes. The method returns
+#	undef on a failure, and error holds the reason.
+#
+#	The Web Key Directory files of the site are not among them:
+#	one address can hold a key of every directory, so
+#	site_generated writes that tree.
+sub generated ($self)
+{
+	my ($out) = $self->_generated;
+
+	return $out;
+}
+
+# $self->_generated:
+#	The files of this directory, as a hash reference of output
+#	path to bytes, and the keys that its addresses serve, as an
+#	array reference. The method returns the two, or the empty list
+#	on a failure, and error holds the reason.
 #
 #	The key set reaches Fugu::KeyDir with the armored body of each
 #	OpenPGP key, because the KEYS file holds that body.
-sub generated ($self)
+sub _generated ($self)
 {
 	$self->{error} = undef;
 
@@ -292,26 +393,18 @@ sub generated ($self)
 
 	# One address holds every key of that address, in publication
 	# order. A rotation gives one address a current key and a next
-	# key, and a reader takes the whole file. One file for each key
-	# would give one path two keys, and only the last one written
-	# would publish.
-	my @wkd = $self->_published(@$ordered);
-	for my $key (@wkd) {
-		my $binary = $self->{openpgp}->decode_armor( $key->{armor} );
-		return $self->_fail(
-			"$key->{name}: " . $self->{openpgp}->error )
-		    unless defined $binary;
+	# key, and a reader takes the whole file.
+	#
+	# One address can hold a key of every directory, so the caller
+	# gathers these keys with the keys of each other directory.
+	my $addressed = $self->_wkd_keys($ordered) or return;
 
-		$out{ WKD_DIR . "/hu/$key->{wkd}" } .= $binary;
-	}
-	$out{ WKD_POLICY() } = $self->_policy if @wkd;
-
-	if ( defined $self->{config}->keys_contact ) {
+	if ( defined $self->{config}->keys_contact( $self->{dir} ) ) {
 		my $text = $self->_security_txt($ordered) or return;
 		$out{ SECURITY_TXT() } = $text;
 	}
 
-	return \%out;
+	return ( \%out, $addressed );
 }
 
 # $self->key_set:
@@ -328,10 +421,11 @@ sub key_set ($self)
 	$self->{error} = undef;
 
 	my @set;
-	for my $key ( $self->{config}->site_keys ) {
+	for my $key ( $self->{config}->site_keys( $self->{dir} ) ) {
 		my %entry = %$key;
 
-		my $path  = $self->{config}->keys_path( $key->{name} );
+		my $path =
+		    $self->{config}->keys_path( $self->{dir}, $key->{name} );
 		my $bytes = Fugu::File->read($path);
 		return $self->_fail("cannot read $path") unless defined $bytes;
 
@@ -397,9 +491,9 @@ sub key_set ($self)
 sub problems ( $self, %args )
 {
 	my $config = $self->{config};
-	my $dir    = $config->keys_dir;
+	my $dir    = $self->{dir};
 
-	my @keys     = $config->site_keys;
+	my @keys     = $config->site_keys( $self->{dir} );
 	my @problems = $self->_stray_files( \@keys );
 
 	# Every rule below reads the whole set, so one unreadable key
@@ -416,10 +510,61 @@ sub problems ( $self, %args )
 	push @problems, $self->_manifest_problems( \@keys );
 	push @problems, $self->_signature_problems;
 	push @problems, $self->_fingerprint_problems($set);
+	push @problems, $self->_encryption_problems($set);
 	push @problems, $self->_expiry_problems($set)
 	    if $args{expiry} // 1;
 
 	return @problems;
+}
+
+# $self->_encryption_problems($set):
+#	The rule of WEB-KEYS-15 that reads the whole site. The block
+#	that names the contact writes security.txt, and the
+#	Encryption field names the current OpenPGP key of that block.
+#
+#	A block that names a url and holds no such key writes no
+#	field, and a key of another directory cannot fill it: each
+#	directory holds its own root of trust, per D-02, and a binding
+#	never crosses a directory. A site that publishes no OpenPGP
+#	key at all writes no field either, and that one is no
+#	problem, so the report needs a key of another directory.
+sub _encryption_problems ( $self, $set )
+{
+	my $config = $self->{config};
+	my $dir    = $self->{dir};
+
+	return () unless defined $config->keys_contact($dir);
+	return () unless defined $config->keys_url($dir);
+	return () if _current_openpgp($set);
+
+	my @elsewhere;
+	for my $other ( $config->keys_dirs ) {
+		next if $other eq $dir;
+
+		my $key = _current_openpgp( [ $config->site_keys($other) ] )
+		    or next;
+		push @elsewhere, "$other/$key->{name}";
+	}
+
+	return () unless @elsewhere;
+
+	return
+	      "$dir: it names a url and no current OpenPGP key, so"
+	    . ' security.txt carries no Encryption field, and '
+	    . join( ' and ', @elsewhere )
+	    . ' holds one';
+}
+
+# _current_openpgp($keys):
+#	The first current OpenPGP key of a key list, or undef when the
+#	list holds none.
+sub _current_openpgp ($keys)
+{
+	my ($key) =
+	    grep { $_->{type} eq 'openpgp' && $_->{status} eq 'current' }
+	    @$keys;
+
+	return $key;
 }
 
 # $self->_root_problems($set):
@@ -434,7 +579,7 @@ sub problems ( $self, %args )
 #	fault reads better than two.
 sub _root_problems ( $self, $set )
 {
-	my $dir = $self->{config}->keys_dir;
+	my $dir = $self->{dir};
 
 	my ($root) = _current_root($set);
 	unless ($root) {
@@ -462,9 +607,9 @@ sub _root_problems ( $self, $set )
 #	there.
 sub _binding_problems ( $self, $set )
 {
-	my @bindings = $self->{config}->site_bindings;
+	my @bindings = $self->{config}->site_bindings( $self->{dir} );
 
-	my $dir      = $self->{config}->keys_dir;
+	my $dir      = $self->{dir};
 	my @problems = map { $self->_binding_verified($_) } @bindings;
 
 	my ($root) = _current_root($set);
@@ -488,7 +633,7 @@ sub _binding_problems ( $self, $set )
 #	one gives a consumer no way to reach that key from the root.
 sub _unbound_problems ( $self, $set, $bindings, $root )
 {
-	my $dir = $self->{config}->keys_dir;
+	my $dir = $self->{dir};
 
 	my %attests;
 	for my $binding (@$bindings) {
@@ -520,7 +665,7 @@ sub _unbound_problems ( $self, $set, $bindings, $root )
 sub _binding_verified ( $self, $binding )
 {
 	my $config = $self->{config};
-	my $dir    = $config->keys_dir;
+	my $dir    = $self->{dir};
 	my $name   = $binding->{name};
 
 	my $class = $VERIFIER{ $binding->{type} }
@@ -535,9 +680,10 @@ sub _binding_verified ( $self, $binding )
 
 	return ()
 	    if $signer->verify(
-		keys      => [ $config->keys_path( $binding->{signer} ) ],
-		file      => $config->keys_path( $binding->{target} ),
-		signature => $config->keys_path($name),
+		keys =>
+		    [ $config->keys_path( $self->{dir}, $binding->{signer} ) ],
+		file => $config->keys_path( $self->{dir}, $binding->{target} ),
+		signature => $config->keys_path( $self->{dir}, $name ),
 	    );
 
 	return "$dir/$name: " . $signer->error;
@@ -561,15 +707,15 @@ sub _current_root ($set)
 sub _stray_files ( $self, $keys )
 {
 	my $config = $self->{config};
-	my $dir    = $config->keys_dir;
+	my $dir    = $self->{dir};
 
-	my $names = App::FuguWeb::list_dir( $config->keys_path )
+	my $names = App::FuguWeb::list_dir( $config->keys_path( $self->{dir} ) )
 	    or return "$dir: cannot read the key directory: $!";
 
 	my %key = map { $_->{name} => 1 } @$keys;
 
 	my %declared = %key;
-	$declared{ $_->{name} } = 1 for $config->site_bindings;
+	$declared{ $_->{name} } = 1 for $config->site_bindings( $self->{dir} );
 
 	my @problems;
 	for my $name (@$names) {
@@ -616,8 +762,8 @@ sub _stray_files ( $self, $keys )
 sub _manifest_problems ( $self, $keys )
 {
 	my $config = $self->{config};
-	my $dir    = $config->keys_dir;
-	my $path   = $config->keys_path(MANIFEST);
+	my $dir    = $self->{dir};
+	my $path   = $config->keys_path( $self->{dir}, MANIFEST );
 
 	my $bytes = Fugu::File->read($path);
 	return "$dir/" . MANIFEST . ': cannot read it'
@@ -636,7 +782,7 @@ sub _manifest_problems ( $self, $keys )
 	# and of every binding file, and it names nothing else.
 	my @files = (
 		( map { $_->{name} } @$keys ),
-		( map { $_->{name} } $config->site_bindings ) );
+		( map { $_->{name} } $config->site_bindings( $self->{dir} ) ) );
 
 	my @problems;
 	my %named;
@@ -650,7 +796,8 @@ sub _manifest_problems ( $self, $keys )
 			next;
 		}
 
-		my $found = _digest_of( $config->keys_path($name) );
+		my $found =
+		    _digest_of( $config->keys_path( $self->{dir}, $name ) );
 		unless ( defined $found ) {
 			push @problems, "$dir/$name: cannot read it";
 			next;
@@ -679,9 +826,10 @@ sub _manifest_problems ( $self, $keys )
 sub _signature_problems ($self)
 {
 	my $config = $self->{config};
-	my $dir    = $config->keys_dir;
+	my $dir    = $self->{dir};
 
-	my $bytes = Fugu::File->read( $config->keys_path(SIGNATURE) );
+	my $bytes =
+	    Fugu::File->read( $config->keys_path( $self->{dir}, SIGNATURE ) );
 	return "$dir/" . SIGNATURE . ': cannot read it'
 	    unless defined $bytes;
 
@@ -701,7 +849,7 @@ sub _signature_problems ($self)
 #	on a certificate alone, so no signify key reaches this rule.
 sub _fingerprint_problems ( $self, $set )
 {
-	my $dir = $self->{config}->keys_dir;
+	my $dir = $self->{dir};
 
 	my @problems;
 	for my $key (@$set) {
@@ -766,7 +914,7 @@ sub _fingerprint_of ( $self, $key )
 #	the call names it: a key that nothing read must never pass.
 sub _expiry_problems ( $self, $set )
 {
-	my $dir = $self->{config}->keys_dir;
+	my $dir = $self->{dir};
 	my $now = time;
 
 	my %successor;
@@ -833,8 +981,10 @@ sub _expiry_problems ( $self, $set )
 sub _validity ( $self, $key )
 {
 	if ( $key->{type} eq 'openpgp' ) {
-		my $expiry = $self->{openpgp}->expiry(
-			public => $self->{config}->keys_path( $key->{name} ) );
+		my $path =
+		    $self->{config}->keys_path( $self->{dir}, $key->{name} );
+
+		my $expiry = $self->{openpgp}->expiry( public => $path );
 		return ( undef, $self->{openpgp}->error )
 		    unless defined $expiry;
 
@@ -927,22 +1077,27 @@ sub _index_page ( $self, $rows, $by_target )
 sub _by_target ($self)
 {
 	my %by;
-	push @{ $by{ $_->{target} } }, $_ for $self->{config}->site_bindings;
+	push @{ $by{ $_->{target} } }, $_
+	    for $self->{config}->site_bindings( $self->{dir} );
 
 	return \%by;
 }
 
-# $self->_policy:
+# _policy($config):
 #	The policy file of the Web Key Directory. The file carries no
 #	flag, and the draft of the service reads a line that starts
 #	with a number sign as a comment. An empty file would pass no
 #	check of the site that tells a written file from a missing
 #	one.
-sub _policy ($self)
+#
+#	One site serves one policy file, and every key directory of
+#	the site writes into that one tree. The line therefore names
+#	the site, and it names no org word.
+sub _policy ($config)
 {
 	return
 	      '# The Web Key Directory of '
-	    . $self->{config}->keys_org
+	    . $config->site
 	    . ". It sets no policy flag.\n";
 }
 
@@ -959,7 +1114,7 @@ sub _security_txt ( $self, $ordered )
 	# of them, because the order sorts the serial down inside one
 	# status.
 	my $encryption;
-	my $url = $config->keys_url;
+	my $url = $config->keys_url( $self->{dir} );
 	if ( defined $url ) {
 		my ($current) =
 		    grep {
@@ -970,8 +1125,8 @@ sub _security_txt ( $self, $ordered )
 	}
 
 	my $text = $self->{keydir}->security_txt(
-		contact    => $config->keys_contact,
-		expires    => $config->keys_expires,
+		contact    => $config->keys_contact( $self->{dir} ),
+		expires    => $config->keys_expires( $self->{dir} ),
 		encryption => $encryption
 	);
 
@@ -983,7 +1138,7 @@ sub _security_txt ( $self, $ordered )
 #	output directory.
 sub _in_dir ( $self, $name )
 {
-	return $self->{config}->keys_dir . "/$name";
+	return $self->{dir} . "/$name";
 }
 
 # $self->_armored(@keys):
@@ -995,7 +1150,7 @@ sub _armored ( $self, @keys )
 	return scalar grep { $_->{type} eq 'openpgp' } @keys;
 }
 
-# $self->_published(@keys):
+# _published(@keys):
 #	Every OpenPGP key that the Web Key Directory serves. A key
 #	with no email address has no address to answer for, so the
 #	directory holds no file for it.
@@ -1005,7 +1160,7 @@ sub _armored ( $self, @keys )
 #	retired key is the one key that must not answer that. A
 #	retired key beside a current one still serves, because the
 #	current key leads the file.
-sub _published ( $self, @keys )
+sub _published (@keys)
 {
 	my @named =
 	    grep { $_->{type} eq 'openpgp' && defined $_->{email} } @keys;
@@ -1016,6 +1171,51 @@ sub _published ( $self, @keys )
 	}
 
 	return grep { $live{ $_->{wkd} } } @named;
+}
+
+# $self->_wkd_keys($ordered):
+#	Each key of the ordered set that the Web Key Directory can
+#	serve, with the binary body of that key in bytes. The method
+#	returns undef on a failure, and error holds the reason.
+#
+#	A key with no email address has no address to answer for, so
+#	the directory holds no file for it.
+sub _wkd_keys ( $self, $ordered )
+{
+	my @out;
+	for my $key (@$ordered) {
+		next
+		    unless $key->{type} eq 'openpgp'
+		    && defined $key->{email};
+
+		my $binary = $self->{openpgp}->decode_armor( $key->{armor} );
+		return $self->_fail(
+			"$key->{name}: " . $self->{openpgp}->error )
+		    unless defined $binary;
+
+		push @out, { %$key, bytes => $binary };
+	}
+
+	return \@out;
+}
+
+# _publication($one, $two):
+#	Order two keys as Fugu::KeyDir orders the keys of one
+#	directory: the status first, then the serial from the highest
+#	down, then the purpose and the name.
+#
+#	One address can hold a key of each key directory, and two
+#	directories carry two organization words, so Fugu::KeyDir
+#	cannot order that set: it parses each name against one word.
+#	The vocabulary stays there all the same, and this module reads
+#	the rank from it.
+sub _publication ( $one, $two )
+{
+	return
+	       $STATUS_RANK{ $one->{status} } <=> $STATUS_RANK{ $two->{status} }
+	    || $two->{serial}                 <=> $one->{serial}
+	    || $one->{purpose}                cmp $two->{purpose}
+	    || $one->{name}                   cmp $two->{name};
 }
 
 # _signify_problem($bytes):

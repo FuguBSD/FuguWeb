@@ -53,6 +53,14 @@ on:
         description: The key directory in the tree of the caller
         required: true
         type: string
+      bootstrap:
+        description: >-
+          Make the keys block of a directory that the description does not name.
+          A first mint of a site takes it, and a mint of a second key directory
+          takes it. Every later step leaves it false.
+        required: false
+        type: boolean
+        default: false
       org:
         description: The organization word, which leads every key name
         required: true
@@ -166,6 +174,7 @@ jobs:
           PREFIX: ${{ inputs.secret_prefix }}
           OWNER: ${{ inputs.owner }}
           DIRECTORY: ${{ inputs.directory }}
+          BOOTSTRAP: ${{ inputs.bootstrap }}
           SUBORDINATE: ${{ inputs.subordinate_purposes }}
           FILE: ${{ inputs.file }}
           URL: ${{ inputs.url }}
@@ -244,6 +253,13 @@ jobs:
           # names work that no step of this run does.
           if [ "$PURPOSE" != root ] && [ -n "$SUBORDINATE" ]; then
             fault="a step of $PURPOSE binds no subordinate purpose"
+          fi
+
+          # WEB-ROTATE-22. mint-key and import-key declare
+          # --bootstrap, and promote-key declares none: a promote
+          # reads a directory that the description names already.
+          if [ "$STEP" = promote ] && [ "$BOOTSTRAP" = true ]; then
+            fault="a promote makes no key directory"
           fi
 
           if [ -n "$fault" ]; then
@@ -488,6 +504,7 @@ jobs:
           ORG: ${{ inputs.org }}
           URL: ${{ inputs.url }}
           DIRECTORY: ${{ inputs.directory }}
+          BOOTSTRAP: ${{ inputs.bootstrap }}
           EMAIL: ${{ inputs.email }}
           EXPIRES: ${{ inputs.expires }}
           FILE: ${{ inputs.file }}
@@ -495,6 +512,11 @@ jobs:
         run: |
           root="$WORK/root-active.sec"
           args=(--purpose "$PURPOSE")
+
+          # WEB-ROTATE-21. Every step writes one key directory, and
+          # the word selects it. A site can hold several, so a
+          # promote names the directory too.
+          args+=(--dir "$(basename "$DIRECTORY")")
 
           # WEB-ROTATE-1. mint-key and import-key declare --type, and
           # promote-key declares none. The guard step refuses a
@@ -520,11 +542,16 @@ jobs:
               # WEB-ROTATE-18. The verb refuses a path that stands,
               # because a rotation cannot make a private half again.
               args+=(--secret "$WORK/new.sec")
-              # WEB-KEYS-5 and WEB-ROTATE-15. The description names
-              # the directory once it holds a keys block, and these
-              # three words bootstrap the block of a first key.
-              args+=(--org "$ORG" --dir "$(basename "$DIRECTORY")")
-              args+=(--url "$URL")
+              # WEB-KEYS-5, WEB-ROTATE-15 and WEB-ROTATE-22. A
+              # directory that no keys block names takes one from
+              # these words. The verb reads the org and the url of
+              # the description once the block stands, and it refuses
+              # a directory that the block does not name without the
+              # bootstrap word.
+              args+=(--org "$ORG" --url "$URL")
+              if [ "$BOOTSTRAP" = true ]; then
+                args+=(--bootstrap)
+              fi
               # WEB-OPENPGP-1 and WEB-OPENPGP-3. An OpenPGP mint
               # takes an address and an expiry date.
               if [ -n "$EMAIL" ]; then
@@ -548,8 +575,10 @@ jobs:
                 exit 1
               fi
               args+=(--file "$FILE" --secret "$WORK/$PURPOSE-idle.sec")
-              args+=(--org "$ORG" --dir "$(basename "$DIRECTORY")")
-              args+=(--url "$URL")
+              args+=(--org "$ORG" --url "$URL")
+              if [ "$BOOTSTRAP" = true ]; then
+                args+=(--bootstrap)
+              fi
               ;;
             promote)
               # WEB-TRUST-4. The retiring key signs the public key

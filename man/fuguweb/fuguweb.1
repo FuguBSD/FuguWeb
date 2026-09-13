@@ -48,7 +48,8 @@
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
 .Op Fl Fl email Ar address
 .Op Fl Fl expires Ar date
-.Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
+.Op Fl Fl dir Ar name
+.Op Fl Fl bootstrap Fl Fl org Ar word Op Fl Fl url Ar prefix
 .Nm fuguweb
 .Cm import-key
 .Fl Fl purpose Ar word
@@ -57,7 +58,8 @@
 .Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
-.Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
+.Op Fl Fl dir Ar name
+.Op Fl Fl bootstrap Fl Fl org Ar word Op Fl Fl url Ar prefix
 .Nm fuguweb
 .Cm promote-key
 .Fl Fl purpose Ar word
@@ -65,6 +67,7 @@
 .Op Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
+.Op Fl Fl dir Ar name
 .Nm fuguweb
 .Cm help
 .Op Ar command
@@ -134,7 +137,7 @@ the first one that is not.
 It runs
 .Xr mandoc 1
 in lint mode over every mdoc source, and a warning fails the build.
-It then writes the stylesheet, the assets, the key directory, each
+It then writes the stylesheet, the assets, each key directory, each
 page, and one page for each manual.
 Last, it removes every file of the site that the description no longer
 names, so a second build over one directory gives the same tree as the
@@ -185,7 +188,8 @@ holds no stylesheet, because every build writes one.
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
 .Op Fl Fl email Ar address
 .Op Fl Fl expires Ar date
-.Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
+.Op Fl Fl dir Ar name
+.Op Fl Fl bootstrap Fl Fl org Ar word Op Fl Fl url Ar prefix
 .Xc
 Mint the next key of a purpose.
 The
@@ -209,7 +213,8 @@ See
 .Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
-.Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
+.Op Fl Fl dir Ar name
+.Op Fl Fl bootstrap Fl Fl org Ar word Op Fl Fl url Ar prefix
 .Xc
 Publish a key that another tool made, under the next name of the
 purpose.
@@ -246,16 +251,19 @@ and the Web Key Directory serves no file for the address of its user
 id.
 The
 .Pa KEYS
-file still holds that key, and the
+file of its own directory still holds that key.
+The
 .Ic Encryption
 field of
 .Pa security.txt
-can still name it.
-A site with no
+can still name it, when that directory is the one that names the
+contact.
+A directory with no
 .Ic keys
 block takes one from
-.Fl Fl org ,
-.Fl Fl dir
+.Fl Fl bootstrap ,
+.Fl Fl dir ,
+.Fl Fl org
 and
 .Fl Fl url ,
 as a mint does.
@@ -276,6 +284,7 @@ See
 .Op Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
+.Op Fl Fl dir Ar name
 .Xc
 Make the
 .Cm next
@@ -394,7 +403,9 @@ and
 must lie below
 .Ic module_root .
 .It Ic keys Qq Ar name
-The published key directory.
+One published key directory.
+A description can hold several, and two blocks must not name one
+directory.
 See
 .Sx THE KEY DIRECTORY .
 .El
@@ -555,7 +566,17 @@ consumer can fetch a key and verify a release with it.
 A
 .Ic keys
 block describes that directory, and the build publishes it.
-A description holds at most one such block.
+A description can hold several such blocks, and each one names one
+directory.
+Two blocks must not name one directory.
+.Pp
+Each directory holds its own root of trust, and a binding never
+crosses a directory.
+A publisher that keeps two trust domains therefore keeps two
+directories in one site.
+The site-level files stay single: one
+.Pa security.txt ,
+and one Web Key Directory that gathers every address.
 .Bd -literal -offset indent
 keys "keys" {
 	org     = fugubsd
@@ -577,6 +598,10 @@ The settings are as follows:
 .It Ic org
 The organization word, the first field of every key name.
 This setting is required.
+Two blocks must not name one word.
+A key name holds no directory name, and the serial of a purpose counts
+inside one directory, so a mint of the second block would write a name
+that the first block publishes.
 .It Ic contact
 The
 .Ql Contact
@@ -592,6 +617,9 @@ an RFC 3339 timestamp.
 and
 .Ic expires
 stand or fall together.
+A site publishes one
+.Pa security.txt ,
+so one block alone names the two.
 .It Ic url
 The published prefix of the directory, an absolute URL.
 .El
@@ -671,11 +699,16 @@ The row of a certificate names its subject and its validity dates
 beside the fingerprint.
 .It Pa .well-known/openpgpkey/hu/<hash>
 The Web Key Directory file of each email address.
+The file holds the keys of that address of every directory, in
+publication order.
 .It Pa .well-known/openpgpkey/policy
 The Web Key Directory policy file.
 .It Pa .well-known/security.txt
-The RFC 9116 file, when the block sets a
+The RFC 9116 file, when a block sets a
 .Ic contact .
+The
+.Ic Encryption
+field names the current OpenPGP key of that block.
 .El
 .Pp
 .Cm check
@@ -693,6 +726,19 @@ every declared fingerprint equals the computed one, and that the
 signature has the shape of a
 .Xr signify 1
 signature.
+.Pp
+One report reads the whole site.
+The block which names the contact and a
+.Ic url
+must hold a
+.Cm current
+OpenPGP key of its own, because the
+.Ic Encryption
+field names no key of another directory.
+The check reports that block when another key directory holds such a
+key.
+A site that publishes no OpenPGP key at all writes no such field, and
+that one is no problem.
 .Pp
 The retention rule holds each binding of the directory.
 A binding whose signer is
@@ -759,6 +805,13 @@ That key signs the chain binding, and
 signs nothing with an expired key.
 Promote the successor before the current key expires.
 .Sh KEY ROTATION
+Every key verb writes one key directory.
+.Fl Fl dir
+names it.
+A description with one
+.Ic keys
+block needs no name, and one with several refuses a step without it.
+.Pp
 A consumer verifies a release against the copy of the public key that
 it holds.
 A release that a new key signs therefore fails in each consumer that
@@ -889,17 +942,35 @@ for each current key and each next key of a subordinate purpose, and
 the step writes the binding of every one of them again.
 It refuses before it writes when one private half is absent.
 .Pp
-A site with no
+A directory with no
 .Ic keys
 block takes one from the command line:
-.Fl Fl org
-names the organization word,
+.Fl Fl bootstrap
+states the intent to make that directory,
 .Fl Fl dir
-names the directory, which defaults to
+names it, which defaults to
 .Pa keys ,
-and
+.Fl Fl org
+names the organization word, and
 .Fl Fl url
 names the published prefix.
+A second key directory of a site arrives the same way.
+.Pp
+A step without
+.Fl Fl bootstrap
+refuses a
+.Fl Fl dir
+that no
+.Ic keys
+block names.
+Each key directory holds a root of trust of its own, so a mistyped
+name would otherwise publish a second root in silence.
+.Cm mint-key
+and
+.Cm import-key
+take the option, and
+.Cm promote-key
+makes no directory.
 .Ss The root promote
 A root promote signs the manifest with the key that it makes current,
 so it takes
@@ -963,9 +1034,11 @@ or
 is not installed.
 .El
 .Sh EXAMPLES
-Start a site, build it, and check it:
+Start a site, write its front page, build it, and check it:
 .Bd -literal -offset indent
 $ fuguweb init
+$ mkdir web
+$ echo "<h1>Home</h1>" >web/index.body.html
 $ fuguweb build
 $ fuguweb check
 .Ed
@@ -978,7 +1051,7 @@ $ fuguweb check --out /tmp/site
 .Pp
 Publish the root key and the first release key of an organization:
 .Bd -literal -offset indent
-$ fuguweb mint-key --purpose root \e
+$ fuguweb mint-key --purpose root --bootstrap \e
 	--secret ~/keys/root-1.sec --org fugubsd \e
 	--url https://www.fugubsd.org/keys
 $ fuguweb mint-key --purpose release \e
@@ -1008,13 +1081,29 @@ $ fuguweb promote-key --purpose release \e
 	--signer ~/keys/root-1.sec --retiring ~/keys/release-1.sec
 .Ed
 .Pp
-Rotate the root key, with one release key in force:
+Rotate the root key.
+The promote writes the binding of each key in force again, so it takes
+one
+.Fl Fl bind
+for each of them:
 .Bd -literal -offset indent
 $ fuguweb mint-key --purpose root \e
 	--secret ~/keys/root-2.sec --signer ~/keys/root-1.sec
 $ fuguweb promote-key --purpose root \e
 	--secret ~/keys/root-2.sec --retiring ~/keys/root-1.sec \e
-	--bind fugubsd-2-release=~/keys/release-2.sec
+	--bind fugubsd-2-release=~/keys/release-2.sec \e
+	--bind fugubsd-1-contact=~/keys/contact-1.sec \e
+	--bind fugubsd-1-sign=~/keys/sign-1.key
+.Ed
+.Pp
+Publish a second key directory, for the keys of one project:
+.Bd -literal -offset indent
+$ fuguweb mint-key --purpose root --dir project --bootstrap \e
+	--secret ~/keys/project-root-1.sec --org fuguproj \e
+	--url https://www.fugubsd.org/project
+$ fuguweb mint-key --purpose release --dir project \e
+	--secret ~/keys/project-release-1.sec \e
+	--signer ~/keys/project-root-1.sec
 .Ed
 .Sh SEE ALSO
 .Xr gpg 1 ,

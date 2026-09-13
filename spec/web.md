@@ -14,8 +14,10 @@ the area that it changes. The conventions of [index.md](index.md) apply.
 ## The key directory
 
 An organization publishes its public keys under one prefix, so a consumer
-install can fetch a key and verify a release with it. A site describes that
-directory in `.fuguwebrc`, and the renderer publishes it.
+install can fetch a key and verify a release with it. A site describes each such
+directory in `.fuguwebrc`, and the renderer publishes it. A publisher that keeps
+two trust domains keeps two directories in one site, and each directory holds
+its own root of trust, per D-02.
 
 Every generic part lives in the Fugu library. That library holds the name
 pattern, the publication order, and the text of each generated file. It also
@@ -24,21 +26,26 @@ manifest parser. The renderer holds the wiring only.
 
 ### The description
 
-- **WEB-KEYS-1** — The description must take at most one `keys` block. The block
-  name must name a directory below the source directory, and must be one path
-  segment.
+- **WEB-KEYS-1** — The description must take any number of `keys` blocks. Each
+  block name must name a directory below the source directory, and must be one
+  path segment. Two blocks must not name one directory.
 - **WEB-KEYS-2** — The `keys` block must take an `org` word, which is the first
-  field of every key name. A description without one is an error.
+  field of every key name. A description without one is an error. Two blocks
+  must not name one `org` word. The serial of a purpose counts inside one
+  directory. A mint of the second block would write a name that the first block
+  publishes.
 - **WEB-KEYS-3** — The `keys` block must take an optional `contact` value and an
   optional `expires` value. A description that names one and not the other is an
-  error. The `expires` value must be a timestamp of RFC 3339.
+  error. The `expires` value must be a timestamp of RFC 3339. One block alone
+  must take the two, because the site publishes one `security.txt`. A second
+  block that names either one is an error.
 - **WEB-KEYS-4** — The `keys` block must take an optional `url`, which is the
   published prefix of the directory. The value must be an absolute URL.
-- **WEB-KEYS-5** — Each `key` block must name the stem of one key file in the
-  directory. The extension of that file gives the type: `.pub` names a signify
-  key, `.asc` an armored OpenPGP key, and `.pem` an X.509 certificate. The
-  renderer must reject a stem that names no file, and one that names more than
-  one.
+- **WEB-KEYS-5** — Each `key` block must name the stem of one key file of one
+  key directory. The directory that holds the file gives the directory of the
+  block. The extension of that file gives the type: `.pub` names a signify key,
+  `.asc` an armored OpenPGP key, and `.pem` an X.509 certificate. The renderer
+  must reject a stem that names no file, and one that names more than one.
 - **WEB-KEYS-6** — Each `key` block must take a `status` of `current`, `next` or
   `retired`, and optional `since` and `until` values.
 - **WEB-KEYS-7** — A `key` block of an OpenPGP key must take an optional `email`
@@ -59,7 +66,8 @@ manifest parser. The renderer holds the wiring only.
   of the staging directory of the build. None of the three names a directory
   that the build can publish.
 - **WEB-KEYS-30** — The renderer must reject a `keys` name that the inventory
-  already holds. The two would become one name in the output.
+  already holds, and one that a second `keys` block holds. Two such names would
+  become one name in the output.
 - **WEB-KEYS-31** — A signify key file must hold an untrusted comment line and a
   key body of 56 base64 characters. The body must decode to 42 bytes that start
   with `Ed`.
@@ -81,14 +89,23 @@ manifest parser. The renderer holds the wiring only.
   bindings of each key, per WEB-TRUST-11.
 - **WEB-KEYS-14** — The build must generate `.well-known/openpgpkey/hu/<hash>`
   for each email address that a key names, and must generate
-  `.well-known/openpgpkey/policy` beside it. The file must hold the binary form
-  of each OpenPGP key of that address, in publication order.
+  `.well-known/openpgpkey/policy` beside it. The site must hold one such tree,
+  and each key directory must write into it. The file must hold the binary form
+  of each OpenPGP key of that address, across every directory, in publication
+  order. The order must come from the keys, and never from the directory that
+  holds them. The policy file must name the site, and no `org` word. One site
+  serves one such file, and each directory writes the same bytes there.
 - **WEB-KEYS-28** — An address whose keys are all `retired` must serve no file.
-  A reader of that file encrypts a message with the key that it holds.
-- **WEB-KEYS-15** — The build must generate `.well-known/security.txt` when the
+  A reader of that file encrypts a message with the key that it holds. The rule
+  must read the address across every key directory of the site.
+- **WEB-KEYS-15** — The build must generate `.well-known/security.txt` when a
   `keys` block names a contact. The file must carry an `Encryption` field when
-  the block names a `url`. The set must also hold a `current` OpenPGP key. The
-  field must name the first such key of the publication order.
+  that block names a `url`. The key set of that block must also hold a `current`
+  OpenPGP key. The field must name the first such key of the publication order
+  of that block. The field must not name a key of another key directory, because
+  a binding never crosses one. The checks must report the block that names the
+  contact and a `url`, and holds no `current` OpenPGP key. The checks must not
+  report that block when no other key directory holds such a key.
 - **WEB-KEYS-16** — The inventory must name every path above, and each binding
   file, so the build and the checks read one list.
 - **WEB-KEYS-17** — The build must sign nothing and must verify nothing.
@@ -204,11 +221,20 @@ command, and it runs the command of another type, per WEB-TRUST-9.
   first mint, and it must stand. A directory whose keys hold no root must stand
   for the first root mint alone, per WEB-TRUST-1.
 - **WEB-ROTATE-21** — The key directory word must name one directory below the
-  source directory, as WEB-KEYS-29 holds it.
-- **WEB-ROTATE-15** — A description with no `keys` block must take one, with the
-  organization word and the published prefix that the caller names. The block
-  and the first key must arrive in one change, because a block that names an
-  empty directory fails every build.
+  source directory, as WEB-KEYS-29 holds it. The word is `--dir`, and it selects
+  the directory that the step writes. A description with one `keys` block must
+  need no such word, and a description with several must refuse a step without
+  it.
+- **WEB-ROTATE-15** — A directory that no `keys` block names must take one, with
+  the organization word and the published prefix that the caller names. The
+  block and the first key must arrive in one change, because a block that names
+  an empty directory fails every build. A second key directory of a site must
+  arrive the same way.
+- **WEB-ROTATE-22** — A step that makes a key directory must state that intent.
+  The word is `--bootstrap`, and `mint-key` and `import-key` alone must take it.
+  A step without it must refuse a `--dir` that no `keys` block names, and must
+  refuse before it writes one byte. Each directory holds a root of trust of its
+  own, so a mistyped `--dir` would otherwise publish a second root in silence.
 
 <a id="web-trust"></a>
 
@@ -371,7 +397,10 @@ input, so an organization keeps the names that it has.
   prefix. They must name the owner, the visibility list, the publish workflow of
   the caller, and the subordinate purposes of a root step. They must take the
   `--email` and `--expires` of an OpenPGP mint, and the `--file` of an import.
-  Each of the three is optional.
+  Each of the three is optional. They must take the `--bootstrap` of a step that
+  makes the key directory, per WEB-ROTATE-22, and that input is optional too.
+  Every step must name the directory, a promote included, because a site can
+  hold several.
 - **WEB-ACTIONS-2** — The workflow must output each fact of WEB-ROTATE-13, and
   the digest and the URL of a new key file. A caller declares the key with them.
 - **WEB-ACTIONS-3** — Two composite actions must hold the slots.
@@ -421,10 +450,10 @@ A build owns its output directory. It writes the site there, and it removes what
 the site dropped. A second build over one directory therefore gives the same
 tree as the first.
 
-The output is one flat directory of files. The key directory is the one part
-below it. A file there takes one of a bounded set of shapes, and rule
-WEB-OUTPUT-10 states each one. A path of another shape belongs to whoever made
-it, so the build keeps it and the clean refuses the tree.
+The output is one flat directory of files. A key directory is one part below it,
+and the well-known tree is the other. A file there takes one of a bounded set of
+shapes, and rule WEB-OUTPUT-10 states each one. A path of another shape belongs
+to whoever made it, so the build keeps it and the clean refuses the tree.
 
 - **WEB-OUTPUT-1** — The build must write a plain file. The file must sit at the
   top level of the output, or must take a shape of the key directory. Rule
@@ -454,15 +483,15 @@ it, so the build keeps it and the clean refuses the tree.
   site outside its own directory.
 - **WEB-OUTPUT-9** — The output path must take no trailing solidus. Each walk of
   the output cuts a relative path out of an absolute one.
-- **WEB-OUTPUT-10** — A file below the top level must take a shape of the key
-  directory. The shapes are these:
+- **WEB-OUTPUT-10** — A file below the top level must take a shape of a key
+  directory that the description declares. The shapes are these:
 
-  - a generated name of the key directory: `SHA256`, `SHA256.sig`, `KEYS` or
+  - a generated name of a key directory: `SHA256`, `SHA256.sig`, `KEYS` or
     `index.html`;
-  - a key file of the key directory, whose name matches rule WEB-KEYS-19. A
+  - a key file of a key directory, whose name matches rule WEB-KEYS-19. A
     signify key, an OpenPGP key and a certificate each take one shape there, per
     rule WEB-KEYS-5;
-  - a binding file of the key directory, whose name matches rule WEB-KEYS-19;
+  - a binding file of a key directory, whose name matches rule WEB-KEYS-19;
   - `.well-known/security.txt`;
   - `.well-known/openpgpkey/policy`;
   - `.well-known/openpgpkey/hu/<hash>`, where the hash holds 32 characters of
@@ -476,7 +505,9 @@ it, so the build keeps it and the clean refuses the tree.
   and the build would fail at the write.
 - **WEB-OUTPUT-12** — A description with no `keys` block must own no shape of
   rule WEB-OUTPUT-10, and no directory of the key tree. A site of another maker
-  holds `security.txt` too, and the clean must not delete that site.
+  holds `security.txt` too, and the clean must not delete that site. A directory
+  that the description dropped is the same: the build must keep its files, and
+  the check must report them, per WEB-OUTPUT-4.
 - **WEB-OUTPUT-13** — The build and the clean must refuse an output directory
   that no build may own. They must refuse these targets: the root of the
   filesystem, the home directory, the project root, and any directory that holds
