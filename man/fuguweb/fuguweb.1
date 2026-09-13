@@ -55,6 +55,7 @@
 .Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
+.Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
 .Nm fuguweb
 .Cm promote-key
 .Fl Fl purpose Ar word
@@ -197,14 +198,25 @@ See
 .Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
+.Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
 .Xc
 Publish a key that another tool made, under the next name of the
 purpose.
 The command takes the options of a mint of that purpose, and
 .Fl Fl file
 beside them.
+A site with no
+.Ic keys
+block takes one from
+.Fl Fl org ,
+.Fl Fl dir
+and
+.Fl Fl url ,
+as a mint does.
 It writes no key file of its own: the caller holds the private half,
 which signs the binding of the new key.
+See
+.Sx KEY ROTATION .
 .It Xo Cm promote-key
 .Fl Fl purpose Ar word
 .Fl Fl retiring Ar path
