@@ -3,10 +3,16 @@
 # App::FuguWeb::Rotate: every rule of WEB-ROTATE and of WEB-TRUST,
 # against the real signify(1).
 #
-# The verbs write key material, so a fixture proves nothing here: the
-# test generates each key with signify(1) and verifies each manifest
-# and each binding with it. The whole file therefore skips without the
-# command, and the skip stands before the first assertion.
+# The verbs write key material, so a fixture proves nothing here.
+# The test generates each signify key with signify(1). It verifies
+# each manifest and each signify binding with that command. The whole
+# file therefore skips without signify(1), and the skip stands before
+# the first assertion.
+#
+# Two subtests cover a signer of another type. One generates its key
+# with gpg(1), and it verifies its binding with gpg(1). The other does
+# both with openssl(1). Each of the two skips without its command, and
+# that skip stands before the first assertion of the subtest.
 #
 # Each subtest builds its own site in a File::Temp directory, and it
 # reads the repository at no point.
