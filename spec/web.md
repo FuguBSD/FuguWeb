@@ -129,10 +129,11 @@ A release that a new key signs therefore fails in each consumer that holds the
 old copy. One rotation runs in two steps, and the trust order carries the gap. A
 `mint` makes the next key, and a `promote` makes it current.
 
-The verbs sign, and the build signs nothing (WEB-KEYS-17). A verb runs
-`signify(1)` through `Fugu::Signify`, and it runs no command of its own. The
-check verifies a signify binding with no command, and it runs `gpg(1)` or
-`openssl(1)` for a binding of another type, per WEB-TRUST-9.
+The verbs sign, and the build signs nothing (WEB-KEYS-17). A verb signs with the
+signer of the key type in the Fugu library, and it runs no command of its own. A
+signify key signs through `Fugu::Signify`, and a key of another type signs
+through `gpg(1)` or `openssl(1)`. The check verifies a signify binding with no
+command, and it runs the command of another type, per WEB-TRUST-9.
 
 - **WEB-ROTATE-1** — The verbs must be `fuguweb mint-key`, `fuguweb import-key`
   and `fuguweb promote-key`. Each verb must take a `--purpose` word. `mint-key`
@@ -244,9 +245,10 @@ renderer and the verbs hold the wiring only.
   It must refuse before it writes when one is absent. A root promote must remove
   each binding whose target is the retired root, except a chain binding of
   WEB-TRUST-4.
-- **WEB-TRUST-8** — A step must verify each binding that it writes against the
-  public key of the signer, before one byte reaches the directory. A signature
-  that the key does not verify must fail the step.
+- **WEB-TRUST-8** — A step must sign each binding with the signer of the type of
+  its signer key. It must verify each binding that it writes against the public
+  key of the signer, before one byte reaches the directory. A signature that the
+  key does not verify must fail the step.
 - **WEB-TRUST-9** — `fuguweb check` must verify each binding against the public
   key of its signer. It must use the verifier of that type in the Fugu library.
   A signify binding needs no command. An absent gpg(1) or openssl(1), for a type

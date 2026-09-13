@@ -20,6 +20,7 @@ use File::Path  qw(make_path);
 use File::Temp  qw(tempdir);
 use Fugu::File;
 use Fugu::KeyDir;
+use Fugu::OpenPGP;
 use Fugu::Signify;
 use POSIX ();
 
@@ -447,6 +448,60 @@ subtest 'the first root mint binds each key in force' => sub {
 		'the key in force binds to the new root' );
 	ok( _verifies( $root, 'fugubsd-1-root' ),
 		'and the new root signs its own manifest' );
+	is_deeply( [ _problems($root) ], [], 'the reader reports no problem' );
+};
+
+# WEB-TRUST-8. The type of the signer key selects the signer, so an
+# OpenPGP key of the directory signs its binding with gpg(1). A
+# directory that published such a key stands before this release, and
+# the first root mint must bind it.
+subtest 'a root step binds an OpenPGP key with the signer of its type' => sub {
+	my $pgp = Fugu::OpenPGP->new;
+	plan skip_all => 'gpg(1) is not installed' unless $pgp->is_available;
+
+	my $root = _site();
+	my ($first) = _root( $root, secret => "$root/root1.sec" );
+	ok( $first, 'the first root mint succeeds' ) or return;
+
+	# The verbs mint no OpenPGP key in this plan, so the fixture
+	# writes the key file and its block itself.
+	my $dir = "$root/web/keys";
+	$pgp->generate(
+		email  => 'security@fugubsd.org',
+		public => "$dir/fugubsd-1-contact.asc",
+		secret => "$root/contact1.sec",
+	) or die 'the OpenPGP key fixture failed: ' . $pgp->error . "\n";
+
+	# The root goes, so the directory holds one key of another
+	# type that no root attests, per WEB-TRUST-1.
+	unlink "$dir/fugubsd-1-root.pub";
+	my $rc = Fugu::File->read("$root/.fuguwebrc");
+	$rc =~ s/\nkey "fugubsd-1-root" \{[^}]*\}\n//
+	    or die 'the fixture drops no root block';
+	Fugu::File->write( "$root/.fuguwebrc",
+		$rc . qq{\nkey "fugubsd-1-contact" {\n\tstatus = current\n}\n} );
+
+	my ( $facts, $error ) = _root(
+		$root,
+		secret => "$root/root2.sec",
+		bind   => { 'fugubsd-1-contact' => "$root/contact1.sec" }
+	);
+	ok( $facts, 'the mint succeeds with the OpenPGP bound key' )
+	    or diag($error);
+	return unless $facts;
+
+	# The binding takes the extension of the signer type, and the
+	# signature under it must be one that gpg(1) made.
+	my $name = 'fugubsd-1-root.pub.fugubsd-1-contact.asc';
+	ok( -f "$dir/$name", 'the step writes the binding of the OpenPGP key' );
+	ok(
+		$pgp->verify(
+			keys      => ["$dir/fugubsd-1-contact.asc"],
+			file      => "$dir/fugubsd-1-root.pub",
+			signature => "$dir/$name"
+		),
+		'and the published OpenPGP key verifies it'
+	);
 	is_deeply( [ _problems($root) ], [], 'the reader reports no problem' );
 };
 

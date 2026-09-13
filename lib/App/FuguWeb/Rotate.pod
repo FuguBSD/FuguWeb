@@ -58,7 +58,8 @@ key that another tool made. C<promote> makes that key current and
 retires the old one. The first key of a purpose is current at once.
 
 This class signs, and a site build does not. It runs no command of its
-own: L<Fugu::Signify> holds every call of C<signify(1)>.
+own: L<Fugu::Signify> holds every call of C<signify(1)>, and the class
+of each other key type holds every call of its own command.
 
 =head1 THE BINDINGS
 
@@ -66,6 +67,10 @@ A binding is a detached signature by one key over the public key file
 of another key. Its file name is
 C<E<lt>target fileE<gt>.E<lt>signer stemE<gt>.E<lt>extE<gt>>, and
 L<Fugu::KeyDir> holds that name and the retention rule.
+
+The type of the signer key selects the signer and the extension. A
+signify key signs with C<signify(1)>, an OpenPGP key signs with
+C<gpg(1)>, and a certificate signs with C<openssl(1)>.
 
 Each C<current> and C<next> key of a subordinate purpose holds one
 binding over the public key file of the current root. That signature
@@ -224,9 +229,9 @@ The reason of the most recent failure, or undef.
 
 =item $rotate->tool_missing
 
-True when the failure was an absent C<signify(1)>. A caller answers a
-missing tool with its own exit code, so a script tells it from a step
-that failed.
+True when the failure was an absent command of a key type. A caller
+answers a missing tool with its own exit code, so a script tells it
+from a step that failed.
 
 =back
 
@@ -239,7 +244,8 @@ declares the public one.
 =head1 SEE ALSO
 
 L<App::FuguWeb::Keys>, L<Fugu::KeyDir>, L<Fugu::Signify>,
-L<App::FuguWeb::Config>, C<signify(1)>
+L<Fugu::OpenPGP>, L<Fugu::X509>, L<App::FuguWeb::Config>,
+C<signify(1)>
 
 =head1 AUTHORS
 

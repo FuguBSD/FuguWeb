@@ -26,7 +26,9 @@ use Digest::SHA ();
 use File::Temp  ();
 use Fugu::File;
 use Fugu::KeyDir;
+use Fugu::OpenPGP;
 use Fugu::Signify;
+use Fugu::X509;
 use POSIX ();
 
 # App::FuguWeb::Rotate - write the key directory of a site, per
@@ -49,7 +51,8 @@ use POSIX ();
 # so the writer can never publish a directory that the checks reject.
 #
 # The module runs no command of its own. Fugu::Signify holds every
-# call of signify(1), and Fugu::KeyDir holds every name.
+# call of signify(1), the class of each other key type holds every
+# call of its own command, and Fugu::KeyDir holds every name.
 #
 # The module reaches no network and holds no token. The caller stores
 # the private key and declares the public one.
@@ -61,12 +64,22 @@ use constant {
 };
 
 # The purpose word of the root of trust, and the one key type that
-# these verbs read today. App::FuguWeb::Keys holds the root word, so
+# these verbs make today. App::FuguWeb::Keys holds the root word, so
 # the reader and the writer can never disagree about it.
 use constant {
 	ROOT => App::FuguWeb::Keys::ROOT_PURPOSE,
 	TYPE => 'signify',
 };
+
+# The signer of each key type, per WEB-TRUST-8. A binding of a key
+# takes the private half of that key, so the type of the signer key
+# selects the class. Each class follows Fugu::Signer, so one call
+# shape signs for all three.
+my %SIGNER = (
+	signify => 'Fugu::Signify',
+	openpgp => 'Fugu::OpenPGP',
+	x509    => 'Fugu::X509',
+);
 
 sub new ( $class, %args )
 {
@@ -101,9 +114,9 @@ sub config ($self) { return $self->{config}; }
 sub error ($self) { return $self->{error}; }
 
 # $self->tool_missing:
-#	True when the failure was an absent signify(1). A caller
-#	answers a missing tool with its own exit code, so a script can
-#	tell it from a rotation that failed.
+#	True when the failure was an absent command of a key type. A
+#	caller answers a missing tool with its own exit code, so a
+#	script can tell it from a rotation that failed.
 sub tool_missing ($self) { return $self->{tool_missing}; }
 
 # $self->mint(%args):
@@ -674,16 +687,29 @@ sub _read_pair ( $self, $file, $secret )
 #	Every file of the signature is staged in a temporary
 #	directory, so the work never depends on what the tree holds,
 #	and nothing reaches the tree until it verifies.
+#
+#	WEB-TRUST-8. The type of the signer key selects the signer
+#	class, as it selects the extension of the binding name. A
+#	directory that holds an OpenPGP key or a certificate therefore
+#	binds that key with the command of its own type.
 sub _bind ( $self, $target, $bytes, $signer, $public, $private )
 {
 	my $keydir = $self->_keydir or return;
 	my $name = $keydir->binding_for( target => $target, signer => $signer )
 	    or return $self->_fail( $keydir->error );
 
+	my $parts = $keydir->parse_name($signer)
+	    or return $self->_fail( $keydir->error );
+	my $class = $SIGNER{ $parts->{type} }
+	    or return $self->_fail(
+		"a key of the type $parts->{type} signs no binding");
+
 	# signify(1) reads the stem of the secret file and writes
 	# 'verify with <stem>.pub' into the signature. The staged name
 	# therefore carries the stem of the signing key, so the
-	# published comment names a file that the site publishes.
+	# published comment names a file that the site publishes. A
+	# key of another type reads the path alone, and one staged
+	# name serves every type.
 	my $stem = _stem_of($signer);
 	my $work = File::Temp->newdir;
 
@@ -695,7 +721,7 @@ sub _bind ( $self, $target, $bytes, $signer, $public, $private )
 	    unless Fugu::File->write( "$work/$stem.sec", $private,
 		mode => 0600 );
 
-	my $sig = Fugu::Signify->new;
+	my $sig = $class->new;
 	$sig->sign(
 		secret    => "$work/$stem.sec",
 		file      => "$work/$target",
@@ -1194,16 +1220,17 @@ sub _keydir ($self)
 	return $keydir;
 }
 
-# $self->_tool_fail($signify):
-#	The failure of a call that needed signify(1). An absent
-#	command is an install problem, and a failed signature is an
-#	integrity problem, so the caller answers each one with its own
-#	exit code, per WEB-ROTATE-17.
-sub _tool_fail ( $self, $signify )
+# $self->_tool_fail($signer):
+#	The failure of a call that needed the command of a key type.
+#	An absent command is an install problem, and a failed
+#	signature is an integrity problem, so the caller answers each
+#	one with its own exit code, per WEB-ROTATE-17, WEB-OPENPGP-6
+#	and WEB-X509-9.
+sub _tool_fail ( $self, $signer )
 {
-	$self->{tool_missing} = 1 if $signify->command_absent;
+	$self->{tool_missing} = 1 if $signer->command_absent;
 
-	return $self->_fail( $signify->error );
+	return $self->_fail( $signer->error );
 }
 
 # _stem_of($name):
