@@ -27,6 +27,7 @@ my $root     = "$RealBin/../..";
 my $workflow = "$root/.github/workflows/keys-rotate.yml";
 my $slot     = "$root/actions/keys-slot/action.yml";
 my $store    = "$root/actions/keys-store/action.yml";
+my $module   = "$root/lib/App/FuguWeb/CLI.pm";
 
 # _slurp($path):
 #	Whole file as text, or undef with a failed assertion.
@@ -373,6 +374,161 @@ subtest 'the actions hold the slots' => sub {
 		'keys-store moves the variable only when the caller asks' );
 	like( $store_text, qr/^\s+if \[ -n "\$FILE" \]; then$/m,
 		'keys-store writes a secret only when the caller names a file' );
+};
+
+# _group($body, $pattern):
+#	The text inside the first bracket pair behind $pattern. The
+#	bracket is a parenthesis or a brace, and the count runs over
+#	each one, so a nested table stands inside the answer.
+sub _group ( $body, $pattern )
+{
+	return unless $body =~ /$pattern\s*([({])/g;
+
+	my $open  = $1;
+	my $close = $open eq '(' ? ')' : '}';
+	my $from  = pos($body) - 1;
+
+	my $depth = 0;
+	for my $i ( $from .. length($body) - 1 ) {
+		my $char = substr $body, $i, 1;
+		$depth++ if $char eq $open;
+		$depth-- if $char eq $close;
+
+		return substr $body, $from + 1, $i - $from - 1 unless $depth;
+	}
+
+	return;
+}
+
+# _names($table):
+#	Each option name of one Getopt::Long table. A name stands in
+#	quotation marks before a fat comma. The specification of the
+#	argument follows the name, and an alias stands behind a
+#	vertical bar.
+sub _names ($table)
+{
+	my @out;
+	while ( $table =~ /'([^']+)'\s*=>/g ) {
+		my $spec = $1;
+		$spec =~ s/[=:!+].*\z//;
+		push @out, split /\|/, $spec;
+	}
+
+	return @out;
+}
+
+# _declared($source, $verb):
+#	Each option name that CLI.pm declares for one verb. The option
+#	table of a verb names each shared table with a sigil. The read
+#	follows every such name, and it answers the union.
+sub _declared ( $source, $verb )
+{
+	my $entry   = _group( $source, "'\Q$verb\E'\\s*=>" ) // return;
+	my $options = _group( $entry, 'options\s*=>' ) // return;
+
+	my @names = _names($options);
+	for my $table ( $options =~ /%(\w+)/g ) {
+		push @names,
+		    _names( _group( $source, "my\\s+%$table\\s*=" ) // q{} );
+	}
+
+	return @names;
+}
+
+# _arguments($body, @steps):
+#	Each option that the verb step can pass, as one triple. The
+#	triple holds the step word, the option name, and the input of
+#	each condition that holds the line. A line inside a case
+#	branch runs for one step, and a line outside every branch runs
+#	for each step.
+sub _arguments ( $body, @steps )
+{
+	my ( @out, @held, $branch );
+
+	for my $line ( split /\n/, $body ) {
+		next unless $line =~ /\S/;
+
+		my ($space) = $line =~ /^(\s*)/;
+		my $indent = length $space;
+		pop @held while @held && $held[-1][0] >= $indent;
+
+		if ( $line =~ /^\s*if \[ -n "\$(\w+)" \]; then$/ ) {
+			push @held, [ $indent, $1 ];
+			next;
+		}
+
+		if ( $line =~ /^\s*(\w+)\)$/ ) {
+			$branch = $1;
+			next;
+		}
+
+		$branch = undef if $line =~ /^\s*;;$/;
+		next unless $line =~ /^\s*args\+?=\(/;
+
+		my @taken      = $branch ? ($branch) : @steps;
+		my @conditions = map { $_->[1] } @held;
+		for my $name ( $line =~ /(?:\(|\s)--([a-z][\w-]*)/g ) {
+			push @out, [ $_, $name, \@conditions ] for @taken;
+		}
+	}
+
+	return @out;
+}
+
+# _refused($guard, $step, $input):
+#	True when the guard step holds the condition of $step and
+#	$input. The guard names a fault there, and it exits before the
+#	verb runs. Such a step therefore reaches the verb with an
+#	empty $input, and a line that the input holds adds no option.
+sub _refused ( $guard, $step, $input )
+{
+	return index( $guard, qq{[ "\$STEP" = $step ] && [ -n "\$$input" ]} )
+	    >= 0;
+}
+
+# WEB-ROTATE-1. The verb step builds one option list, and CLI.pm
+# declares the options of each verb. A verb answers "Unknown option"
+# and exit code 2 for an option that it does not declare, and the run
+# then fails at the verb step. Each name here
+# comes from one of the two files. A list of names in this file would
+# go stale, and the two files hold the names already.
+subtest 'the verb step passes an option that the verb declares' => sub {
+	my $body = _step_body('Run the rotation step');
+	my $guard =
+	    _step_body('Refuse an input that this workflow cannot serve');
+	ok( $body,  'the verb step holds one run body' )  or return;
+	ok( $guard, 'the guard step holds one run body' ) or return;
+
+	my $source = _slurp($module) // q{};
+	my @steps  = $body =~ /^\s*(\w+)\)$/gm;
+	ok( scalar @steps, 'the verb step names one step word at least' );
+
+	my %declared;
+	for my $step (@steps) {
+		my @names = _declared( $source, "$step-key" );
+		ok( scalar @names, "CLI.pm declares the options of $step-key" );
+		$declared{$step} = { map { $_ => 1 } @names };
+	}
+
+	my @arguments = _arguments( $body, @steps );
+	ok( scalar @arguments, 'the verb step passes one option at least' );
+
+	for my $argument (@arguments) {
+		my ( $step, $option, $conditions ) = @{$argument};
+
+		# The guard step refuses a $step that names the input,
+		# and the input holds this line, so no such step
+		# reaches the line.
+		my ($refused) =
+		    grep { _refused( $guard, $step, $_ ) } @{$conditions};
+		if ($refused) {
+			pass( "the guard step refuses a $step that names"
+			    . " \$$refused" );
+			next;
+		}
+
+		ok( $declared{$step}{$option}, "$step-key declares --$option" );
+	}
 };
 
 # _awk($text):
