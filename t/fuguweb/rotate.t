@@ -9,12 +9,12 @@
 # file therefore skips without signify(1), and the skip stands before
 # the first assertion.
 #
-# The OpenPGP mint of WEB-OPENPGP needs gpg(1). Each subtest of that
-# unit generates its key with gpg(1), and it reads the key and the
-# binding with gpg(1). One more subtest covers a signer of the X.509
-# type, and it does both with openssl(1). Each of those subtests skips
-# without its command, and that skip stands before the first assertion
-# of the subtest.
+# The OpenPGP subtests of WEB-OPENPGP need gpg(1), and the import of
+# an OpenPGP key needs it too. Each one reads its key, its expiry or
+# its binding with that command. Three more subtests cover a key of
+# the X.509 type, and openssl(1) makes the certificate of each one.
+# Each of those subtests skips without its command, and that skip
+# stands before the first assertion of the subtest.
 #
 # Each subtest builds its own site in a File::Temp directory, and it
 # reads the repository at no point.
@@ -1765,6 +1765,76 @@ subtest 'import-key publishes a key that another tool made' => sub {
 
 	# WEB-ROTATE-19. A directory holds one root purpose and any
 	# number of other purposes.
+	is_deeply( [ _problems($root) ], [], 'the reader reports no problem' );
+};
+
+# WEB-X509-2 and WEB-OPENPGP-2. An import of another type takes the
+# same options, so a key that gpg(1) made enters the directory. The
+# step copies the armored public half and writes the fingerprint of
+# that key into its block.
+#
+# WEB-OPENPGP-1. A mint writes the address of the user id that it
+# made, and an import takes no --email. The block of an imported key
+# therefore names the fingerprint alone.
+#
+# gpg(1) makes the key and verifies the binding, so the skip stands
+# before the first assertion of the subtest.
+subtest 'import-key publishes an OpenPGP key that gpg(1) made' => sub {
+	my $pgp = Fugu::OpenPGP->new;
+	plan skip_all => 'gpg(1) is not installed' unless $pgp->is_available;
+
+	my $root = _keyed();
+	my $work = tempdir( CLEANUP => 1 );
+	$pgp->generate(
+		email  => $EMAIL,
+		public => "$work/contact.asc",
+		secret => "$work/contact.sec",
+	) or die 'the OpenPGP key fixture failed: ' . $pgp->error . "\n";
+
+	my $rotate = _rotate($root);
+	my $facts  = $rotate->import_key(
+		purpose => 'contact',
+		type    => 'openpgp',
+		file    => "$work/contact.asc",
+		secret  => "$work/contact.sec",
+		signer  => "$root/root1.sec",
+	);
+	ok( $facts, 'the import of an OpenPGP key succeeds' )
+	    or diag( $rotate->error );
+	return unless $facts;
+
+	my $dir  = "$root/web/keys";
+	my $name = 'fugubsd-1-contact.asc';
+	is( $facts->{name}, $name, 'the name takes the OpenPGP extension' );
+	is( $facts->{status}, 'current',
+		'and the first key of the purpose is current' );
+	is( Fugu::File->read("$dir/$name"),
+		Fugu::File->read("$work/contact.asc"),
+		'the key file goes in byte for byte' );
+
+	# WEB-OPENPGP-2. The block names the fingerprint that the
+	# imported key itself gives, and no address.
+	my $binary = $pgp->decode_armor( Fugu::File->read("$dir/$name") );
+	my %setting = _block( $root, 'fugubsd-1-contact' );
+	is( $setting{fingerprint},
+		$pgp->fingerprint($binary),
+		'the block names the fingerprint of the imported key' );
+	ok( !exists $setting{email}, 'and it names no address' );
+
+	# WEB-TRUST-3 and WEB-OPENPGP-5. The imported key attests the
+	# current root, and the published key verifies that binding.
+	my $binding = 'fugubsd-1-root.pub.fugubsd-1-contact.asc';
+	ok(
+		$pgp->verify(
+			keys      => ["$dir/$name"],
+			file      => "$dir/fugubsd-1-root.pub",
+			signature => "$dir/$binding"
+		),
+		'the published key verifies the binding over the root'
+	);
+
+	ok( _verifies( $root, 'fugubsd-1-root' ),
+		'the current root still signs the manifest' );
 	is_deeply( [ _problems($root) ], [], 'the reader reports no problem' );
 };
 

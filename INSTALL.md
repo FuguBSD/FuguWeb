@@ -6,10 +6,12 @@ install flows: from a checkout with make, and from CPAN with cpanm.
 
 The key verbs `fuguweb mint-key`, `fuguweb import-key` and `fuguweb promote-key`
 each need the command of their key type. `signify(1)` signs a signify key,
-`gpg(1)` signs an OpenPGP key, and `openssl(1)` signs a certificate. `make deps`
-installs each one. A build signs nothing and verifies nothing, so it runs
-without the three. A check verifies each binding, so it needs the command of
-each type that the key directory holds.
+`gpg(1)` signs an OpenPGP key, and `openssl(1)` signs a certificate.
+`deps/Darwin.txt` and `deps/Linux.txt` name a package for each one, and
+`deps/OpenBSD.txt` names none of the three. A build signs nothing and verifies
+nothing, so it runs without the three. A check verifies each binding. A signify
+binding needs no command, and a binding of another type needs the command of
+that type.
 
 ## From a checkout
 

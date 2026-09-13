@@ -43,10 +43,10 @@ manifest parser. The renderer holds the wiring only.
   `retired`, and optional `since` and `until` values.
 - **WEB-KEYS-7** — A `key` block of an OpenPGP key must take an optional `email`
   and an optional `fingerprint`. A block of a certificate must take an optional
-  `fingerprint`. The renderer must reject a setting on a key of another type.
-  The `email` value must be a local part and a domain. The `fingerprint` of an
-  OpenPGP key must be 40 hexadecimal characters, and the one of a certificate
-  must be 64, per WEB-X509-4.
+  `fingerprint`. The renderer must reject an `email` on a certificate, and it
+  must reject both settings on a signify key. The `email` value must be a local
+  part and a domain. The `fingerprint` of an OpenPGP key must be 40 hexadecimal
+  characters, and the one of a certificate must be 64, per WEB-X509-4.
 - **WEB-KEYS-8** — The renderer must reject a setting that neither block
   defines, and a `key` block that a second block declares again.
 - **WEB-KEYS-9** — The directory must hold a `SHA256` file and a `SHA256.sig`

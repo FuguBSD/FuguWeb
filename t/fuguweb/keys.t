@@ -748,6 +748,66 @@ subtest 'an absent command for a binding type of the directory' => sub {
 		'and the signify binding verifies without one' );
 };
 
+# WEB-TRUST-9 and WEB-X509-7. The verifier pins the one certificate of
+# the signer, so a CMS signature that another key made must fail. A
+# signify binding and an OpenPGP binding each have such a test above.
+#
+# The published certificate is the fixed fixture, and openssl(1) makes
+# the key that signs the binding. The verify needs openssl(1) too, so
+# the skip stands before the first assertion of the subtest.
+subtest 'a certificate binding that its signer does not verify' => sub {
+	my $x509 = Fugu::X509->new;
+	plan skip_all => 'openssl(1) is not installed'
+	    unless $x509->is_available;
+
+	# The signature is a real one, and a key of no block made it.
+	# The name says that the sign key made it, so the walk pins
+	# the published certificate and the check fails.
+	my $work = tempdir( CLEANUP => 1 );
+	$x509->generate(
+		subject => '/CN=Another Signer',
+		days    => 3650,
+		public  => "$work/other.pem",
+		secret  => "$work/other.key",
+	) or die 'the certificate fixture failed: ' . $x509->error . "\n";
+
+	spew( "$work/fugubsd-1-root.pub", $ROOT );
+	$x509->sign(
+		public    => "$work/other.pem",
+		secret    => "$work/other.key",
+		file      => "$work/fugubsd-1-root.pub",
+		signature => "$work/binding.p7s",
+	) or die 'the binding fixture failed: ' . $x509->error . "\n";
+
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub' => $ROOT,
+			'fugubsd-1-sign.pem' => $CERT,
+			'fugubsd-1-root.pub.fugubsd-1-sign.p7s' =>
+			    slurp("$work/binding.p7s"),
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-sign" {
+	status = current
+}
+RC
+	);
+
+	like(
+		problems($root),
+		qr{^keys/fugubsd-1-root\.pub\.fugubsd-1-sign\.p7s: \S}m,
+		'the check names the binding and a reason'
+	);
+};
+
 # WEB-TRUST-10. A signer that is current or next must target the root,
 # so each key in force attests the one anchor. This binding verifies,
 # and the retention rule is what refuses it.
@@ -1107,11 +1167,17 @@ RC
 		'the row of the certificate holds each value in order'
 	);
 
-	# gpg --import reads the KEYS file, and gpg --locate-keys
-	# reads the Web Key Directory. Neither one reads a
-	# certificate.
+	# WEB-X509-8. gpg --import reads the KEYS file, and the type
+	# of the key is what keeps the certificate out of it.
 	unlike( $generated->{'keys/KEYS'}, qr{fugubsd-1-sign},
 		'the KEYS file skips the certificate' );
+
+	# gpg --locate-keys reads the Web Key Directory, which holds
+	# one path for each address. App::FuguWeb::Config refuses an
+	# email on a certificate, per WEB-KEYS-7, so no certificate
+	# can reach that directory at all. This assertion therefore
+	# proves the path of the OpenPGP address, and the skip of the
+	# certificate stands on the loader above.
 	is_deeply(
 		[ grep { m{openpgpkey/hu/} } sort keys %$generated ],
 		[ '.well-known/openpgpkey/hu/' . WKD_HASH ],
@@ -1264,11 +1330,15 @@ RC
 # notAfter has passed, and one whose notBefore has not come. Each
 # fixture holds a fixed pair of dates, so the answer stands on every
 # day and at every hour.
+#
+# The second sign key is next, and it carries the expired certificate
+# too. The rule reads a key in force, and a next key is one.
 subtest 'a certificate that is not valid today' => sub {
 	my $root = project(
 		keys => {
 			'fugubsd-1-root.pub'   => $ROOT,
 			'fugubsd-1-sign.pem'   => $EXPIRED_CERT,
+			'fugubsd-2-sign.pem'   => $EXPIRED_CERT,
 			'fugubsd-1-notary.pem' => $FUTURE_CERT,
 		},
 		rc => <<'RC'
@@ -1284,6 +1354,10 @@ key "fugubsd-1-sign" {
 	status = current
 }
 
+key "fugubsd-2-sign" {
+	status = next
+}
+
 key "fugubsd-1-notary" {
 	status = current
 }
@@ -1295,6 +1369,11 @@ RC
 		$found,
 		qr{^keys/fugubsd-1-sign\.pem: the current key expired on 2001-01-01$}m,
 		'the check names the file and the date of the expiry'
+	);
+	like(
+		$found,
+		qr{^keys/fugubsd-2-sign\.pem: the next key expired on 2001-01-01$}m,
+		'and it reads a next key by the same rule'
 	);
 	like(
 		$found,
