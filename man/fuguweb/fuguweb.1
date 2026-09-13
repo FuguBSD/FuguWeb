@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: September 11 2026 $
+.Dd $Mdocdate: September 13 2026 $
 .Dt FUGUWEB 1
 .Os
 .Sh NAME
@@ -40,12 +40,29 @@
 .Cm clean
 .Op Fl Fl out Ar dir
 .Nm fuguweb
-.Cm rotate-key
-.Fl Fl step Cm mint Ns | Ns Cm promote
+.Cm mint-key
 .Fl Fl purpose Ar word
+.Op Fl Fl type Ar type
 .Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
+.Op Fl Fl bind Ar stem Ns = Ns Ar path
 .Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
+.Nm fuguweb
+.Cm import-key
+.Fl Fl purpose Ar word
+.Op Fl Fl type Ar type
+.Fl Fl file Ar path
+.Fl Fl secret Ar path
+.Op Fl Fl signer Ar path
+.Op Fl Fl bind Ar stem Ns = Ns Ar path
+.Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
+.Nm fuguweb
+.Cm promote-key
+.Fl Fl purpose Ar word
+.Fl Fl retiring Ar path
+.Op Fl Fl secret Ar path
+.Op Fl Fl signer Ar path
+.Op Fl Fl bind Ar stem Ns = Ns Ar path
 .Nm fuguweb
 .Cm help
 .Op Ar command
@@ -158,17 +175,58 @@ With
 the command runs without a loadable description.
 It then knows one flat directory of files, and it refuses a target that
 holds no stylesheet, because every build writes one.
-.It Xo Cm rotate-key
-.Fl Fl step Cm mint Ns | Ns Cm promote
+.It Xo Cm mint-key
 .Fl Fl purpose Ar word
+.Op Fl Fl type Ar type
 .Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
+.Op Fl Fl bind Ar stem Ns = Ns Ar path
 .Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
 .Xc
-Mint the next
-.Xr signify 1
-key of a purpose, or promote the key that a mint made.
-The command writes the key directory and the description.
+Mint the next key of a purpose.
+The
+.Ar type
+defaults to
+.Cm signify ,
+which is the one type that this release mints.
+See
+.Sx KEY ROTATION .
+.It Xo Cm import-key
+.Fl Fl purpose Ar word
+.Op Fl Fl type Ar type
+.Fl Fl file Ar path
+.Fl Fl secret Ar path
+.Op Fl Fl signer Ar path
+.Op Fl Fl bind Ar stem Ns = Ns Ar path
+.Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
+.Xc
+Publish a key that another tool made, under the next name of the
+purpose.
+The command takes the options of a mint of that purpose, and
+.Fl Fl file
+beside them.
+A site with no
+.Ic keys
+block takes one from
+.Fl Fl org ,
+.Fl Fl dir
+and
+.Fl Fl url ,
+as a mint does.
+It writes no key file of its own: the caller holds the private half,
+which signs the binding of the new key.
+See
+.Sx KEY ROTATION .
+.It Xo Cm promote-key
+.Fl Fl purpose Ar word
+.Fl Fl retiring Ar path
+.Op Fl Fl secret Ar path
+.Op Fl Fl signer Ar path
+.Op Fl Fl bind Ar stem Ns = Ns Ar path
+.Xc
+Make the
+.Cm next
+key of a purpose current, and retire the key that was current.
 See
 .Sx KEY ROTATION .
 .It Cm help Op Ar command
@@ -513,13 +571,36 @@ and a
 .Ic fingerprint
 of 40 hexadecimal characters.
 .Pp
+One signify key of the directory is the root of trust, and its purpose
+word is
+.Cm root .
+The current root key signs the manifest, and every other key of the
+directory is a subordinate key.
+A binding is a detached signature by one key over the public key file
+of another key, and its name is
+.Pa <target file>.<signer stem>.<ext> .
+The extension is
+.Pa sig
+for a
+.Xr signify 1
+signer,
+.Pa asc
+for an OpenPGP signer, and
+.Pa p7s
+for an X.509 signer.
+A binding needs no
+.Ic key
+block: its name holds the target, the signer and the type.
+.Pp
 The directory must hold a
 .Pa SHA256
 manifest and its
 .Pa SHA256.sig
 signature.
-The build copies each key file and the manifest pair byte for byte.
-It signs nothing and verifies nothing.
+The build copies each key file, each binding file and the manifest
+pair byte for byte.
+It signs nothing, and it verifies no
+.Pa SHA256.sig .
 For the example above it generates these files:
 .Pp
 .Bl -tag -width ".well-known/openpgpkey/hu/<hash>" -offset indent -compact
@@ -527,7 +608,7 @@ For the example above it generates these files:
 Every OpenPGP key, when the set holds one.
 .It Pa keys/index.html
 The human page, with the serial, purpose, type, status, fingerprint,
-and dates of each key.
+dates and bindings of each key.
 .It Pa .well-known/openpgpkey/hu/<hash>
 The Web Key Directory file of each email address.
 .It Pa .well-known/openpgpkey/policy
@@ -541,13 +622,33 @@ The RFC 9116 file, when the block sets a
 reads the source key directory, so the answer does not depend on a
 build.
 It checks that every key file has a block and every block has a file,
-that every name matches the key name pattern, that every purpose holds
-exactly one current key, that the manifest names every key file with
-the digest that it has and nothing else, that every declared
-fingerprint equals the computed one, and that the signature has the
-shape of a
+that every name matches the key name pattern or the binding name
+pattern, that every purpose holds exactly one current key, that the
+directory holds one current signify key of the purpose
+.Cm root ,
+that each binding verifies against the public key of its signer and
+holds the retention rule, that the manifest names every key file and
+every binding file with the digest that it has and nothing else, that
+every declared fingerprint equals the computed one, and that the
+signature has the shape of a
 .Xr signify 1
 signature.
+.Pp
+The retention rule holds each binding of the directory.
+A binding whose signer is
+.Cm current
+or
+.Cm next
+must target the current root key.
+A binding whose signer is
+.Cm retired
+must target a key of its own purpose with a higher serial.
+A signify binding verifies with no command.
+A binding of another type needs
+.Xr gpg 1
+or
+.Xr openssl 1 ,
+and an absent command is a problem.
 .Sh KEY ROTATION
 A consumer verifies a release against the copy of the public key that
 it holds.
@@ -555,7 +656,16 @@ A release that a new key signs therefore fails in each consumer that
 holds the old copy.
 One rotation runs in two steps.
 .Pp
-.Fl Fl step Cm mint
+One signify key of the directory is the root of trust, and its purpose
+word is
+.Cm root .
+The current root key signs the manifest, and every other key binds to
+it.
+Every step takes the private half of the current root as
+.Fl Fl signer ,
+with two exceptions below.
+.Pp
+.Cm mint-key
 generates the next key of the purpose with
 .Xr signify 1 ,
 writes its public half into the key directory, and writes its private
@@ -564,18 +674,45 @@ half to
 with no group and no other permissions.
 The new key takes the status
 .Cm next ,
-and the current key of the purpose signs the manifest.
-.Fl Fl signer
-names the private half of that current key.
+or
+.Cm current
+when the purpose holds no current key.
 .Fl Fl secret
 must not name a file that exists, and must not name the signer.
 A mint refuses a purpose that already holds a
 .Cm next
 key.
+A mint of a subordinate purpose also writes the binding of the new key
+over the public key file of the current root.
 .Pp
-The first mint of a purpose finds no current key.
-The new key is current at once, signs its own manifest, and takes no
+.Cm promote-key
+makes the
+.Cm next
+key of the purpose current, and retires the key that was current with
+an
+.Ic until
+date.
+.Fl Fl retiring
+names the private half of the key that retires, and that key signs the
+chain binding over the key which takes its place.
+A consumer that trusts the old key therefore reaches the new one.
+The promote removes the root binding of the retired key, and the chain
+binding stays published.
+A retired key keeps its file and its URL, so a release that it signed
+still verifies.
+.Ss The first root mint
+The first mint of the
+.Cm root
+purpose finds no root.
+That key is current at once, it signs its own manifest, and it takes
+no
 .Fl Fl signer .
+A directory that already holds keys takes one
+.Fl Fl bind Ar stem Ns = Ns Ar path
+for each current key and each next key of a subordinate purpose, and
+the step writes the binding of every one of them again.
+It refuses before it writes when one private half is absent.
+.Pp
 A site with no
 .Ic keys
 block takes one from the command line:
@@ -587,29 +724,25 @@ names the directory, which defaults to
 and
 .Fl Fl url
 names the published prefix.
-.Pp
-.Fl Fl step Cm promote
-makes the
-.Cm next
-key of the purpose current, and retires the key that was current with
-an
-.Ic until
-date.
+.Ss The root promote
+A root promote signs the manifest with the key that it makes current,
+so it takes
 .Fl Fl secret
-names the private half of the key that becomes current, and that key
-signs the manifest.
-A retired key keeps its file and its URL, so a release that it signed
-still verifies.
+and no
+.Fl Fl signer .
+It takes one
+.Fl Fl bind
+for each key in force, as the first root mint does, and it removes
+each binding of the retired root but the chain binding that names it.
 .Pp
-Every key of one directory holds one purpose, because one key signs the
-whole manifest.
-Each step verifies the new signature against the published public key
-of the signer before one byte reaches the key directory, and a step
-that fails puts every file back.
+Each step verifies the new signature and each new binding against the
+published public key of the signer before one byte reaches the key
+directory, and a step that fails puts every file back.
 On success the command prints one
 .Ar name Ns = Ns Ar value
 line for each fact: the file name, the stem, the serial, the status,
-and the retired name of a promote.
+the retired name of a promote, and the digest and the URL of a new key
+file.
 .Pp
 The command reaches no network and holds no token.
 The caller stores the private key and commits the public one.
@@ -664,19 +797,30 @@ $ fuguweb build --out /tmp/site
 $ fuguweb check --out /tmp/site
 .Ed
 .Pp
-Publish the first release key of an organization:
+Publish the root key and the first release key of an organization:
 .Bd -literal -offset indent
-$ fuguweb rotate-key --step mint --purpose release \e
-	--secret ~/keys/release-1.sec --org fugubsd \e
+$ fuguweb mint-key --purpose root \e
+	--secret ~/keys/root-1.sec --org fugubsd \e
 	--url https://www.fugubsd.org/keys
+$ fuguweb mint-key --purpose release \e
+	--secret ~/keys/release-1.sec --signer ~/keys/root-1.sec
 .Ed
 .Pp
 Rotate the release key:
 .Bd -literal -offset indent
-$ fuguweb rotate-key --step mint --purpose release \e
-	--secret ~/keys/release-2.sec --signer ~/keys/release-1.sec
-$ fuguweb rotate-key --step promote --purpose release \e
-	--secret ~/keys/release-2.sec
+$ fuguweb mint-key --purpose release \e
+	--secret ~/keys/release-2.sec --signer ~/keys/root-1.sec
+$ fuguweb promote-key --purpose release \e
+	--signer ~/keys/root-1.sec --retiring ~/keys/release-1.sec
+.Ed
+.Pp
+Rotate the root key, with one release key in force:
+.Bd -literal -offset indent
+$ fuguweb mint-key --purpose root \e
+	--secret ~/keys/root-2.sec --signer ~/keys/root-1.sec
+$ fuguweb promote-key --purpose root \e
+	--secret ~/keys/root-2.sec --retiring ~/keys/root-1.sec \e
+	--bind fugubsd-2-release=~/keys/release-2.sec
 .Ed
 .Sh SEE ALSO
 .Xr lowdown 1 ,

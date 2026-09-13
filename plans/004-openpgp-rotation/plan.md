@@ -2,10 +2,10 @@
 
 ## Status
 
-Proposed. It waits on plan 003, and on a Fugu release of `Fugu::OpenPGP`, per
-Fugu LIB-OPENPGP. That release must hold the detached signature, and a generator
-that makes the encryption subkey of WEB-OPENPGP-1. The Fugu plan of that unit
-must name the subkey before this plan lands.
+Proposed. It waits on a Fugu release of `Fugu::OpenPGP`, per Fugu LIB-OPENPGP.
+That release must hold the detached signature, and a generator that makes the
+encryption subkey of WEB-OPENPGP-1. The Fugu plan of that unit must name the
+subkey before this plan lands.
 
 Implements: WEB-OPENPGP. Extends: WEB-ROTATE.
 

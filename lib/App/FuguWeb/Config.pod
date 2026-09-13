@@ -269,6 +269,22 @@ The C<key> blocks, in file order. Each entry is a hashref:
 The list is named C<site_keys> and not C<keys>, because a method named
 C<keys> in the package makes every call of the builtin ambiguous.
 
+=head2 site_bindings
+
+The binding files of the key directory, in name order. A binding is
+the signature of one key file by another key of the directory. Each
+entry is a hashref:
+
+    name     the binding file in the directory
+    target   the key file that the signature covers
+    signer   the key file of the key that signed it
+    type     the type of the signer
+
+A binding carries no block: its name holds every field, and
+L<Fugu::KeyDir> parses it. The list holds a binding whose target and
+whose signer are both keys of the description, and
+L<App::FuguWeb::Keys> reports every other name as a stray file.
+
 =head2 key_paths
 
 Every path of the key directory in the output, relative to the output

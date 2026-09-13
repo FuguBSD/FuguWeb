@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed. It waits on plan 003, and on a Fugu release with `Fugu::X509`, per
-Fugu LIB-X509. That release must also hold the `pem` extension of
-`Fugu::KeyDir`, per Fugu LIB-KEYDIR.
+Proposed. It waits on a Fugu release with `Fugu::X509`, per Fugu LIB-X509. That
+release must also hold the `pem` extension of `Fugu::KeyDir`, per Fugu
+LIB-KEYDIR.
 
 Implements: WEB-X509. Extends: WEB-KEYS. Extends: WEB-OUTPUT.
 

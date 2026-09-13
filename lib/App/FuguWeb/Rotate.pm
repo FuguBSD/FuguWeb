@@ -26,25 +26,33 @@ use Digest::SHA ();
 use File::Temp  ();
 use Fugu::File;
 use Fugu::KeyDir;
+use Fugu::OpenPGP;
 use Fugu::Signify;
+use Fugu::X509;
 use POSIX ();
 
 # App::FuguWeb::Rotate - write the key directory of a site, per
-# WEB-ROTATE.
+# WEB-ROTATE and WEB-TRUST.
 #
 # App::FuguWeb::Keys reads the directory, and this module writes it.
-# One rotation runs in two steps. A mint makes the next key of a
-# purpose, and the current key signs the manifest that names it. A
-# promote makes that key current and retires the old one.
+# One signify key of the directory is the root of trust, and its
+# purpose word is root. The current root signs the manifest, and each
+# other key binds to it with a signature of its own.
 #
-# The first mint of a purpose finds no current key. That key is
-# current at once, and it signs its own manifest.
+# One rotation runs in two steps. A mint makes the next key of a
+# purpose, and a promote makes that key current and retires the old
+# one. An import takes a key that another tool made, and it follows
+# the rules of a mint of its purpose.
 #
 # Every step reads the status of each key from the description, and no
 # step assumes one. Every step ends with the reader: the module writes
 # the directory, loads the description again, and asks
 # App::FuguWeb::Keys->problems. A step that leaves one problem fails,
 # so the writer can never publish a directory that the checks reject.
+#
+# The module runs no command of its own. Fugu::Signify holds every
+# call of signify(1), the class of each other key type holds every
+# call of its own command, and Fugu::KeyDir holds every name.
 #
 # The module reaches no network and holds no token. The caller stores
 # the private key and declares the public one.
@@ -54,6 +62,25 @@ use constant {
 	MANIFEST  => 'SHA256',
 	SIGNATURE => 'SHA256.sig',
 };
+
+# The purpose word of the root of trust, and the one key type that
+# these verbs make today. App::FuguWeb::Keys holds the root word, so
+# the reader and the writer can never disagree about it.
+use constant {
+	ROOT => App::FuguWeb::Keys::ROOT_PURPOSE,
+	TYPE => 'signify',
+};
+
+# The signer of each key type, per WEB-TRUST-8. A binding of a key
+# takes the private half of that key, so the type of the signer key
+# selects the class. Each class follows Fugu::Signer, and Fugu::X509
+# needs the certificate of the key as well, so _bind names it in
+# every call. The other two classes ignore that argument.
+my %SIGNER = (
+	signify => 'Fugu::Signify',
+	openpgp => 'Fugu::OpenPGP',
+	x509    => 'Fugu::X509',
+);
 
 sub new ( $class, %args )
 {
@@ -88,9 +115,9 @@ sub config ($self) { return $self->{config}; }
 sub error ($self) { return $self->{error}; }
 
 # $self->tool_missing:
-#	True when the failure was an absent signify(1). A caller
-#	answers a missing tool with its own exit code, so a script can
-#	tell it from a rotation that failed.
+#	True when the failure was an absent command of a key type. A
+#	caller answers a missing tool with its own exit code, so a
+#	script can tell it from a rotation that failed.
 sub tool_missing ($self) { return $self->{tool_missing}; }
 
 # $self->mint(%args):
@@ -100,15 +127,173 @@ sub tool_missing ($self) { return $self->{tool_missing}; }
 #
 #	%args:
 #		purpose => $word	what the key signs
+#		type    => $word	the key type, signify by default
 #		secret  => $path	where the private half goes
-#		signer  => $path	the private half of the current key
+#		signer  => $path	the private half of the root
+#		bind    => \%path	one path for each bound stem
 sub mint ( $self, %args )
 {
 	$self->{error} = undef;
 
+	return $self->_add( 'mint', %args );
+}
+
+# $self->import_key(%args):
+#	Publish a key that another tool made, under the next name of
+#	the purpose. The method answers a hash reference of the facts,
+#	or undef with a reason in $self->error.
+#
+#	The step takes the options of a mint of its purpose, and
+#	--file beside them, per WEB-X509-2. The caller holds the
+#	private half already, so the step writes none.
+#
+#	%args:
+#		purpose => $word	what the key signs
+#		type    => $word	the key type, signify by default
+#		file    => $path	the public key file to publish
+#		secret  => $path	the private half of that key
+#		signer  => $path	the private half of the root
+#		bind    => \%path	one path for each bound stem
+sub import_key ( $self, %args )
+{
+	$self->{error} = undef;
+
+	return $self->_add( 'import', %args );
+}
+
+# $self->promote(%args):
+#	Make the next key of the purpose current, and retire the key
+#	that was current. The method answers a hash reference of the
+#	facts, or undef with a reason in $self->error.
+#
+#	%args:
+#		purpose  => $word	what the key signs
+#		secret   => $path	the private half of the new root
+#		signer   => $path	the private half of the root
+#		retiring => $path	the private half of the old key
+#		bind     => \%path	one path for each bound stem
+sub promote ( $self, %args )
+{
+	$self->{error} = undef;
+
 	my $purpose = $args{purpose};
-	my $secret  = $args{secret};
-	my $signer  = $args{signer};
+	my $set     = $self->_set or return;
+
+	my $next = _by_status( $set, $purpose, 'next' )
+	    or return $self->_fail("the purpose $purpose holds no next key");
+	my $old = _by_status( $set, $purpose, 'current' )
+	    or return $self->_fail("the purpose $purpose holds no current key");
+
+	my $root    = _by_status( $set, ROOT, 'current' );
+	my $is_root = $purpose eq ROOT;
+
+	# WEB-TRUST-4. The retiring key signs the public key file of
+	# the key that takes its place, so a consumer that trusts the
+	# old key reaches the new one.
+	my $retiring = $args{retiring};
+	return $self->_fail( "the promote writes the chain binding of $old,"
+		    . ' so it needs the private half of that key as the'
+		    . ' retiring key' )
+	    unless defined $retiring && length $retiring;
+	return $self->_fail("the retiring half $retiring is no file")
+	    unless -f $retiring;
+
+	my $bound = $self->_promote_options( $set, $is_root, $root, %args )
+	    or return;
+
+	my $keys     = $self->_key_bytes($set) or return;
+	my $bindings = $self->_binding_bytes   or return;
+	my $retire   = Fugu::File->read($retiring);
+	return $self->_fail("cannot read $retiring") unless defined $retire;
+
+	my %fresh;
+	my ( $chain, $bytes ) =
+	    $self->_bind( $next, $keys->{$next}, $old, $keys->{$old}, $retire );
+	return unless defined $chain;
+	$fresh{$chain} = $bytes;
+
+	my @drop;
+	if ($is_root) {
+
+		# WEB-TRUST-7. Each key in force attests the new root,
+		# and every other binding of the retired root goes.
+		for my $signer ( sort keys %$bound ) {
+			my ( $name, $written ) =
+			    $self->_bind( $next, $keys->{$next}, $signer,
+				$keys->{$signer}, $bound->{$signer} );
+			return unless defined $name;
+			$fresh{$name} = $written;
+		}
+
+		@drop = $self->_of_target( $set, $old );
+	}
+	else {
+		# WEB-TRUST-5. The retired key attests the root no
+		# more, and its chain binding takes the place of that
+		# binding.
+		my $keydir = $self->_keydir or return;
+		my $gone =
+		    $keydir->binding_for( target => $root, signer => $old )
+		    or return $self->_fail( $keydir->error );
+
+		push @drop, $gone if exists $bindings->{$gone};
+	}
+	delete $bindings->{$_} for @drop;
+
+	# WEB-ROTATE-6. A root promote signs with the new root, and
+	# every other step signs with the current root.
+	my $with    = $is_root ? $args{secret} : $args{signer};
+	my $private = Fugu::File->read($with);
+	return $self->_fail("cannot read $with") unless defined $private;
+
+	my ( $manifest, $signature ) = $self->_signed(
+		$private,
+		$is_root ? $next : $root,
+		{ %$keys, %$bindings, %fresh } );
+	return unless defined $manifest;
+
+	my $today  = POSIX::strftime( '%Y-%m-%d', gmtime );
+	my %change = (
+		_stem_of($next) => { status => 'current' },
+		_stem_of($old)  => { status => 'retired', until => $today },
+	);
+
+	my $description = $self->_with_statuses( \%change ) or return;
+
+	my %write = (
+		$self->{config}->path   => $description,
+		$self->_path(MANIFEST)  => $manifest,
+		$self->_path(SIGNATURE) => $signature,
+	);
+	$write{ $self->_path($_) } = $fresh{$_} for keys %fresh;
+
+	return $self->_publish(
+		\%write,
+		[ map { $self->_path($_) } @drop ],
+		{ map { $_ => $change{$_}{status} } keys %change },
+		{
+			name    => $next,
+			stem    => _stem_of($next),
+			serial  => $set->{$next}{serial},
+			status  => 'current',
+			retired => $old,
+		} );
+}
+
+# $self->_add($verb, %args):
+#	Publish one new key of the purpose: a mint generates the pair,
+#	and an import reads the public half from a file. The two share
+#	every rule of the trust order, so they share this method.
+sub _add ( $self, $verb, %args )
+{
+	my $purpose = $args{purpose};
+	my $type    = $args{type} // TYPE;
+
+	# WEB-ROTATE-1 and WEB-X509-2. Plan 004 adds the OpenPGP mint,
+	# and plan 005 adds the certificate, so the verbs read one
+	# type today.
+	return $self->_fail("$verb-key reads no key of the type $type")
+	    unless $type eq TYPE;
 
 	# WEB-ROTATE-21. The word names one directory below the source
 	# directory, as WEB-KEYS-29 holds it. A word that held a
@@ -122,18 +307,9 @@ sub mint ( $self, %args )
 
 	my $set = $self->_set or return;
 
-	# WEB-ROTATE-18. The private half of the current key is the
-	# one thing a rotation cannot make again. A caller holds each
-	# private half in one place, so a path that stands already,
-	# or that names the signer, would take the private half of a
-	# published key.
-	return $self->_fail('the mint needs the path of the private half')
-	    unless defined $secret && length $secret;
-	return $self->_fail( "$secret stands already, and a mint writes the"
-		    . ' private half of a new key' )
-	    if -e $secret;
-	return $self->_fail('the secret and the signer name one path')
-	    if defined $signer && length $signer && $secret eq $signer;
+	my ( $root, $first ) = $self->_anchor( $set, $purpose ) or return;
+	my $bound = $self->_add_options( $verb, $set, $first, $root, %args )
+	    or return;
 
 	# WEB-ROTATE-5. The guard runs before the pair exists, because
 	# a caller holds one place for the private half of a mint: a
@@ -143,45 +319,10 @@ sub mint ( $self, %args )
 			    . "$pending already, so promote it first" );
 	}
 
-	# WEB-ROTATE-19. One manifest covers the whole directory, and
-	# one key signs it, so every key of the directory holds one
-	# purpose. A second purpose would leave the current key of the
-	# first unable to verify the pair, and no check would say so.
-	my %held = map { $set->{$_}{purpose} => 1 } keys %$set;
-	delete $held{$purpose};
-	if ( my @other = sort keys %held ) {
-		return $self->_fail( 'the key directory holds the purpose '
-			    . join( ' and ', @other )
-			    . ", so it takes no key of $purpose" );
-	}
-
-	my $current = _by_status( $set, $purpose, 'current' );
-
-	# WEB-ROTATE-6. The current key signs, and the key that this
-	# run makes must never sign for it. A first mint is the one
-	# exception, and it takes no signer at all.
-	my ( $status, $verify ) = ( 'next', $current );
-	if ($current) {
-		unless ( defined $signer && length $signer ) {
-			return $self->_fail(
-				      "the purpose $purpose holds the current"
-				    . " key $current, so the mint needs the"
-				    . ' private half of that key as the signer'
-			);
-		}
-		return $self->_fail("the signer $signer is no file")
-		    unless -f $signer;
-	}
-	else {
-		if ( defined $signer && length $signer ) {
-			return $self->_fail(
-				      "the purpose $purpose holds no current"
-				    . ' key, so the new key signs its own'
-				    . ' manifest and the mint takes no signer'
-			);
-		}
-		$status = 'current';
-	}
+	# WEB-ROTATE-3. The status comes from the purpose alone, so a
+	# first key of any purpose is current at once.
+	my $status =
+	    _by_status( $set, $purpose, 'current' ) ? 'next' : 'current';
 
 	my $keydir = $self->_keydir or return;
 	my $serial = $keydir->next_serial( [ keys %$set ], $purpose )
@@ -189,142 +330,445 @@ sub mint ( $self, %args )
 	my $name = $keydir->name_for(
 		serial  => $serial,
 		purpose => $purpose,
-		type    => 'signify',
+		type    => $type,
 	) or return $self->_fail( $keydir->error );
 
-	my $stem = $name =~ s/\.pub\z//r;
+	my $stem = _stem_of($name);
 
-	# _set refuses a key file that no block names, and next_serial
-	# reads every name, so no run reaches a name that stands.
-	# The guard holds that true, whatever a later change makes of
-	# the scan: a mint must never write over a key.
+	# _set refuses a key file that no key block names, and
+	# next_serial reads every name, so no run reaches a name that
+	# stands. The guard holds that true, whatever a later change
+	# makes of the scan: a step must never write over a key.
 	return $self->_fail("$name exists already") if -e $self->_path($name);
 
-	# The verification key of a first mint is the key of this run.
-	$verify //= $name;
+	my ( $public, $private ) =
+	      $verb eq 'mint'
+	    ? $self->_generate( $stem, $name )
+	    : $self->_read_pair( $args{file}, $args{secret} );
+	return unless defined $public;
 
-	# signify(1) holds a pair to one stem: <stem>.pub beside
-	# <stem>.sec. The pair is therefore made in a temporary
-	# directory, and each half then goes where it belongs. The
-	# directory dies with the process, so no secret stays behind.
-	#
-	# signify(1) writes ' public key' after the comment word, so
-	# the published comment is '<stem> public key'. WEB-KEYS-31
-	# states that form.
+	my $keys = $self->_key_bytes($set) or return;
+	$keys->{$name} = $public;
+
+	my $bindings = $self->_binding_bytes or return;
+
+	my %fresh;
+	if ($first) {
+
+		# WEB-TRUST-7. A first root mint writes the binding of
+		# each key in force, so every one of them attests the
+		# new anchor.
+		for my $signer ( sort keys %$bound ) {
+			my ( $file, $bytes ) =
+			    $self->_bind( $name, $public, $signer,
+				$keys->{$signer}, $bound->{$signer} );
+			return unless defined $file;
+			$fresh{$file} = $bytes;
+		}
+	}
+	elsif ( $purpose ne ROOT ) {
+
+		# WEB-TRUST-3. The new key attests the current root,
+		# and that signature proves that one holder holds both
+		# private halves.
+		my ( $file, $bytes ) =
+		    $self->_bind( $root, $keys->{$root}, $name, $public,
+			$private );
+		return unless defined $file;
+		$fresh{$file} = $bytes;
+	}
+
+	# WEB-ROTATE-6. A first root mint signs its own manifest, and
+	# every other step signs with the current root. The signer
+	# reaches the signature as bytes, so the private half of the
+	# new key never lands before the step succeeds.
+	my $with = $private;
+	unless ($first) {
+		$with = Fugu::File->read( $args{signer} );
+		return $self->_fail("cannot read $args{signer}")
+		    unless defined $with;
+	}
+
+	my ( $manifest, $signature ) = $self->_signed(
+		$with,
+		$first ? $name : $root,
+		{ %$keys, %$bindings, %fresh } );
+	return unless defined $manifest;
+
+	my $description = $self->_with_block( $stem, $status ) or return;
+
+	my %write = (
+		$self->{config}->path   => $description,
+		$self->_path($name)     => $public,
+		$self->_path(MANIFEST)  => $manifest,
+		$self->_path(SIGNATURE) => $signature,
+	);
+	$write{ $self->_path($_) } = $fresh{$_} for keys %fresh;
+
+	# WEB-ROTATE-13. A caller declares the new key with the digest
+	# and the URL, so it reads neither from the tree.
+	my %facts = (
+		name   => $name,
+		stem   => $stem,
+		serial => $serial,
+		status => $status,
+		digest => lc Digest::SHA::sha256_hex($public),
+	);
+	$facts{url} = "$self->{url}/$name"
+	    if defined $self->{url} && length $self->{url};
+
+	# WEB-ROTATE-2. The private half takes no group mode and no
+	# other mode, and it lands last: a step that fails leaves no
+	# key that the site does not publish. An import writes none,
+	# because the caller holds that half already.
+	my $last =
+	    $verb eq 'mint'
+	    ? { path => $args{secret}, bytes => $private, mode => 0600 }
+	    : undef;
+
+	return $self->_publish( \%write, [], { $stem => $status }, \%facts,
+		$last );
+}
+
+# $self->_anchor($set, $purpose):
+#	The current root key of the directory, and whether this step
+#	is the first mint of the root purpose. The method answers the
+#	two, or an empty list with a reason in $self->error.
+#
+#	WEB-ROTATE-19 and WEB-TRUST-1. One manifest covers the whole
+#	directory, and the current root signs it, so a step of another
+#	purpose needs that key. A directory whose keys hold no root is
+#	the state of a site before its first root mint, and that one
+#	step must take it.
+sub _anchor ( $self, $set, $purpose )
+{
+	my $root  = _by_status( $set, ROOT, 'current' );
+	my $first = $purpose eq ROOT && !$root;
+
+	return ( $root, $first ) if $root || $first;
+
+	return $self->_fail( 'the key directory holds no current key of the'
+		    . ' purpose '
+		    . ROOT
+		    . ', which signs the manifest, so mint that key first' );
+}
+
+# $self->_add_options($verb, $set, $first, $root, %args):
+#	Hold a mint and an import to the options that their purpose
+#	takes, and answer the private half of each bound key.
+#
+#	WEB-ROTATE-6, WEB-ROTATE-18 and WEB-TRUST-2. Every step but a
+#	first root mint signs with the current root. A mint writes the
+#	private half of the key that it makes, and that file is the
+#	one thing a rotation cannot make again.
+sub _add_options ( $self, $verb, $set, $first, $root, %args )
+{
+	my $secret = $args{secret};
+	return $self->_fail("$verb-key needs the path of the private half")
+	    unless defined $secret && length $secret;
+
+	my $signer = $args{signer};
+	return $self->_fail('the secret and the signer name one path')
+	    if defined $signer && length $signer && $secret eq $signer;
+
+	if ( $verb eq 'mint' ) {
+		return $self->_fail( "$secret stands already, and a mint"
+			    . ' writes the private half of a new key' )
+		    if -e $secret;
+	}
+	else {
+		return $self->_fail("the private half $secret is no file")
+		    unless -f $secret;
+	}
+
+	if ($first) {
+		return $self->_fail( 'the directory holds no root key, so the'
+			    . ' new key signs its own manifest and the step'
+			    . ' takes no signer' )
+		    if defined $signer && length $signer;
+
+		return $self->_bound( $set, $args{bind} );
+	}
+
+	return $self->_fail( "the current root key $root signs the manifest,"
+		    . ' so the step needs the private half of that key as'
+		    . ' the signer' )
+	    unless defined $signer && length $signer;
+	return $self->_fail("the signer $signer is no file")
+	    unless -f $signer;
+
+	return $self->_free( $args{bind} );
+}
+
+# $self->_promote_options($set, $is_root, $root, %args):
+#	Hold a promote to the options that its purpose takes, and
+#	answer the private half of each bound key.
+#
+#	WEB-ROTATE-6. A root promote signs the manifest with the key
+#	that it makes current, so it takes no signer. Every other
+#	promote signs with the current root, and it writes no key
+#	file, so it takes no secret.
+sub _promote_options ( $self, $set, $is_root, $root, %args )
+{
+	my $secret = $args{secret};
+	my $signer = $args{signer};
+
+	unless ($is_root) {
+		return $self->_fail( 'the key directory holds no current key'
+			    . ' of the purpose '
+			    . ROOT )
+		    unless $root;
+		return $self->_fail( "the current root key $root signs the"
+			    . ' manifest, so the promote needs the private'
+			    . ' half of that key as the signer' )
+		    unless defined $signer && length $signer;
+		return $self->_fail("the signer $signer is no file")
+		    unless -f $signer;
+		return $self->_fail( 'a promote of a subordinate purpose'
+			    . ' writes no key file, so it takes no secret' )
+		    if defined $secret && length $secret;
+
+		return $self->_free( $args{bind} );
+	}
+
+	return $self->_fail( 'a root promote signs with the key that it makes'
+		    . ' current, so it takes no signer' )
+	    if defined $signer && length $signer;
+	return $self->_fail( 'the new root signs the manifest, so the promote'
+		    . ' needs the private half of that key as the secret' )
+	    unless defined $secret && length $secret;
+	return $self->_fail("the private half $secret is no file")
+	    unless -f $secret;
+
+	return $self->_bound( $set, $args{bind} );
+}
+
+# $self->_bound($set, $bind):
+#	The private half of each current and next subordinate key, by
+#	key file name. The method answers a hash reference, or undef
+#	with a reason in $self->error.
+#
+#	WEB-TRUST-7. A first root mint and a root promote write the
+#	binding of each key in force again, so the step refuses before
+#	it writes when one private half is absent.
+sub _bound ( $self, $set, $bind )
+{
+	$bind //= {};
+
+	my %want;
+	for my $name ( sort keys %$set ) {
+		next if $set->{$name}{purpose} eq ROOT;
+		next if $set->{$name}{status} eq 'retired';
+		$want{ _stem_of($name) } = $name;
+	}
+
+	for my $stem ( sort keys %want ) {
+		next if defined $bind->{$stem} && length $bind->{$stem};
+		return $self->_fail( 'the step writes the binding of '
+			    . "$stem again, so it needs the private half of"
+			    . " that key as the bound key $stem" );
+	}
+
+	for my $stem ( sort keys %$bind ) {
+		next if $want{$stem};
+		return $self->_fail( "the bound key $stem names no current"
+			    . ' key and no next key of a subordinate'
+			    . ' purpose' );
+	}
+
+	my %private;
+	for my $stem ( sort keys %want ) {
+		my $path = $bind->{$stem};
+		return $self->_fail(
+			"the private half $path of $stem is no file")
+		    unless -f $path;
+
+		my $bytes = Fugu::File->read($path);
+		return $self->_fail("cannot read $path") unless defined $bytes;
+
+		$private{ $want{$stem} } = $bytes;
+	}
+
+	return \%private;
+}
+
+# $self->_free($bind):
+#	The empty bound set of a step that writes no binding of
+#	WEB-TRUST-7. A bound key on such a step names a private half
+#	that the step does not need, which is a caller mistake.
+sub _free ( $self, $bind )
+{
+	return {} unless $bind && %$bind;
+
+	return $self->_fail( 'a first root mint and a root promote take a'
+		    . ' bound key, and no other step does' );
+}
+
+# $self->_of_target($set, $target):
+#	Every binding of the directory that names the target, less a
+#	chain binding.
+#
+#	WEB-TRUST-7. A root promote drops each binding of the retired
+#	root, because a consumer pins the root that stands. The chain
+#	binding of WEB-TRUST-4 stays published with the retired key
+#	that wrote it, and a retired signer writes no other binding.
+sub _of_target ( $self, $set, $target )
+{
+	my @drop;
+	for my $binding ( $self->{config}->site_bindings ) {
+		next unless $binding->{target} eq $target;
+		next if $set->{ $binding->{signer} }{status} eq 'retired';
+
+		push @drop, $binding->{name};
+	}
+
+	return @drop;
+}
+
+# $self->_generate($stem, $name):
+#	A new signify key pair, as the public bytes and the private
+#	bytes. The method answers the two, or an empty list with a
+#	reason in $self->error.
+#
+#	signify(1) holds a pair to one stem: <stem>.pub beside
+#	<stem>.sec. The pair is therefore made in a temporary
+#	directory, and each half then goes where it belongs. The
+#	directory dies with the process, so no secret stays behind.
+#
+#	Fugu::Signify writes ' public key' after the comment word, so
+#	the published comment is '<stem> public key'. WEB-KEYS-31
+#	states that form.
+sub _generate ( $self, $stem, $name )
+{
 	my $work = File::Temp->newdir;
-	$self->_signify( '-G', '-n', '-c', $stem,
-		'-p', "$work/$stem.pub", '-s', "$work/$stem.sec" )
-	    or return;
+	my $sig  = Fugu::Signify->new;
 
-	my $public = Fugu::File->read("$work/$stem.pub");
+	$sig->generate(
+		comment => $stem,
+		public  => "$work/$name",
+		secret  => "$work/$stem.sec",
+	) or return $self->_tool_fail($sig);
+
+	my $public = Fugu::File->read("$work/$name");
 	return $self->_fail('cannot read the generated public key')
 	    unless defined $public;
 	my $private = Fugu::File->read("$work/$stem.sec");
 	return $self->_fail('cannot read the generated private key')
 	    unless defined $private;
 
-	my $bytes = $self->_key_bytes($set) or return;
-	$bytes->{$name} = $public;
-
-	# The signer reaches the signature as bytes, so the private
-	# half of the new key never lands before the step succeeds.
-	my $with = $private;
-	if ($current) {
-		$with = Fugu::File->read($signer);
-		return $self->_fail("cannot read $signer")
-		    unless defined $with;
-	}
-
-	my ( $manifest, $signature ) = $self->_signed( $with, $verify, $bytes );
-	return unless defined $manifest;
-
-	my $description = $self->_with_block( $stem, $status ) or return;
-
-	return $self->_publish( {
-			$self->{config}->path   => $description,
-			$self->_path($name)     => $public,
-			$self->_path(MANIFEST)  => $manifest,
-			$self->_path(SIGNATURE) => $signature,
-		},
-		{ $stem => $status },
-		{
-			name   => $name,
-			stem   => $stem,
-			serial => $serial,
-			status => $status,
-		},
-
-		# WEB-ROTATE-2. The private half takes no group mode
-		# and no other mode, and it lands last: a step that
-		# fails leaves no key that the site does not publish.
-		{ path => $secret, bytes => $private, mode => 0600 } );
+	return ( $public, $private );
 }
 
-# $self->promote(%args):
-#	Make the next key of the purpose current, and retire the key
-#	that was current. The method answers a hash reference of the
-#	facts, or undef with a reason in $self->error.
-#
-#	%args:
-#		purpose => $word	what the key signs
-#		secret  => $path	the private half of the next key
-sub promote ( $self, %args )
+# $self->_read_pair($file, $secret):
+#	The public bytes and the private bytes of a key that another
+#	tool made. The method answers the two, or an empty list with a
+#	reason in $self->error.
+sub _read_pair ( $self, $file, $secret )
 {
-	$self->{error} = undef;
+	return $self->_fail('the import needs the public key file')
+	    unless defined $file && length $file;
+	return $self->_fail("the public key file $file is no file")
+	    unless -f $file;
 
-	my $purpose = $args{purpose};
-	my $secret  = $args{secret};
-
-	my $set = $self->_set or return;
-
-	my $next = _by_status( $set, $purpose, 'next' )
-	    or return $self->_fail("the purpose $purpose holds no next key");
-	my $old = _by_status( $set, $purpose, 'current' );
-
-	unless ( defined $secret && -f $secret ) {
-		return $self->_fail( 'the promote needs the private half of '
-			    . "$next, which this run makes current" );
-	}
-
-	my $today  = POSIX::strftime( '%Y-%m-%d', gmtime );
-	my %change = ( _stem_of($next) => { status => 'current' } );
-	$change{ _stem_of($old) } = { status => 'retired', until => $today }
-	    if $old;
-
-	my $bytes = $self->_key_bytes($set) or return;
+	my $public = Fugu::File->read($file);
+	return $self->_fail("cannot read $file") unless defined $public;
 
 	my $private = Fugu::File->read($secret);
 	return $self->_fail("cannot read $secret") unless defined $private;
 
-	# WEB-ROTATE-6. The key that this run makes current signs.
-	my ( $manifest, $signature ) =
-	    $self->_signed( $private, $next, $bytes );
-	return unless defined $manifest;
-
-	my $description = $self->_with_statuses( \%change ) or return;
-
-	return $self->_publish( {
-			$self->{config}->path   => $description,
-			$self->_path(MANIFEST)  => $manifest,
-			$self->_path(SIGNATURE) => $signature,
-		},
-		{ map { $_ => $change{$_}{status} } keys %change },
-		{
-			name    => $next,
-			stem    => _stem_of($next),
-			serial  => $set->{$next}{serial},
-			status  => 'current',
-			retired => $old // '',
-		} );
+	return ( $public, $private );
 }
 
-# $self->_publish($write, $want, $facts, $last):
-#	Write every file of one step, then read the result back.
+# $self->_bind($target, $bytes, $signer, $public, $private):
+#	The name and the bytes of one binding: the signature of the
+#	public key file of the target by the private half of the
+#	signer. The method answers the two, or an empty list with a
+#	reason in $self->error.
+#
+#	Every file of the signature is staged in a temporary
+#	directory, so the work never depends on what the tree holds,
+#	and nothing reaches the tree until it verifies.
+#
+#	WEB-TRUST-8. The type of the signer key selects the signer
+#	class, as it selects the extension of the binding name. A
+#	directory that holds an OpenPGP key or a certificate therefore
+#	binds that key with the command of its own type.
+sub _bind ( $self, $target, $bytes, $signer, $public, $private )
+{
+	my $keydir = $self->_keydir or return;
+	my $name = $keydir->binding_for( target => $target, signer => $signer )
+	    or return $self->_fail( $keydir->error );
+
+	my $parts = $keydir->parse_name($signer)
+	    or return $self->_fail( $keydir->error );
+	my $class = $SIGNER{ $parts->{type} }
+	    or return $self->_fail(
+		"a key of the type $parts->{type} signs no binding");
+
+	# signify(1) reads the stem of the secret file and writes
+	# 'verify with <stem>.pub' into the signature. The staged name
+	# therefore carries the stem of the signing key, so the
+	# published comment names a file that the site publishes. A
+	# key of another type reads the path alone, and one staged
+	# name serves every type.
+	my $stem = _stem_of($signer);
+	my $work = File::Temp->newdir;
+
+	return $self->_fail("cannot stage $target")
+	    unless Fugu::File->write( "$work/$target", $bytes );
+	return $self->_fail("cannot stage $signer")
+	    unless Fugu::File->write( "$work/$signer", $public );
+	return $self->_fail("cannot stage the private half of $signer")
+	    unless Fugu::File->write( "$work/$stem.sec", $private,
+		mode => 0600 );
+
+	my $sig = $class->new;
+
+	# A PEM private key names no certificate, so Fugu::X509 signs
+	# with the certificate of the key beside it. The call therefore
+	# names the staged public half. Fugu::Signify and Fugu::OpenPGP
+	# read no public argument in sign, and they ignore this one.
+	$sig->sign(
+		public    => "$work/$signer",
+		secret    => "$work/$stem.sec",
+		file      => "$work/$target",
+		signature => "$work/$name",
+	) or return $self->_tool_fail($sig);
+
+	# WEB-TRUST-8. The published public half of the signer proves
+	# that the caller named the right private half, and no byte
+	# reaches the directory before it does.
+	unless (
+		$sig->verify(
+			keys      => ["$work/$signer"],
+			file      => "$work/$target",
+			signature => "$work/$name"
+		) )
+	{
+		return $self->_fail( "$signer does not verify the binding"
+			    . " $name that the step wrote: "
+			    . $sig->error );
+	}
+
+	my $written = Fugu::File->read("$work/$name");
+	return $self->_fail("cannot read the staged binding $name")
+	    unless defined $written;
+
+	return ( $name, $written );
+}
+
+# $self->_publish($write, $remove, $want, $facts, $last):
+#	Write every file of one step, remove every file that it
+#	retires, and then read the result back.
 #
 #	WEB-ROTATE-8 and WEB-ROTATE-10. Each byte of the step is ready
 #	before the first write, and a failure puts every file back. A
 #	step therefore leaves the description and the manifest pair as
 #	it found them, or as it means them to be, and never between.
+#
+#	A binding goes after every write, so a run that stops between
+#	the two leaves a file that the manifest does not name, and
+#	never a manifest that names a file which is gone.
 #
 #	$last names one more file, which lands after the read back
 #	passes. The private half of a new key goes there: a step that
@@ -336,10 +780,11 @@ sub promote ( $self, %args )
 #
 #	The method answers $facts, or undef with a reason in
 #	$self->error.
-sub _publish ( $self, $write, $want, $facts, $last = undef )
+sub _publish ( $self, $write, $remove, $want, $facts, $last = undef )
 {
 	my %was;
-	for my $path ( sort keys %$write ) {
+	my @touched = ( keys %$write, @$remove );
+	for my $path ( sort @touched ) {
 		$was{$path} = -e $path ? Fugu::File->read($path) : undef;
 	}
 
@@ -354,6 +799,14 @@ sub _publish ( $self, $write, $want, $facts, $last = undef )
 
 		my $stuck = $self->_undo( \%was, $config, $bootstrap );
 		return $self->_fail( _why( "cannot write $path", $stuck ) );
+	}
+
+	for my $path ( sort @$remove ) {
+		next unless -e $path;
+		next if unlink $path;
+
+		my $stuck = $self->_undo( \%was, $config, $bootstrap );
+		return $self->_fail( _why( "cannot remove $path", $stuck ) );
 	}
 
 	# WEB-ROTATE-11 and WEB-ROTATE-12. The reader decides. A
@@ -416,15 +869,18 @@ sub _why ( $reason, $stuck )
 	return defined $stuck ? "$reason, and $stuck" : $reason;
 }
 
-# $self->_signed($secret, $pubname, $bytes):
-#	The manifest text over the key bytes, and a signature that the
-#	private key made. The method answers the two, or an empty list
-#	with a reason in $self->error.
+# $self->_signed($private, $pubname, $bytes):
+#	The manifest text over the bytes of the directory, and a
+#	signature that the private key made. The method answers the
+#	two, or an empty list with a reason in $self->error.
+#
+#	WEB-TRUST-6. The manifest names every key file and every
+#	binding file, and it names nothing else.
 #
 #	Every file that the signature needs is staged in a temporary
 #	directory, so the work never depends on what the tree holds
-#	and nothing reaches the tree until it verifies. A first mint
-#	verifies against a key that the tree does not hold yet.
+#	and nothing reaches the tree until it verifies. A first root
+#	mint verifies against a key that the tree does not hold yet.
 sub _signed ( $self, $private, $pubname, $bytes )
 {
 	return $self->_fail('the key directory holds no key')
@@ -439,15 +895,14 @@ sub _signed ( $self, $private, $pubname, $bytes )
 	# 'verify with <stem>.pub' into the signature. The staged name
 	# therefore carries the stem of the signing key, so the
 	# published comment names a file that the site publishes.
-	my $stem = $pubname =~ s/\.pub\z//r;
+	my $stem = _stem_of($pubname);
 	my $work = File::Temp->newdir;
 
-	# One key in the list, so a verification proves that this key
-	# signed and no other. The writer of the manifest is the
-	# parser of the consumer install, so the two never disagree.
-	my $signify = Fugu::Signify->new( keys => ["$work/$pubname"] );
-	my $text    = $signify->write_manifest( \%digest )
-	    or return $self->_fail( $signify->error );
+	# The writer of the manifest is the parser of the consumer
+	# install, so the two never disagree about a line.
+	my $sig  = Fugu::Signify->new;
+	my $text = $sig->write_manifest( \%digest )
+	    or return $self->_fail( $sig->error );
 
 	return $self->_fail('cannot stage the public key')
 	    unless Fugu::File->write( "$work/$pubname", $bytes->{$pubname} );
@@ -457,33 +912,56 @@ sub _signed ( $self, $private, $pubname, $bytes )
 	return $self->_fail('cannot stage the manifest')
 	    unless Fugu::File->write( "$work/" . MANIFEST, $text );
 
-	$self->_signify(
-		'-S', '-s', "$work/$stem.sec", '-m',
-		"$work/" . MANIFEST, '-x', "$work/" . SIGNATURE
-	) or return;
+	$sig->sign(
+		secret    => "$work/$stem.sec",
+		file      => "$work/" . MANIFEST,
+		signature => "$work/" . SIGNATURE,
+	) or return $self->_tool_fail($sig);
 
 	# WEB-ROTATE-7. A signature that the published key does not
-	# verify means the caller named the wrong private half.
-	unless ( $signify->verify( "$work/" . MANIFEST, "$work/" . SIGNATURE ) )
+	# verify means the caller named the wrong private half. One
+	# key in the list, so the check proves that this key signed
+	# and no other.
+	unless (
+		$sig->verify(
+			keys      => ["$work/$pubname"],
+			file      => "$work/" . MANIFEST,
+			signature => "$work/" . SIGNATURE
+		) )
 	{
 		return $self->_fail( "$pubname does not verify the signature"
 			    . ' that the signer wrote: '
-			    . $signify->error );
+			    . $sig->error );
 	}
 
-	my $sig = Fugu::File->read( "$work/" . SIGNATURE );
+	my $bytes_of = Fugu::File->read( "$work/" . SIGNATURE );
 	return $self->_fail('cannot read the staged signature')
-	    unless defined $sig;
+	    unless defined $bytes_of;
 
-	return ( $text, $sig );
+	return ( $text, $bytes_of );
 }
 
 # $self->_key_bytes($set):
 #	The bytes of every key file of the set, by name.
 sub _key_bytes ( $self, $set )
 {
+	return $self->_bytes_of( sort keys %$set );
+}
+
+# $self->_binding_bytes:
+#	The bytes of every binding file of the directory, by name.
+sub _binding_bytes ($self)
+{
+	return $self->_bytes_of( map { $_->{name} }
+		    $self->{config}->site_bindings );
+}
+
+# $self->_bytes_of(@names):
+#	The bytes of each named file of the key directory, by name.
+sub _bytes_of ( $self, @names )
+{
 	my %bytes;
-	for my $name ( sort keys %$set ) {
+	for my $name (@names) {
 		my $found = Fugu::File->read( $self->_path($name) );
 		return $self->_fail( 'cannot read ' . $self->_path($name) )
 		    unless defined $found;
@@ -521,6 +999,11 @@ sub _set ($self)
 
 	my %block = map { $_->{name} => $_ } $self->{config}->site_keys;
 
+	# A binding carries no key block: its name holds the target
+	# and the signer, and App::FuguWeb::Config parses it.
+	my %binding =
+	    map { $_->{name} => 1 } $self->{config}->site_bindings;
+
 	# The reader takes every name of the directory, a dotted one
 	# included, so this scan must agree with it. A writer that
 	# stepped over a file would publish a directory that
@@ -531,6 +1014,7 @@ sub _set ($self)
 	my %set;
 	for my $name ( @{$names} ) {
 		next if $name eq MANIFEST || $name eq SIGNATURE;
+		next if $binding{$name};
 		next unless -f "$dir/$name";
 
 		my $block = $block{$name}
@@ -743,24 +1227,17 @@ sub _keydir ($self)
 	return $keydir;
 }
 
-# $self->_signify(@args):
-#	Run signify(1) with the arguments, and fail when it does. The
-#	first word is a program path and no argument reaches a shell,
-#	so no value can become part of a command.
-sub _signify ( $self, @args )
+# $self->_tool_fail($signer):
+#	The failure of a call that needed the command of a key type.
+#	An absent command is an install problem, and a failed
+#	signature is an integrity problem, so the caller answers each
+#	one with its own exit code, per WEB-ROTATE-17, WEB-OPENPGP-6
+#	and WEB-X509-9.
+sub _tool_fail ( $self, $signer )
 {
-	my $signify = Fugu::Signify->new( keys => [ $self->{config}->path ] );
-	unless ( $signify->is_available ) {
-		$self->{tool_missing} = 1;
-		return $self->_fail( $signify->error );
-	}
+	$self->{tool_missing} = 1 if $signer->command_absent;
 
-	my $command = $signify->command;
-	system {$command} $command, @args;
-
-	return 1 if $? == 0;
-
-	return $self->_fail( "$command failed with status " . ( $? >> 8 ) );
+	return $self->_fail( $signer->error );
 }
 
 # _stem_of($name):

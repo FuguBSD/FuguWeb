@@ -26,6 +26,7 @@ use Fugu::File;
 use Fugu::KeyDir;
 use Fugu::OpenPGP;
 use Fugu::Signify;
+use Fugu::X509;
 use MIME::Base64 ();
 
 # App::FuguWeb::Keys - the key directory of a site.
@@ -42,8 +43,10 @@ use MIME::Base64 ();
 # fingerprint and a Web Key Directory hash. Fugu::Signify parses the
 # manifest. Nothing generic lives here.
 #
-# The module runs no command. A site build neither signs nor verifies,
-# so the manifest pair is a source file and not a generated one.
+# A site build neither signs nor verifies, so the manifest pair is a
+# source file and not a generated one. The check verifies each
+# binding, per WEB-TRUST-9: a signify binding needs no command, and a
+# binding of another type runs the command of its type.
 
 # The two files of the manifest pair. The rotation workflow writes
 # them, and the build copies them as they stand.
@@ -84,6 +87,20 @@ my %GENERATED_NAME =
 # characters of its own alphabet for them.
 use constant WKD_NAME => qr{\A[ybndrfg8ejkmcpqxot1uwisza345h769]{32}\z};
 
+# The purpose word of the root of trust, per D-02 and WEB-TRUST-1.
+# Fugu::KeyDir holds no purpose, so the word lives here and the verbs
+# read it from this module.
+use constant ROOT_PURPOSE => 'root';
+
+# The verifier of each binding type. Every class follows Fugu::Signer,
+# so one call shape reads all three. Fugu::Signify verifies in Perl,
+# and the other two need their command.
+my %VERIFIER = (
+	signify => 'Fugu::Signify',
+	openpgp => 'Fugu::OpenPGP',
+	x509    => 'Fugu::X509',
+);
+
 # App::FuguWeb::Keys->new(%args):
 #	config => $config	the site description (required)
 #
@@ -99,9 +116,10 @@ sub new ( $class, %args )
 	    unless defined $config->keys_dir;
 
 	return bless {
-		config => $config,
-		keydir => Fugu::KeyDir->new( org => $config->keys_org ),
-		error  => undef,
+		config  => $config,
+		keydir  => Fugu::KeyDir->new( org => $config->keys_org ),
+		openpgp => Fugu::OpenPGP->new,
+		error   => undef,
 	}, $class;
 }
 
@@ -164,7 +182,11 @@ sub shaped ( $class, $config, $path )
 
 	my $keydir = Fugu::KeyDir->new( org => $org );
 
-	return $keydir->parse_name($name) ? 1 : 0;
+	return 1 if $keydir->parse_name($name);
+
+	# A binding is the signature of one key file by another key,
+	# and the directory publishes it beside the two keys.
+	return $keydir->parse_binding($name) ? 1 : 0;
 }
 
 # $self->paths:
@@ -178,6 +200,8 @@ sub paths ($self)
 	my @keys = $self->{config}->site_keys;
 
 	my @paths = map { $self->_in_dir( $_->{name} ) } @keys;
+	push @paths,
+	    map { $self->_in_dir( $_->{name} ) } $self->{config}->site_bindings;
 	push @paths, $self->_in_dir(MANIFEST), $self->_in_dir(SIGNATURE);
 	push @paths, $self->_in_dir(KEYS_FILE) if $self->_armored(@keys);
 	push @paths, $self->_in_dir(INDEX_PAGE);
@@ -200,8 +224,11 @@ sub copies ($self)
 {
 	my $config = $self->{config};
 
-	my @names =
-	    ( ( map { $_->{name} } $config->site_keys ), MANIFEST, SIGNATURE );
+	my @names = (
+		( map { $_->{name} } $config->site_keys ),
+		( map { $_->{name} } $config->site_bindings ),
+		MANIFEST, SIGNATURE
+	);
 
 	return
 	    map { { from => $config->keys_path($_), to => $self->_in_dir($_) } }
@@ -240,15 +267,16 @@ sub generated ($self)
 	# body with a broken base64 or a broken checksum passes them.
 	# The decoder is what proves that the bytes are a key.
 	for my $key ( grep { $_->{type} eq 'openpgp' } @$ordered ) {
-		my ( $binary, $why ) =
-		    Fugu::OpenPGP->decode_armor( $key->{armor} );
-		return $self->_fail("$key->{name}: $why")
+		my $binary = $self->{openpgp}->decode_armor( $key->{armor} );
+		return $self->_fail(
+			"$key->{name}: " . $self->{openpgp}->error )
 		    unless defined $binary;
 	}
 
 	my $rows = $self->{keydir}->index_data($set)
 	    or return $self->_fail( $self->{keydir}->error );
-	$out{ $self->_in_dir(INDEX_PAGE) } = $self->_index_page($rows);
+	$out{ $self->_in_dir(INDEX_PAGE) } =
+	    $self->_index_page( $rows, $self->_by_target );
 
 	# One address holds every key of that address, in publication
 	# order. A rotation gives one address a current key and a next
@@ -257,9 +285,9 @@ sub generated ($self)
 	# would publish.
 	my @wkd = $self->_published(@$ordered);
 	for my $key (@wkd) {
-		my ( $binary, $why ) =
-		    Fugu::OpenPGP->decode_armor( $key->{armor} );
-		return $self->_fail("$key->{name}: $why")
+		my $binary = $self->{openpgp}->decode_armor( $key->{armor} );
+		return $self->_fail(
+			"$key->{name}: " . $self->{openpgp}->error )
 		    unless defined $binary;
 
 		$out{ WKD_DIR . "/hu/$key->{wkd}" } .= $binary;
@@ -318,7 +346,8 @@ sub key_set ($self)
 #	stray file and a stale digest are faults of the checkout, and
 #	the answer must not depend on a build having run.
 #
-#	The method verifies no signature. That is the work of a
+#	The method verifies each binding, per WEB-TRUST-9. It verifies
+#	no SHA256.sig, per WEB-KEYS-33. That one is the work of a
 #	consumer install: the site build cannot sign, so a site that
 #	verified its own manifest would prove nothing.
 sub problems ($self)
@@ -338,11 +367,143 @@ sub problems ($self)
 		push @problems, "$dir: " . $self->{keydir}->error;
 	}
 
+	push @problems, $self->_root_problems($set);
+	push @problems, $self->_binding_problems($set);
 	push @problems, $self->_manifest_problems( \@keys );
 	push @problems, $self->_signature_problems;
 	push @problems, $self->_fingerprint_problems($set);
 
 	return @problems;
+}
+
+# $self->_root_problems($set):
+#	The root rule of WEB-TRUST-1. One signify key of the directory
+#	is the root of trust, its purpose word is root, and its
+#	current key signs the manifest. A directory with no such key
+#	has no anchor, and every binding of it names a target that no
+#	consumer can pin.
+#
+#	The method reports an absent root alone. Two current keys of
+#	one purpose is the fault that check_statuses names, and one
+#	fault reads better than two.
+sub _root_problems ( $self, $set )
+{
+	my $dir = $self->{config}->keys_dir;
+
+	my ($root) = _current_root($set);
+	unless ($root) {
+		return
+		      "$dir: it holds no current key of the purpose "
+		    . ROOT_PURPOSE
+		    . ', and that key is the root of trust of the directory';
+	}
+
+	return () if $root->{type} eq 'signify';
+
+	return "$dir/$root->{name}: the root key is a $root->{type} key,"
+	    . ' and the root of trust is a signify key';
+}
+
+# $self->_binding_problems($set):
+#	The rules of a binding, per WEB-TRUST-3, WEB-TRUST-9 and
+#	WEB-TRUST-10. Each key in force of a subordinate purpose must
+#	hold a binding over the current root. Each binding must verify
+#	against the public key of its signer, and each one must hold
+#	the retention rule of Fugu::KeyDir.
+#
+#	The last two rules read the root. A directory with no root has
+#	one fault, which _root_problems names, so both stay unread
+#	there.
+sub _binding_problems ( $self, $set )
+{
+	my @bindings = $self->{config}->site_bindings;
+
+	my $dir      = $self->{config}->keys_dir;
+	my @problems = map { $self->_binding_verified($_) } @bindings;
+
+	my ($root) = _current_root($set);
+	return @problems unless $root;
+
+	push @problems, $self->_unbound_problems( $set, \@bindings, $root );
+
+	my @names = map { $_->{name} } @bindings;
+	return @problems
+	    if $self->{keydir}->check_bindings( $set, \@names, $root->{name} );
+
+	return ( @problems, "$dir: " . $self->{keydir}->error );
+}
+
+# $self->_unbound_problems($set, $bindings, $root):
+#	Each current key and each next key of a subordinate purpose
+#	that holds no binding over the current root, per WEB-TRUST-3.
+#
+#	That signature proves that the holder of the root also holds
+#	the subordinate key. A directory that publishes a key without
+#	one gives a consumer no way to reach that key from the root.
+sub _unbound_problems ( $self, $set, $bindings, $root )
+{
+	my $dir = $self->{config}->keys_dir;
+
+	my %attests;
+	for my $binding (@$bindings) {
+		next unless $binding->{target} eq $root->{name};
+		$attests{ $binding->{signer} } = 1;
+	}
+
+	my @problems;
+	for my $key (@$set) {
+		next if $key->{purpose} eq ROOT_PURPOSE;
+		next if $key->{status} eq 'retired';
+		next if $attests{ $key->{name} };
+
+		push @problems,
+		    "$dir/$key->{name}: the $key->{status} key holds no"
+		    . " binding over the current root key $root->{name}";
+	}
+
+	return @problems;
+}
+
+# $self->_binding_verified($binding):
+#	The reason that a binding does not verify against the public
+#	key of its signer, or the empty list when it does.
+#
+#	The verifier of the type comes from the Fugu library, and each
+#	class follows Fugu::Signer, so one call shape reads all three.
+#	A signify binding needs no command.
+sub _binding_verified ( $self, $binding )
+{
+	my $config = $self->{config};
+	my $dir    = $config->keys_dir;
+	my $name   = $binding->{name};
+
+	my $class = $VERIFIER{ $binding->{type} }
+	    or return "$dir/$name: no verifier reads a $binding->{type}"
+	    . ' signature';
+
+	# An absent command is a problem of the host, and the walk of
+	# the verifier reports it in the reason of the call. The check
+	# therefore needs no second test for one: a binding that
+	# nothing read must never pass.
+	my $signer = $class->new;
+
+	return ()
+	    if $signer->verify(
+		keys      => [ $config->keys_path( $binding->{signer} ) ],
+		file      => $config->keys_path( $binding->{target} ),
+		signature => $config->keys_path($name),
+	    );
+
+	return "$dir/$name: " . $signer->error;
+}
+
+# _current_root($set):
+#	The current key of the root purpose, or the empty list.
+sub _current_root ($set)
+{
+	return
+	    grep { $_->{purpose} eq ROOT_PURPOSE && $_->{status} eq 'current' }
+	    @$set;
 }
 
 # $self->_stray_files($keys):
@@ -359,12 +520,31 @@ sub _stray_files ( $self, $keys )
 	my $names = App::FuguWeb::list_dir( $config->keys_path )
 	    or return "$dir: cannot read the key directory: $!";
 
-	my %declared = map { $_->{name} => 1 } @$keys;
+	my %key = map { $_->{name} => 1 } @$keys;
+
+	my %declared = %key;
+	$declared{ $_->{name} } = 1 for $config->site_bindings;
 
 	my @problems;
 	for my $name (@$names) {
 		next if $NOT_A_KEY{$name};
 		next if $declared{$name};
+
+		# A binding needs no key block: its name holds the
+		# target and the signer, and App::FuguWeb::Config keeps
+		# a binding whose two keys the description names. One
+		# that reaches here therefore names a key that no block
+		# names, per WEB-KEYS-18.
+		if ( my $parts = $self->{keydir}->parse_binding($name) ) {
+			for my $part (qw(target signer)) {
+				next if $key{ $parts->{$part} };
+				push @problems,
+				      "$dir/$name: it names the $part"
+				    . " $parts->{$part}, and no key block"
+				    . ' names it';
+			}
+			next;
+		}
 
 		# The name pattern comes first, because a name that no
 		# block names and that no pattern matches is one fault
@@ -381,10 +561,10 @@ sub _stray_files ( $self, $keys )
 }
 
 # $self->_manifest_problems($keys):
-#	The manifest names every key file, with the digest that the
-#	file has, and it names nothing else. A digest that disagrees
-#	with its file is the fault that the tier of scripts/deps rests
-#	on.
+#	The manifest names every key file and every binding file, with
+#	the digest that the file has, and it names nothing else. A
+#	digest that disagrees with its file is the fault that the tier
+#	of scripts/deps rests on.
 #	The check therefore reads the bytes, and never the size or the
 #	time.
 sub _manifest_problems ( $self, $keys )
@@ -399,18 +579,22 @@ sub _manifest_problems ( $self, $keys )
 
 	# The parser is the one of the consumer install, so the site
 	# and the install can never disagree about a line. The object
-	# needs a key file, and it runs no command for a parse.
-	my $signify = Fugu::Signify->new(
-		keys => [ map { $config->keys_path( $_->{name} ) } @$keys ] );
+	# runs no command for a parse.
+	my $signify = Fugu::Signify->new;
 
 	my $digest = $signify->parse_manifest($bytes);
 	return "$dir/" . MANIFEST . ': ' . $signify->error
 	    unless $digest;
 
+	# WEB-TRUST-6. The manifest pins the bytes of every key file
+	# and of every binding file, and it names nothing else.
+	my @files = (
+		( map { $_->{name} } @$keys ),
+		( map { $_->{name} } $config->site_bindings ) );
+
 	my @problems;
 	my %named;
-	for my $key (@$keys) {
-		my $name = $key->{name};
+	for my $name (@files) {
 		$named{$name} = 1;
 
 		my $recorded = $digest->{$name};
@@ -436,7 +620,7 @@ sub _manifest_problems ( $self, $keys )
 	      "$dir/"
 	    . MANIFEST
 	    . ": it names $_, which is"
-	    . ' not a key of the description'
+	    . ' no key and no binding of the directory'
 	    for grep { !$named{$_} } sort keys %$digest;
 
 	return @problems;
@@ -474,16 +658,17 @@ sub _fingerprint_problems ( $self, $set )
 		next unless $key->{type} eq 'openpgp';
 		next unless defined $key->{fingerprint};
 
-		my ( $binary, $why ) =
-		    Fugu::OpenPGP->decode_armor( $key->{armor} );
+		my $binary = $self->{openpgp}->decode_armor( $key->{armor} );
 		unless ( defined $binary ) {
-			push @problems, "$dir/$key->{name}: $why";
+			push @problems,
+			    "$dir/$key->{name}: " . $self->{openpgp}->error;
 			next;
 		}
 
-		my ( $found, $reason ) = Fugu::OpenPGP->fingerprint($binary);
+		my $found = $self->{openpgp}->fingerprint($binary);
 		unless ( defined $found ) {
-			push @problems, "$dir/$key->{name}: $reason";
+			push @problems,
+			    "$dir/$key->{name}: " . $self->{openpgp}->error;
 			next;
 		}
 
@@ -496,19 +681,32 @@ sub _fingerprint_problems ( $self, $set )
 	return @problems;
 }
 
-# $self->_index_page($rows):
+# $self->_index_page($rows, $by_target):
 #	The human page of the directory, as a whole HTML document. The
 #	page carries the chrome of the site. It sits one directory
 #	below the root, so every link of the chrome takes the step
 #	back.
-sub _index_page ( $self, $rows )
+sub _index_page ( $self, $rows, $by_target )
 {
 	my $page = App::FuguWeb::Page->new(
 		config => $self->{config},
 		base   => '../'
 	);
 
-	return $page->document( 'Keys', _index_body($rows) );
+	return $page->document( 'Keys', _index_body( $rows, $by_target ) );
+}
+
+# $self->_by_target:
+#	The bindings of the directory, by the key file that each one
+#	targets. The human page lists each binding under its target,
+#	so a reader of one key sees every key that attests it, per
+#	WEB-TRUST-11.
+sub _by_target ($self)
+{
+	my %by;
+	push @{ $by{ $_->{target} } }, $_ for $self->{config}->site_bindings;
+
+	return \%by;
 }
 
 # $self->_policy:
@@ -712,15 +910,20 @@ sub _fail ( $self, $reason )
 	return;
 }
 
-# _index_body($rows):
+# _index_body($rows, $by_target):
 #	The body fragment of the human page: one row for each key, in
 #	publication order. Every value is escaped, and a value that
 #	the description left out becomes an empty cell.
-sub _index_body ($rows)
+#
+#	The last cell of a row holds the bindings of that key, per
+#	WEB-TRUST-11. Each one names its signer and links its file, so
+#	a reader fetches the signature beside the key that it covers.
+sub _index_body ( $rows, $by_target )
 {
 	my @head = (
 		'Key',    'Purpose',     'Serial', 'Type',
-		'Status', 'Fingerprint', 'Since',  'Until'
+		'Status', 'Fingerprint', 'Since',  'Until',
+		'Bindings'
 	);
 
 	my $html = "<h1>Keys</h1>\n<table>\n<thead>\n<tr>";
@@ -734,10 +937,32 @@ sub _index_body ($rows)
 		$html .= qq{<tr><td><a href="$href">$stem</a></td>};
 		$html .= '<td>' . _cell( $row->{$_} ) . '</td>'
 		    for qw(purpose serial type status fingerprint since until);
+		$html .= '<td>'
+		    . _bindings( $by_target->{ $row->{name} } ) . "</td>";
 		$html .= "</tr>\n";
 	}
 
 	return $html . "</tbody>\n</table>\n";
+}
+
+# _bindings($bindings):
+#	The binding cell of one key: one link for each binding, named
+#	by the signer of it. A key that no binding covers gives an
+#	empty cell, so the row keeps its column count.
+sub _bindings ($bindings)
+{
+	return '' unless $bindings;
+
+	my @link;
+	for my $binding ( sort { $a->{name} cmp $b->{name} } @$bindings ) {
+		my $href = App::FuguWeb::escape_attr( $binding->{name} );
+		my $stem = App::FuguWeb::escape_html(
+			$binding->{signer} =~ s/\.[^.]+\z//r );
+
+		push @link, qq{<a href="$href">$stem</a>};
+	}
+
+	return join ', ', @link;
 }
 
 # _cell($value):

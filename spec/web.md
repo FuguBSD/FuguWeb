@@ -66,13 +66,14 @@ manifest parser. The renderer holds the wiring only.
 
 ### The build
 
-- **WEB-KEYS-11** — The build must copy each key file, and the `SHA256` pair,
-  byte for byte.
+- **WEB-KEYS-11** — The build must copy each key file, each binding file, and
+  the `SHA256` pair, byte for byte.
 - **WEB-KEYS-12** — The build must generate `<dir>/KEYS` when the set holds an
   OpenPGP key, with every such key in publication order.
 - **WEB-KEYS-13** — The build must generate `<dir>/index.html`. The page must
   name the serial, the purpose, the type, the status, the fingerprint and the
-  dates of each key. It must link each key file.
+  dates of each key. It must link each key file, and must list the bindings of
+  each key, per WEB-TRUST-11.
 - **WEB-KEYS-14** — The build must generate `.well-known/openpgpkey/hu/<hash>`
   for each email address that a key names, and must generate
   `.well-known/openpgpkey/policy` beside it. The file must hold the binary form
@@ -83,8 +84,8 @@ manifest parser. The renderer holds the wiring only.
   `keys` block names a contact. The file must carry an `Encryption` field when
   the block names a `url`. The set must also hold a `current` OpenPGP key. The
   field must name the first such key of the publication order.
-- **WEB-KEYS-16** — The inventory must name every path above, so the build and
-  the checks read one list.
+- **WEB-KEYS-16** — The inventory must name every path above, and each binding
+  file, so the build and the checks read one list.
 - **WEB-KEYS-17** — The build must sign nothing and must verify nothing.
 - **WEB-KEYS-26** — The build must read each key file before it copies one. It
   must decode an armored key, and it must hold a signify key to its own shape. A
@@ -94,11 +95,13 @@ manifest parser. The renderer holds the wiring only.
 ### The checks
 
 - **WEB-KEYS-18** — Each key file must have a `key` block, and each block must
-  have a file.
-- **WEB-KEYS-19** — Each name in the directory must match the key name pattern.
+  have a file. A binding file needs no block, and its target and its signer must
+  each be a key of the directory.
+- **WEB-KEYS-19** — Each name in the directory must match the key name pattern,
+  or the binding name pattern.
 - **WEB-KEYS-20** — Each purpose must hold exactly one `current` key.
-- **WEB-KEYS-21** — `SHA256` must name every key file with the digest that the
-  file has, and must name nothing else.
+- **WEB-KEYS-21** — `SHA256` must name every key file and every binding file
+  with the digest that the file has, and must name nothing else.
 - **WEB-KEYS-22** — The declared fingerprint of an OpenPGP key must equal the
   fingerprint that its body gives.
 - **WEB-KEYS-33** — `SHA256.sig` must hold a signify signature. The file must
@@ -117,21 +120,24 @@ manifest parser. The renderer holds the wiring only.
 
 ## The key rotation
 
-`fuguweb build` and `fuguweb check` read the key directory, and
-`fuguweb rotate-key` writes it. One command holds both steps of a rotation. The
-reader and the writer share one implementation of the name pattern, the status
-vocabulary and the manifest.
+`fuguweb build` and `fuguweb check` read the key directory, and the key verbs
+write it. The reader and the writer share one implementation of the name
+pattern, the status vocabulary and the manifest.
 
 A consumer verifies a release against the copy of the public key that it holds.
 A release that a new key signs therefore fails in each consumer that holds the
 old copy. One rotation runs in two steps, and the trust order carries the gap. A
 `mint` makes the next key, and a `promote` makes it current.
 
-This command signs, and the build signs nothing (WEB-KEYS-17). It is the one
-part of FuguWeb that needs `signify(1)`.
+The verbs sign, and the build signs nothing (WEB-KEYS-17). A verb signs with the
+signer of the key type in the Fugu library, and it runs no command of its own. A
+signify key signs through `Fugu::Signify`, and a key of another type signs
+through `gpg(1)` or `openssl(1)`. The check verifies a signify binding with no
+command, and it runs the command of another type, per WEB-TRUST-9.
 
-- **WEB-ROTATE-1** — `fuguweb rotate-key` must take a step of `mint` or
-  `promote`, a purpose word, and the path of the private key file.
+- **WEB-ROTATE-1** — The verbs must be `fuguweb mint-key`, `fuguweb import-key`
+  and `fuguweb promote-key`. Each verb must take a `--purpose` word. `mint-key`
+  must take a `--type`, and the default must be `signify`.
 - **WEB-ROTATE-2** — A mint must take the next serial of the purpose, and
   generate a signify pair with no passphrase. It must write the public half into
   the key directory. It must write the private half to the named path, and that
@@ -145,10 +151,10 @@ part of FuguWeb that needs `signify(1)`.
   already, and it must refuse before it generates a pair. A caller stores the
   private half of each mint in one place, so a second `next` key loses the
   private half of the first.
-- **WEB-ROTATE-6** — The current key of the purpose must sign the manifest. A
-  mint of a purpose that holds a current key must take the signer. It must never
-  sign with the key that it generated. The first mint of a purpose is the one
-  exception: that key is current, and it signs its own manifest.
+- **WEB-ROTATE-6** — The current root key must sign the manifest. A first root
+  mint must sign its own manifest, and a root promote must sign with the new
+  root. Every other step must take the private half of the current root as
+  `--signer`, per WEB-TRUST-2.
 - **WEB-ROTATE-7** — The command must verify the new signature against the
   published public key of the signer. A signature that the key does not verify
   must fail the command.
@@ -156,7 +162,9 @@ part of FuguWeb that needs `signify(1)`.
   signature stands in its place. It must leave no directory that holds a
   manifest and no signature.
 - **WEB-ROTATE-9** — A promote must make the `next` key of the purpose current.
-  It must retire the key that was current with an `until` date.
+  It must retire the key that was current with an `until` date. It must write
+  the chain binding of WEB-TRUST-4, and must remove each binding that
+  WEB-TRUST-5 and WEB-TRUST-7 name.
 - **WEB-ROTATE-10** — The command must write the description once in each run. A
   second write leaves the file half changed when it fails.
 - **WEB-ROTATE-11** — The command must read the description back after it
@@ -164,8 +172,9 @@ part of FuguWeb that needs `signify(1)`.
 - **WEB-ROTATE-12** — The resulting key set must satisfy the status rules of
   `Fugu::KeyDir`, and the command must check the set before it returns.
 - **WEB-ROTATE-13** — The command must print one `name=value` line for each fact
-  that a caller needs. The facts are the file name, the stem, the serial, the
-  status, and the retired name of a promote.
+  that a caller needs. The facts are the file name, the stem, the serial and the
+  status. A promote must add the retired name. A step that writes a key file
+  must add the digest and the URL of that file.
 - **WEB-ROTATE-14** — The command must reach no network and must hold no token.
   The caller holds the credential.
 - **WEB-ROTATE-16** — A mint must record the date of the run as `since` on the
@@ -176,14 +185,15 @@ part of FuguWeb that needs `signify(1)`.
 - **WEB-ROTATE-18** — A mint must refuse a `--secret` path that stands already,
   and one that names the signer. The private half of a key is the one thing that
   a rotation cannot make again. A caller holds each one in one place.
-- **WEB-ROTATE-19** — Every key of one directory must hold one purpose. One
-  manifest covers the directory and one key signs it. A second purpose leaves
-  the current key of the first unable to verify the pair. A mint of another
-  purpose must fail.
+- **WEB-ROTATE-19** — A key directory must hold one root purpose and any number
+  of other purposes. One manifest covers the directory, and the current root key
+  signs it. A step of another purpose must fail when the directory holds no
+  current root.
 - **WEB-ROTATE-20** — A step must refuse a key set that breaks the status rules
   of `Fugu::KeyDir`, before it writes. A step over such a set could ask a
   retired key to sign. A directory with no key is the state of a site before its
-  first mint, and it must stand.
+  first mint, and it must stand. A directory whose keys hold no root must stand
+  for the first root mint alone, per WEB-TRUST-1.
 - **WEB-ROTATE-21** — The key directory word must name one directory below the
   source directory, as WEB-KEYS-29 holds it.
 - **WEB-ROTATE-15** — A description with no `keys` block must take one, with the
@@ -235,9 +245,10 @@ renderer and the verbs hold the wiring only.
   It must refuse before it writes when one is absent. A root promote must remove
   each binding whose target is the retired root, except a chain binding of
   WEB-TRUST-4.
-- **WEB-TRUST-8** — A step must verify each binding that it writes against the
-  public key of the signer, before one byte reaches the directory. A signature
-  that the key does not verify must fail the step.
+- **WEB-TRUST-8** — A step must sign each binding with the signer of the type of
+  its signer key. It must verify each binding that it writes against the public
+  key of the signer, before one byte reaches the directory. A signature that the
+  key does not verify must fail the step.
 - **WEB-TRUST-9** — `fuguweb check` must verify each binding against the public
   key of its signer. It must use the verifier of that type in the Fugu library.
   A signify binding needs no command. An absent gpg(1) or openssl(1), for a type
@@ -424,6 +435,7 @@ it, so the build keeps it and the clean refuses the tree.
   - a generated name of the key directory: `SHA256`, `SHA256.sig`, `KEYS` or
     `index.html`;
   - a key file of the key directory, whose name matches rule WEB-KEYS-19;
+  - a binding file of the key directory, whose name matches rule WEB-KEYS-19;
   - `.well-known/security.txt`;
   - `.well-known/openpgpkey/policy`;
   - `.well-known/openpgpkey/hu/<hash>`, where the hash holds 32 characters of
