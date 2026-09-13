@@ -523,6 +523,39 @@ subtest 'a bound key that names no key in force fails the step' => sub {
 	ok( !-e "$root/root2.sec", 'and it generates no pair' );
 };
 
+# WEB-ROTATE-1. Each verb takes a --type, and the default is signify.
+# Plan 004 adds the OpenPGP mint, and plan 005 adds the certificate,
+# so a verb must refuse every other type before it writes.
+subtest 'the verbs make one key type today' => sub {
+	my $root   = _keyed();
+	my @before = _names($root);
+
+	my ( $facts, $error ) = _mint(
+		$root,
+		type   => 'openpgp',
+		secret => "$root/rel2.sec",
+		signer => "$root/root1.sec"
+	);
+	ok( !$facts, 'a mint of another type fails' );
+	like( $error, qr/^mint-key reads no key of the type openpgp$/,
+		'and the reason names the verb and the type' );
+	ok( !-e "$root/rel2.sec", 'and it generates no pair' );
+
+	( $facts, $error ) = _import(
+		$root,
+		type   => 'x509',
+		file   => "$root/web/keys/fugubsd-1-release.pub",
+		secret => "$root/rel1.sec",
+		signer => "$root/root1.sec"
+	);
+	ok( !$facts, 'an import of another type fails' );
+	like( $error, qr/^import-key reads no key of the type x509$/,
+		'and the reason names that verb and its type' );
+
+	is_deeply( [ _names($root) ], [@before],
+		'and neither step writes one file' );
+};
+
 subtest 'a second mint waits for the promote' => sub {
 	my $root = _keyed();
 
