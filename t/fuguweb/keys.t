@@ -418,11 +418,17 @@ RC
 #	the first directory, and $two the status of the key of the
 #	second.
 #
-#	The second key carries the higher serial, so the publication
-#	order of WEB-KEYS-14 and the file order of the directories
-#	disagree.
+#	The contact key of each directory is the one file that ends in
+#	.asc, and its name holds its serial. A caller therefore picks
+#	which term of the publication order decides the file.
 sub shared_address ( $first, $second, $one, $two )
 {
+	my ($first_key)  = grep { /\A[^.]+-contact\.asc\z/ } keys %$first;
+	my ($second_key) = grep { /\A[^.]+-contact\.asc\z/ } keys %$second;
+
+	my $first_stem  = $first_key  =~ s/\.asc\z//r;
+	my $second_stem = $second_key =~ s/\.asc\z//r;
+
 	my %file = map { ( "web/other/$_" => $second->{$_} ) } keys %$second;
 	$file{'web/other/SHA256'}     = manifest(%$second);
 	$file{'web/other/SHA256.sig'} = $SIGNATURE;
@@ -439,7 +445,7 @@ key "fugubsd-1-root" {
 	status = current
 }
 
-key "fugubsd-1-contact" {
+key "$first_stem" {
 	status = $one
 	email  = security\@fugubsd.org
 }
@@ -452,7 +458,7 @@ key "other-1-root" {
 	status = current
 }
 
-key "other-2-contact" {
+key "$second_stem" {
 	status = $two
 	email  = security\@fugubsd.org
 }
@@ -739,8 +745,9 @@ RC
 	    App::FuguWeb::Keys->site_generated($config);
 	ok( $generated, 'the site generates' ) or diag $why;
 
-	# The file holds the keys of the address in publication order,
-	# and the directories arrive in file order.
+	# The file holds the keys of the address in publication order.
+	# The two keys hold one status and one serial, so the name
+	# decides, and fugubsd-1-contact leads other-1-contact.
 	my $pgp = Fugu::OpenPGP->new;
 	is(
 		$generated->{ '.well-known/openpgpkey/hu/' . WKD_HASH },
@@ -802,6 +809,32 @@ subtest 'one address orders the keys of every directory' => sub {
 		'the current key leads the retired key of the other directory'
 	);
 
+	# The status leads the serial in the publication order. The
+	# current key carries the lower serial here, so that term
+	# decides the file on its own.
+	$root = shared_address(
+		{
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-2-contact.asc' => $OPENPGP,
+		},
+		{
+			'other-1-root.pub'    => $ROOT,
+			'other-1-contact.asc' => $OPENPGP_TWO,
+		},
+		'retired',
+		'current'
+	);
+	( $config, $reason ) = load($root);
+	ok( $config, 'a current key of the lower serial loads' ) or diag $reason;
+
+	( $generated, $why ) = App::FuguWeb::Keys->site_generated($config);
+	ok( $generated, 'the site generates' ) or diag $why;
+	is(
+		$generated->{ '.well-known/openpgpkey/hu/' . WKD_HASH },
+		$pgp->decode_armor($OPENPGP_TWO) . $pgp->decode_armor($OPENPGP),
+		'the current key leads the higher serial of the retired key'
+	);
+
 	# An address whose keys are all retired serves nothing, and
 	# the rule reads every directory of the site.
 	$root = shared_address( \%first, \%second, 'retired', 'retired' );
@@ -844,13 +877,11 @@ subtest 'the policy file names the site' => sub {
 	ok( $config, 'a site name of two lines loads' ) or diag $reason;
 	unlike( $config->site, qr/\n/, 'and the name holds no newline' );
 
-	my $keys =
-	    App::FuguWeb::Keys->new( config => $config, dir => 'keys' );
-	my $made = $keys->generated;
-	ok( $made, 'the key directory generates' ) or diag $keys->error;
+	( $generated, $why ) = App::FuguWeb::Keys->site_generated($config);
+	ok( $generated, 'the site generates' ) or diag $why;
 
 	my @line = grep { length } split /\n/,
-	    $made->{'.well-known/openpgpkey/policy'} // '';
+	    $generated->{'.well-known/openpgpkey/policy'} // '';
 	is( scalar( grep { /\A\#/ } @line ),
 		scalar(@line), 'and every line of the policy file is a comment'
 	);
@@ -1042,9 +1073,9 @@ subtest 'the generated files' => sub {
 	my ( $config, $reason ) = load( project() );
 	ok( $config, 'the description loads' ) or diag $reason;
 
-	my $keys      = App::FuguWeb::Keys->new( config => $config, dir => 'keys' );
-	my $generated = $keys->generated;
-	ok( $generated, 'the key directory generates' ) or diag $keys->error;
+	my ( $generated, $why ) =
+	    App::FuguWeb::Keys->site_generated($config);
+	ok( $generated, 'the site generates' ) or diag $why;
 
 	my $apache = $generated->{'keys/KEYS'};
 	like( $apache, qr/^fugubsd-1-contact$/m, 'KEYS names the stem' );
@@ -1781,9 +1812,9 @@ RC
 	ok( $config, 'the description loads' ) or diag $reason;
 	return unless $config;
 
-	my $keys      = App::FuguWeb::Keys->new( config => $config, dir => 'keys' );
-	my $generated = $keys->generated;
-	ok( $generated, 'the key directory generates' ) or diag $keys->error;
+	my ( $generated, $why ) =
+	    App::FuguWeb::Keys->site_generated($config);
+	ok( $generated, 'the site generates' ) or diag $why;
 	return unless $generated;
 
 	my $page = $generated->{'keys/index.html'};
@@ -2473,9 +2504,9 @@ RC
 	my @wkd = grep { m{openpgpkey/hu/} } $config->key_paths;
 	is( scalar @wkd, 0, 'the address serves no key' );
 
-	my $keys      = App::FuguWeb::Keys->new( config => $config, dir => 'keys' );
-	my $generated = $keys->generated;
-	ok( $generated, 'the key directory generates' ) or diag $keys->error;
+	my ( $generated, $why ) =
+	    App::FuguWeb::Keys->site_generated($config);
+	ok( $generated, 'the site generates' ) or diag $why;
 	ok( !grep { m{openpgpkey/hu/} } keys %$generated,
 		'and it writes no Web Key Directory file' );
 	ok( !$generated->{'.well-known/openpgpkey/policy'},
@@ -3033,9 +3064,9 @@ RC
 	is_deeply( \@wkd, [ '.well-known/openpgpkey/hu/' . WKD_HASH ],
 		'the inventory names the address once' );
 
-	my $keys      = App::FuguWeb::Keys->new( config => $config, dir => 'keys' );
-	my $generated = $keys->generated;
-	ok( $generated, 'the key directory generates' ) or diag $keys->error;
+	my ( $generated, $why ) =
+	    App::FuguWeb::Keys->site_generated($config);
+	ok( $generated, 'the site generates' ) or diag $why;
 
 	# One file holds both keys, so a rotation publishes the
 	# current key and the retired one at one address. One file for

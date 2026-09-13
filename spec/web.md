@@ -103,8 +103,9 @@ manifest parser. The renderer holds the wiring only.
   that block names a `url`. The key set of that block must also hold a `current`
   OpenPGP key. The field must name the first such key of the publication order
   of that block. The field must not name a key of another key directory, because
-  a binding never crosses one. The checks must report a block that names a `url`
-  and holds no `current` OpenPGP key, when another key directory holds one.
+  a binding never crosses one. The checks must report the block that names the
+  contact and a `url`, and holds no `current` OpenPGP key. The checks must not
+  report that block when no other key directory holds such a key.
 - **WEB-KEYS-16** — The inventory must name every path above, and each binding
   file, so the build and the checks read one list.
 - **WEB-KEYS-17** — The build must sign nothing and must verify nothing.

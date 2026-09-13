@@ -205,10 +205,10 @@ so a step of one directory reads no key of another.
 
 A directory that publishes its first key holds no C<keys> block,
 because such a block cannot load until a C<key> block stands beside
-it. The caller then names C<bootstrap>, C<dir> and C<org>, and it can
-name C<url>. One commit carries the C<keys> block, the first C<key>
-block and the key itself. A second key directory of a site arrives the
-same way.
+it. The caller then names C<bootstrap> and C<org>, and it can name
+C<dir> and C<url>. One commit carries the C<keys> block, the first
+C<key> block and the key itself. A second key directory of a site
+arrives the same way, and it takes C<dir>.
 
 C<bootstrap> is the intent to make that directory. A step without it
 refuses a C<dir> that no C<keys> block names, because a mistyped word

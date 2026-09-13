@@ -75,9 +75,10 @@ without the command that its step needs.
 
 A directory that publishes its first key holds no C<keys> block,
 because such a block cannot load until a C<key> block stands beside
-it. The first mint therefore takes C<--bootstrap>, C<--dir> and
-C<--org>, and it can take C<--url>. One commit carries the block and
-the key.
+it. The first mint therefore takes C<--bootstrap> and C<--org>, and it
+can take C<--dir> and C<--url>. C<--dir> defaults to C<keys> for a
+description that holds no C<keys> block, so the first mint of a whole
+site needs none. One commit carries the block and the key.
 
 C<--bootstrap> is the intent to make a key directory, and C<mint-key>
 and C<import-key> alone take it. A step without it refuses a C<--dir>

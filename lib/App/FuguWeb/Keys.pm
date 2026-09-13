@@ -274,40 +274,37 @@ sub paths ($self)
 #	current key of the other.
 #
 #	One block alone names the contact, per WEB-KEYS-3, so one
-#	directory writes security.txt. Each policy file names the
-#	site, so every directory writes the same bytes there.
+#	directory writes security.txt. One policy file names the site,
+#	and this method writes it beside the addresses.
+#
+#	This method holds the address rule alone. _generated answers
+#	the files of one directory, and the keys of its addresses
+#	beside them, so each directory is read and ordered once.
 sub site_generated ( $class, $config )
 {
-	my $address = WKD_DIR . '/hu/';
-
 	my ( %out, %wkd );
 	for my $dir ( $config->keys_dirs ) {
 		my $keys = $class->new( config => $config, dir => $dir );
 
-		my $made = $keys->generated;
+		my ( $made, $addressed ) = $keys->_generated;
 		return ( undef, "$dir: " . $keys->error ) unless $made;
 
-		for my $path ( sort keys %$made ) {
-			next if index( $path, $address ) == 0;
-			$out{$path} = $made->{$path};
-		}
-
-		# The site gathers each address itself, because one
-		# address can hold a key of every directory. The order
-		# of the whole is the rule, and so is the rule of an
-		# address that serves nothing.
-		my $addressed = $keys->wkd_keys;
-		return ( undef, "$dir: " . $keys->error ) unless $addressed;
-
+		$out{$_} = $made->{$_} for keys %$made;
 		push @{ $wkd{ $_->{wkd} } }, $_ for @{$addressed};
 	}
 
-	for my $hash ( keys %wkd ) {
+	# WEB-KEYS-28. An address whose keys are all retired serves no
+	# file, and the rule reads that address across the site.
+	my $served = 0;
+	for my $hash ( sort keys %wkd ) {
 		my @live = _published( @{ $wkd{$hash} } ) or next;
 
-		$out{ $address . $hash } = join '',
+		$out{ WKD_DIR . "/hu/$hash" } = join '',
 		    map { $_->{bytes} } sort { _publication( $a, $b ) } @live;
+		$served = 1;
 	}
+
+	$out{ WKD_POLICY() } = _policy($config) if $served;
 
 	return \%out;
 }
@@ -335,13 +332,29 @@ sub copies ($self)
 }
 
 # $self->generated:
-#	Every file that the build writes itself, as a hash reference
-#	of output path to bytes. The method returns undef on a
-#	failure, and error holds the reason.
+#	Every file that the build writes itself for this directory, as
+#	a hash reference of output path to bytes. The method returns
+#	undef on a failure, and error holds the reason.
+#
+#	The Web Key Directory files of the site are not among them:
+#	one address can hold a key of every directory, so
+#	site_generated writes that tree.
+sub generated ($self)
+{
+	my ($out) = $self->_generated;
+
+	return $out;
+}
+
+# $self->_generated:
+#	The files of this directory, as a hash reference of output
+#	path to bytes, and the keys that its addresses serve, as an
+#	array reference. The method returns the two, or the empty list
+#	on a failure, and error holds the reason.
 #
 #	The key set reaches Fugu::KeyDir with the armored body of each
 #	OpenPGP key, because the KEYS file holds that body.
-sub generated ($self)
+sub _generated ($self)
 {
 	$self->{error} = undef;
 
@@ -380,47 +393,18 @@ sub generated ($self)
 
 	# One address holds every key of that address, in publication
 	# order. A rotation gives one address a current key and a next
-	# key, and a reader takes the whole file. One file for each key
-	# would give one path two keys, and only the last one written
-	# would publish.
+	# key, and a reader takes the whole file.
 	#
-	# A site with several key directories gathers each address
-	# again, in site_generated. This answer is the part of one
-	# directory.
+	# One address can hold a key of every directory, so the caller
+	# gathers these keys with the keys of each other directory.
 	my $addressed = $self->_wkd_keys($ordered) or return;
-	my @wkd       = _published(@$addressed);
-	$out{ WKD_DIR . "/hu/$_->{wkd}" } .= $_->{bytes} for @wkd;
-	$out{ WKD_POLICY() } = $self->_policy if @wkd;
 
 	if ( defined $self->{config}->keys_contact( $self->{dir} ) ) {
 		my $text = $self->_security_txt($ordered) or return;
 		$out{ SECURITY_TXT() } = $text;
 	}
 
-	return \%out;
-}
-
-# $self->wkd_keys:
-#	Every OpenPGP key of this directory that names an address, as
-#	an array reference of key entries. Each entry carries the
-#	binary body of its key in bytes. The method returns undef on a
-#	failure, and error holds the reason.
-#
-#	The entries arrive in the publication order of this directory,
-#	and the liveness rule of WEB-KEYS-28 runs on none of them: one
-#	address can hold a key of every directory, so the site decides
-#	both the order and the service of that address, per
-#	WEB-KEYS-14.
-sub wkd_keys ($self)
-{
-	$self->{error} = undef;
-
-	my $set = $self->key_set or return;
-
-	my $ordered = $self->{keydir}->order($set)
-	    or return $self->_fail( $self->{keydir}->error );
-
-	return $self->_wkd_keys($ordered);
+	return ( \%out, $addressed );
 }
 
 # $self->key_set:
@@ -1099,7 +1083,7 @@ sub _by_target ($self)
 	return \%by;
 }
 
-# $self->_policy:
+# _policy($config):
 #	The policy file of the Web Key Directory. The file carries no
 #	flag, and the draft of the service reads a line that starts
 #	with a number sign as a comment. An empty file would pass no
@@ -1108,12 +1092,12 @@ sub _by_target ($self)
 #
 #	One site serves one policy file, and every key directory of
 #	the site writes into that one tree. The line therefore names
-#	the site, and each directory writes the same bytes.
-sub _policy ($self)
+#	the site, and it names no org word.
+sub _policy ($config)
 {
 	return
 	      '# The Web Key Directory of '
-	    . $self->{config}->site
+	    . $config->site
 	    . ". It sets no policy flag.\n";
 }
 

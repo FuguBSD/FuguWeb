@@ -598,6 +598,10 @@ The settings are as follows:
 .It Ic org
 The organization word, the first field of every key name.
 This setting is required.
+Two blocks must not name one word.
+A key name holds no directory name, and the serial of a purpose counts
+inside one directory, so a mint of the second block would write a name
+that the first block publishes.
 .It Ic contact
 The
 .Ql Contact
@@ -718,11 +722,23 @@ directory holds one current signify key of the purpose
 that each binding verifies against the public key of its signer and
 holds the retention rule, that the manifest names every key file and
 every binding file with the digest that it has and nothing else, that
-every declared fingerprint equals the computed one, that the block
-which names the contact holds the current OpenPGP key of the site, and
-that the signature has the shape of a
+every declared fingerprint equals the computed one, and that the
+signature has the shape of a
 .Xr signify 1
 signature.
+.Pp
+One report reads the whole site.
+The block which names the contact and a
+.Ic url
+must hold a
+.Cm current
+OpenPGP key of its own, because the
+.Ic Encryption
+field names no key of another directory.
+The check reports that block when another key directory holds such a
+key.
+A site that publishes no OpenPGP key at all writes no such field, and
+that one is no problem.
 .Pp
 The retention rule holds each binding of the directory.
 A binding whose signer is
@@ -1018,9 +1034,11 @@ or
 is not installed.
 .El
 .Sh EXAMPLES
-Start a site, build it, and check it:
+Start a site, write its front page, build it, and check it:
 .Bd -literal -offset indent
 $ fuguweb init
+$ mkdir web
+$ echo "<h1>Home</h1>" >web/index.body.html
 $ fuguweb build
 $ fuguweb check
 .Ed
@@ -1038,16 +1056,6 @@ $ fuguweb mint-key --purpose root --bootstrap \e
 	--url https://www.fugubsd.org/keys
 $ fuguweb mint-key --purpose release \e
 	--secret ~/keys/release-1.sec --signer ~/keys/root-1.sec
-.Ed
-.Pp
-Publish a second key directory, for the keys of one project:
-.Bd -literal -offset indent
-$ fuguweb mint-key --purpose root --dir project --bootstrap \e
-	--secret ~/keys/project-root-1.sec --org fuguproj \e
-	--url https://www.fugubsd.org/project
-$ fuguweb mint-key --purpose release --dir project \e
-	--secret ~/keys/project-release-1.sec \e
-	--signer ~/keys/project-root-1.sec
 .Ed
 .Pp
 Publish an OpenPGP contact key that expires at the start of 2028:
@@ -1073,13 +1081,29 @@ $ fuguweb promote-key --purpose release \e
 	--signer ~/keys/root-1.sec --retiring ~/keys/release-1.sec
 .Ed
 .Pp
-Rotate the root key, with one release key in force:
+Rotate the root key.
+The promote writes the binding of each key in force again, so it takes
+one
+.Fl Fl bind
+for each of them:
 .Bd -literal -offset indent
 $ fuguweb mint-key --purpose root \e
 	--secret ~/keys/root-2.sec --signer ~/keys/root-1.sec
 $ fuguweb promote-key --purpose root \e
 	--secret ~/keys/root-2.sec --retiring ~/keys/root-1.sec \e
-	--bind fugubsd-2-release=~/keys/release-2.sec
+	--bind fugubsd-2-release=~/keys/release-2.sec \e
+	--bind fugubsd-1-contact=~/keys/contact-1.sec \e
+	--bind fugubsd-1-sign=~/keys/sign-1.key
+.Ed
+.Pp
+Publish a second key directory, for the keys of one project:
+.Bd -literal -offset indent
+$ fuguweb mint-key --purpose root --dir project --bootstrap \e
+	--secret ~/keys/project-root-1.sec --org fuguproj \e
+	--url https://www.fugubsd.org/project
+$ fuguweb mint-key --purpose release --dir project \e
+	--secret ~/keys/project-release-1.sec \e
+	--signer ~/keys/project-root-1.sec
 .Ed
 .Sh SEE ALSO
 .Xr gpg 1 ,

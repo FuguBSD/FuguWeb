@@ -149,19 +149,9 @@ Every file that the build writes itself for this directory, as a hash
 reference of output path to bytes. The method returns C<undef> on a
 failure, and C<error> holds the reason.
 
-=head2 wkd_keys
-
-    $keys->wkd_keys
-
-Every OpenPGP key of this directory that names an address, as an array
-reference of key entries. Each entry carries the binary body of its
-key in C<bytes>. The method returns C<undef> on a failure, and
-C<error> holds the reason.
-
-The entries arrive in the publication order of this directory, and no
-liveness rule runs on them. One address can hold a key of every
-directory, so C<site_generated> decides both the order of that address
-and whether it serves.
+The Web Key Directory files of the site are not among them. One
+address can hold a key of every directory, so C<site_generated> writes
+that tree.
 
 =head2 site_generated
 

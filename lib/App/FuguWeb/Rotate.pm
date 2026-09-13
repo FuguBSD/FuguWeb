@@ -1455,9 +1455,11 @@ sub _with_block ( $self, $stem, $status, $settings = [] )
 	$bytes =~ s/\n*\z/\n/;
 
 	if ( $self->{bootstrap} ) {
-		return $self->_fail('the first key needs the organization word')
-		    unless defined $self->{org} && length $self->{org};
 
+		# _add reads the organization word through _keydir, and
+		# it does that before the step makes one directory, so
+		# the word stands here.
+		#
 		# A site can hold a second key directory, so the comment
 		# names the organization word of this one and never the
 		# organization of the site.
