@@ -252,8 +252,8 @@ jobs:
           fi
 
       - name: Checkout
-        # v4.4.0. WEB-ACTIONS-11 pins each action of another owner to
-        # a commit, because this job runs beside a private key.
+        # v4.4.0. WEB-ACTIONS-11 pins each action to a commit,
+        # because this job runs beside a private key.
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       # WEB-ACTIONS-5. The install comes from the deps manifest of the
@@ -308,7 +308,8 @@ jobs:
       # retires the current key of its purpose.
       - name: Read the slot of the purpose
         id: slot
-        uses: FuguBSD/FuguWeb/actions/keys-slot@main
+        # The commit that added this action. WEB-ACTIONS-11.
+        uses: FuguBSD/FuguWeb/actions/keys-slot@7c90a4fe94da5f043657fe41e9b9d9879ea14a48
         with:
           purpose: ${{ inputs.purpose }}
           secret-prefix: ${{ inputs.secret_prefix }}
@@ -322,7 +323,8 @@ jobs:
       # slot above, so this step serves another purpose only.
       - name: Read the root slot
         if: inputs.purpose != 'root'
-        uses: FuguBSD/FuguWeb/actions/keys-slot@main
+        # The commit that added this action. WEB-ACTIONS-11.
+        uses: FuguBSD/FuguWeb/actions/keys-slot@7c90a4fe94da5f043657fe41e9b9d9879ea14a48
         with:
           purpose: root
           secret-prefix: ${{ inputs.secret_prefix }}
@@ -345,7 +347,8 @@ jobs:
         if: >-
           inputs.purpose == 'root' && inputs.subordinate_purposes != '' &&
           (inputs.step == 'promote' || steps.slot.outputs.active == '')
-        uses: FuguBSD/FuguWeb/actions/keys-slot@main
+        # The commit that added this action. WEB-ACTIONS-11.
+        uses: FuguBSD/FuguWeb/actions/keys-slot@7c90a4fe94da5f043657fe41e9b9d9879ea14a48
         with:
           purpose: ${{ inputs.subordinate_purposes }}
           secret-prefix: ${{ inputs.secret_prefix }}
@@ -603,7 +606,8 @@ jobs:
       # before the commit, so no published key lacks its private half.
       - name: Store the new private key
         if: inputs.step == 'mint'
-        uses: FuguBSD/FuguWeb/actions/keys-store@main
+        # The commit that added this action. WEB-ACTIONS-11.
+        uses: FuguBSD/FuguWeb/actions/keys-store@7c90a4fe94da5f043657fe41e9b9d9879ea14a48
         with:
           purpose: ${{ inputs.purpose }}
           secret-prefix: ${{ inputs.secret_prefix }}
@@ -710,7 +714,8 @@ jobs:
       # holds the old public key can still verify a release.
       - name: Move the slot variable
         if: inputs.step == 'promote' || steps.slot.outputs.active == ''
-        uses: FuguBSD/FuguWeb/actions/keys-store@main
+        # The commit that added this action. WEB-ACTIONS-11.
+        uses: FuguBSD/FuguWeb/actions/keys-store@7c90a4fe94da5f043657fe41e9b9d9879ea14a48
         with:
           purpose: ${{ inputs.purpose }}
           secret-prefix: ${{ inputs.secret_prefix }}

@@ -242,12 +242,10 @@ subtest 'each body that splits a value runs set -f' => sub {
 };
 
 # WEB-ACTIONS-11. The job runs beside a private key, so every action
-# of another owner carries a commit. Each action of this repository
-# carries @main, because a commit cannot name its own SHA, and
-# spec/STATUS.md names that pin as the absent part of WEB-ACTIONS.
-# This test therefore reads the name of each action of this
-# repository, and it holds no reference of one.
-subtest 'every action of another owner carries a commit pin' => sub {
+# carries a commit, whoever owns it. An action of this repository
+# takes the commit that added it, because a commit cannot name its
+# own SHA.
+subtest 'every action carries a commit pin' => sub {
 	my $pinned = 0;
 	my %own;
 
@@ -257,6 +255,8 @@ subtest 'every action of another owner carries a commit pin' => sub {
 
 		if ( $ref =~ m{^FuguBSD/FuguWeb/actions/([\w-]+)\@\S+$} ) {
 			$own{$1}++;
+			like( $ref, qr/\@[0-9a-f]{40}$/,
+				"line @{[$i + 1]} pins $ref to a commit" );
 			next;
 		}
 
