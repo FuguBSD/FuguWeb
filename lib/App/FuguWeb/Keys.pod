@@ -190,6 +190,11 @@ which is the root of trust.
 
 =item *
 
+Each C<current> key and each C<next> key of a subordinate purpose
+holds a binding over the current root key.
+
+=item *
+
 Each binding verifies against the public key of its signer, and each
 one holds the retention rule of L<Fugu::KeyDir>.
 

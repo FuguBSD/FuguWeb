@@ -65,14 +65,35 @@ SIG
 my $OPENPGP = <<'KEY';
 -----BEGIN PGP PUBLIC KEY BLOCK-----
 
-mDMEap8KyxYJKwYBBAHaRw8BAQdA/6e7KzznAvEb2GEzYP1hlO69/FHDWy/cXJot
-91Zpg+q0FHNlY3VyaXR5QGZ1Z3Vic2Qub3JniJMEExYKADsWIQSYOF9+PI20LwzG
-2+jrLQSjr07OVQUCap8KywIbAwULCQgHAgIiAgYVCgkICwIEFgIDAQIeBwIXgAAK
-CRDrLQSjr07OVYrkAP4nNPl6GHRSz1HlUlOc2ojAwvr8XDIifmAU1cc5W8xyogD+
-LtLBaFuVI8Oc1PPnYVpof5lHHSJd9KR/4F/S7omdUAU=
-=+npU
+mDMEaqZfLBYJKwYBBAHaRw8BAQdA5hUJ3Jf2vBNc/zFJkbdMbqRFVAlWMknu6xmz
+rJLnZv+0FjxzZWN1cml0eUBmdWd1YnNkLm9yZz6IrwQTFgoAVxYhBDuMFQzQERVa
+J4mulBtFpUpIa5yMBQJqpl8sGxSAAAAAAAQADm1hbnUyLDIuNSsxLjEyLDAsMwIb
+AwULCQgHAgIiAgYVCgkICwIEFgIDAQIeBwIXgAAKCRAbRaVKSGucjCtfAP90OU9k
+JYLM5VVG7U8rmHfYYSa5b0hP99P8lgy//QFYvQD+KXZHLiWd8TA0KOxtX83Ln+zK
+E977ue1+LuwGUUihAAi4OARqpl8tEgorBgEEAZdVAQUBAQdAvvPWTJlgJeMVoDko
+9tl6RAmuXBu/gfDZo91xSjKX4z0DAQgHiJQEGBYKADwWIQQ7jBUM0BEVWieJrpQb
+RaVKSGucjAUCaqZfLRsUgAAAAAAEAA5tYW51MiwyLjUrMS4xMiwwLDMCGwwACgkQ
+G0WlSkhrnIzK3gEAxW4D8dCHlTiyH44t6CPgWnxMewJaxh5eQKshUzEIDUcBAPNB
+5eiF/D58FL3uyUuvJZwKkqNxH9dl/6gGS1AkNYoJ
+=6soI
 -----END PGP PUBLIC KEY BLOCK-----
 KEY
+
+# The binding of the contact key over the root key file: the private
+# half of that OpenPGP key signed the bytes of fugubsd-1-root.pub.
+# WEB-TRUST-3 asks every key in force for one, and gpg(1) made this
+# one. A host with no gpg(1) cannot read it, so each subtest that
+# holds the whole directory to the checks skips without the command.
+my $CONTACT_BINDING = <<'SIG';
+-----BEGIN PGP SIGNATURE-----
+
+iJEEABYKADkWIQQ7jBUM0BEVWieJrpQbRaVKSGucjAUCaqZfLhsUgAAAAAAEAA5t
+YW51MiwyLjUrMS4xMiwwLDMACgkQG0WlSkhrnIyJ4AEAzspXUwxsu3/8yV3nh77A
+Oezq9ghSlhz7h5SW7ka15cYA/RC1NUNM/Ym8tg18GreIzW7U+XcEDxgOLe0kMyoy
+dHoK
+=lCvc
+-----END PGP SIGNATURE-----
+SIG
 
 # A second OpenPGP public key, so a test can give one address two
 # keys. gpg(1) exported it, and its own address is another one. The
@@ -95,7 +116,7 @@ KEY
 # gpg(1) printed the fingerprint, and an independent z-base-32 encoder
 # gave the hash.
 use constant {
-	FINGERPRINT => '98385F7E3C8DB42F0CC6DBE8EB2D04A3AF4ECE55',
+	FINGERPRINT => '3B8C150CD011155A2789AE941B45A54A486B9C8C',
 	WKD_HASH    => 't5s8ztdbon8yzntexy6oz5y48etqsnbb',
 };
 
@@ -130,9 +151,15 @@ key "fugubsd-1-contact" {
 	status      = current
 	since       = 2026-09-07
 	email       = security@fugubsd.org
-	fingerprint = 98385F7E3C8DB42F0CC6DBE8EB2D04A3AF4ECE55
+	fingerprint = 3B8C150CD011155A2789AE941B45A54A486B9C8C
 }
 RC
+
+# WEB-TRUST-9. The key directory of the fixture holds a binding of the
+# contact key, and gpg(1) verifies one of that type. A host with no
+# gpg(1) therefore reads one problem in a good directory, and each
+# assertion that reads the whole report skips there.
+my $GPG = Fugu::OpenPGP->new->is_available;
 
 # The program that the renderer probe of a fixture runs. The probe
 # needs a program that exists, and no fixture of this file calls a
@@ -204,6 +231,8 @@ sub project (%args)
 			'fugubsd-1-release.pub' => $SIGNIFY,
 			'fugubsd-1-contact.asc' => $OPENPGP,
 			'fugubsd-1-root.pub.fugubsd-1-release.sig' => $BINDING,
+			'fugubsd-1-root.pub.fugubsd-1-contact.asc' =>
+			    $CONTACT_BINDING,
 		}
 	};
 
@@ -313,6 +342,7 @@ subtest 'the published paths' => sub {
 		'keys/SHA256.sig',            'keys/KEYS',
 		'keys/index.html',
 		'keys/fugubsd-1-root.pub.fugubsd-1-release.sig',
+		'keys/fugubsd-1-root.pub.fugubsd-1-contact.asc',
 		'.well-known/openpgpkey/hu/' . WKD_HASH,
 		'.well-known/openpgpkey/policy',
 		'.well-known/security.txt'
@@ -321,7 +351,7 @@ subtest 'the published paths' => sub {
 		ok( $path{$name}, "the inventory names $name" );
 	}
 
-	is( scalar keys %path, 11, 'and it names nothing else' );
+	is( scalar keys %path, 12, 'and it names nothing else' );
 
 	my %inventory = map { $_ => 1 } $config->inventory;
 	ok( $inventory{'keys/KEYS'}, 'the inventory of the site holds them' );
@@ -350,14 +380,21 @@ subtest 'the key blocks' => sub {
 	is( $openpgp->{fingerprint}, FINGERPRINT, 'the fingerprint' );
 
 	# A binding carries no block: its name holds the target, the
-	# signer and the type, and Fugu::KeyDir parses it.
-	my @binding = $config->site_bindings;
-	is( scalar @binding, 1, 'the directory holds one binding' );
-	is( $binding[0]{name}, 'fugubsd-1-root.pub.fugubsd-1-release.sig',
-		'the binding file name' );
-	is( $binding[0]{target}, 'fugubsd-1-root.pub', 'the target' );
-	is( $binding[0]{signer}, 'fugubsd-1-release.pub', 'the signer' );
-	is( $binding[0]{type},   'signify',              'the signer type' );
+	# signer and the type, and Fugu::KeyDir parses it. Each key in
+	# force holds one over the root, per WEB-TRUST-3.
+	my %binding = map { $_->{name} => $_ } $config->site_bindings;
+	is( scalar keys %binding, 2, 'the directory holds two bindings' );
+
+	my $by_signify = $binding{'fugubsd-1-root.pub.fugubsd-1-release.sig'};
+	is( $by_signify->{target}, 'fugubsd-1-root.pub',    'the target' );
+	is( $by_signify->{signer}, 'fugubsd-1-release.pub', 'the signer' );
+	is( $by_signify->{type},   'signify',               'the signer type' );
+
+	my $by_openpgp = $binding{'fugubsd-1-root.pub.fugubsd-1-contact.asc'};
+	is( $by_openpgp->{target}, 'fugubsd-1-root.pub',
+		'the target of the second' );
+	is( $by_openpgp->{signer}, 'fugubsd-1-contact.asc', 'its signer' );
+	is( $by_openpgp->{type},   'openpgp', 'and its signer type' );
 };
 
 subtest 'the generated files' => sub {
@@ -416,8 +453,8 @@ subtest 'the generated files' => sub {
 	like( $page, qr{<th>Bindings</th>}, 'the page names the binding column' );
 	like(
 		$page,
-		qr{<td><a href="fugubsd-1-root\.pub\.fugubsd-1-release\.sig">fugubsd-1-release</a></td>},
-		'and the row of the root lists the binding of the release key'
+		qr{<td><a href="fugubsd-1-root\.pub\.fugubsd-1-contact\.asc">fugubsd-1-contact</a>, <a href="fugubsd-1-root\.pub\.fugubsd-1-release\.sig">fugubsd-1-release</a></td>},
+		'and the row of the root lists each binding that names it'
 	);
 
 	my $binary = $generated->{ '.well-known/openpgpkey/hu/' . WKD_HASH };
@@ -502,6 +539,8 @@ RC
 };
 
 subtest 'a good directory has no problem' => sub {
+	plan skip_all => 'gpg(1) is not installed' unless $GPG;
+
 	is( problems( project() ), '', 'nothing to report' );
 };
 
@@ -665,6 +704,85 @@ RC
 		qr{must target the root key fugubsd-1-root\.pub},
 		'the check names the rule'
 	);
+};
+
+# WEB-TRUST-3. Each current key and each next key of a subordinate
+# purpose holds one binding over the public key file of the current
+# root. That signature proves that the holder of the root also holds
+# the subordinate key, so a key without one publishes an unproved
+# claim.
+subtest 'a key in force that holds no binding over the root' => sub {
+
+	# A directory that holds no binding at all is the first case:
+	# every rule of a binding must read the key set, and never the
+	# bindings alone.
+	my $bare = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-release.pub' => $SIGNIFY,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+	);
+
+	my $found = problems($bare);
+	like(
+		$found,
+		qr{^keys/fugubsd-1-release\.pub: the current key holds no binding over the current root key fugubsd-1-root\.pub$}m,
+		'the check names the key, its status and the root'
+	);
+	unlike( $found, qr{^keys/fugubsd-1-root\.pub: the current key holds no}m,
+		'and the root binds to nothing, because it is the anchor' );
+
+	# The second case: one key of the purpose holds its binding,
+	# and the next key of that purpose holds none. The two key
+	# files hold one key body, so the one binding fixture verifies
+	# under the name of its signer.
+	my $pending = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-2-release.pub' => $SIGNIFY,
+			'fugubsd-1-root.pub.fugubsd-1-release.sig' => $BINDING,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-2-release" {
+	status = next
+}
+RC
+	);
+
+	$found = problems($pending);
+	like(
+		$found,
+		qr{^keys/fugubsd-2-release\.pub: the next key holds no binding}m,
+		'a next key needs one as a current key does'
+	);
+	unlike( $found, qr{^keys/fugubsd-1-release\.pub: the current key holds no}m,
+		'and the key that holds one is no problem' );
 };
 
 # WEB-KEYS-18. A binding needs no key block, and the directory must
@@ -1464,9 +1582,18 @@ subtest 'the build writes the whole tree' => sub {
 		'a binding file is copied byte for byte'
 	);
 
-	is( scalar App::FuguWeb::Check->new( config => $config, out => $out )
-		->run,
-		0, 'and the built site passes its checks' );
+	SKIP: {
+		skip 'gpg(1) is not installed', 1 unless $GPG;
+
+		is(
+			scalar App::FuguWeb::Check->new(
+				config => $config,
+				out    => $out
+			)->run,
+			0,
+			'and the built site passes its checks'
+		);
+	}
 
 	# A build must give the same bytes for the same checkout, or a
 	# published diff shows a change that nobody made. The compare
@@ -1515,7 +1642,10 @@ key "fugubsd-1-release" {
 	status = current
 }
 RC
+	# The binding of that key goes with it: a binding whose signer
+	# the description dropped names a key that no block holds.
 	unlink "$root/web/keys/fugubsd-1-contact.asc";
+	unlink "$root/web/keys/fugubsd-1-root.pub.fugubsd-1-contact.asc";
 	spew(
 		"$root/web/keys/SHA256",
 		manifest(
@@ -1552,11 +1682,17 @@ subtest 'the checks read the whole output tree' => sub {
 	# stray file, and a stray file below the root for nothing.
 	spew( "$out/keys/stray.txt", "left behind\n" );
 
-	my @problems =
-	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
-	is_deeply( [@problems],
-		['keys/stray.txt: in the output but not in the site'],
-		'the check names a stray file below the root by its path' );
+	SKIP: {
+		skip 'gpg(1) is not installed', 1 unless $GPG;
+
+		my @problems =
+		    App::FuguWeb::Check->new( config => $config, out => $out )
+		    ->run;
+		is_deeply( [@problems],
+			['keys/stray.txt: in the output but not in the site'],
+			'the check names a stray file below the root by its path'
+		);
+	}
 };
 
 subtest 'the whole check run holds the key rules' => sub {
@@ -1627,9 +1763,18 @@ RC
 
 	# The generated page gets the checks of a page, so a broken
 	# link of the chrome fails the check and never publishes.
-	is( scalar App::FuguWeb::Check->new( config => $config, out => $out )
-		->run,
-		0, 'and the site passes its checks' );
+	SKIP: {
+		skip 'gpg(1) is not installed', 1 unless $GPG;
+
+		is(
+			scalar App::FuguWeb::Check->new(
+				config => $config,
+				out    => $out
+			)->run,
+			0,
+			'and the site passes its checks'
+		);
+	}
 
 	my @generated =
 	    App::FuguWeb::Check->new( config => $config, out => $out )
@@ -1666,9 +1811,18 @@ subtest 'the generated page carries no footer' => sub {
 	unlike( slurp("$out/keys/index.html"), qr{<footer>},
 		'and a page below it does not' );
 
-	is( scalar App::FuguWeb::Check->new( config => $config, out => $out )
-		->run,
-		0, 'so the site passes its checks' );
+	SKIP: {
+		skip 'gpg(1) is not installed', 1 unless $GPG;
+
+		is(
+			scalar App::FuguWeb::Check->new(
+				config => $config,
+				out    => $out
+			)->run,
+			0,
+			'so the site passes its checks'
+		);
+	}
 };
 
 subtest 'the checks read the links of the generated page' => sub {

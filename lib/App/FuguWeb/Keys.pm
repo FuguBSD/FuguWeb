@@ -402,17 +402,18 @@ sub _root_problems ( $self, $set )
 }
 
 # $self->_binding_problems($set):
-#	The rules of a binding, per WEB-TRUST-9 and WEB-TRUST-10. Each
-#	binding must verify against the public key of its signer, and
-#	each one must hold the retention rule of Fugu::KeyDir.
+#	The rules of a binding, per WEB-TRUST-3, WEB-TRUST-9 and
+#	WEB-TRUST-10. Each key in force of a subordinate purpose must
+#	hold a binding over the current root. Each binding must verify
+#	against the public key of its signer, and each one must hold
+#	the retention rule of Fugu::KeyDir.
 #
-#	The retention rule reads names alone, and it needs the root.
-#	A directory with no root has one fault, which _root_problems
-#	names, so the rule stays unread there.
+#	The last two rules read the root. A directory with no root has
+#	one fault, which _root_problems names, so both stay unread
+#	there.
 sub _binding_problems ( $self, $set )
 {
 	my @bindings = $self->{config}->site_bindings;
-	return () unless @bindings;
 
 	my $dir      = $self->{config}->keys_dir;
 	my @problems = map { $self->_binding_verified($_) } @bindings;
@@ -420,11 +421,44 @@ sub _binding_problems ( $self, $set )
 	my ($root) = _current_root($set);
 	return @problems unless $root;
 
+	push @problems, $self->_unbound_problems( $set, \@bindings, $root );
+
 	my @names = map { $_->{name} } @bindings;
 	return @problems
 	    if $self->{keydir}->check_bindings( $set, \@names, $root->{name} );
 
 	return ( @problems, "$dir: " . $self->{keydir}->error );
+}
+
+# $self->_unbound_problems($set, $bindings, $root):
+#	Each current key and each next key of a subordinate purpose
+#	that holds no binding over the current root, per WEB-TRUST-3.
+#
+#	That signature proves that the holder of the root also holds
+#	the subordinate key. A directory that publishes a key without
+#	one gives a consumer no way to reach that key from the root.
+sub _unbound_problems ( $self, $set, $bindings, $root )
+{
+	my $dir = $self->{config}->keys_dir;
+
+	my %attests;
+	for my $binding (@$bindings) {
+		next unless $binding->{target} eq $root->{name};
+		$attests{ $binding->{signer} } = 1;
+	}
+
+	my @problems;
+	for my $key (@$set) {
+		next if $key->{purpose} eq ROOT_PURPOSE;
+		next if $key->{status} eq 'retired';
+		next if $attests{ $key->{name} };
+
+		push @problems,
+		    "$dir/$key->{name}: the $key->{status} key holds no"
+		    . " binding over the current root key $root->{name}";
+	}
+
+	return @problems;
 }
 
 # $self->_binding_verified($binding):
