@@ -22,6 +22,7 @@ use Fugu::File;
 use Fugu::KeyDir;
 use Fugu::OpenPGP;
 use Fugu::Signify;
+use Fugu::X509;
 use POSIX ();
 
 # The command generates and signs, so no part of this file runs
@@ -503,6 +504,65 @@ subtest 'a root step binds an OpenPGP key with the signer of its type' => sub {
 		'and the published OpenPGP key verifies it'
 	);
 	is_deeply( [ _problems($root) ], [], 'the reader reports no problem' );
+};
+
+# WEB-TRUST-8. A PEM private key names no certificate, so Fugu::X509
+# signs with the certificate beside it, and _bind must name that file.
+# _bound reads the status of a key and never its type, so a directory
+# that published a certificate reaches this path.
+#
+# The subtest drives _bind alone. The checks of a certificate are
+# absent, per the WEB-X509 row of spec/STATUS.md, so the reader of a
+# whole step rejects a .pem key before it reads the binding.
+subtest 'a certificate signs its binding with openssl(1)' => sub {
+	my $x509 = Fugu::X509->new;
+	plan skip_all => 'openssl(1) is not installed'
+	    unless $x509->is_available;
+
+	my $root = _keyed();
+	$x509->generate(
+		subject => '/CN=Example Signer',
+		days    => 30,
+		public  => "$root/contact1.pem",
+		secret  => "$root/contact1.sec",
+	) or die 'the certificate fixture failed: ' . $x509->error . "\n";
+
+	my $target = "$root/web/keys/fugubsd-1-root.pub";
+	my $bytes  = Fugu::File->read($target);
+
+	# Fugu::X509::sign dies for a call that names no certificate.
+	# The eval holds that die, so a _bind which drops the public
+	# argument fails one assertion here, and the file runs on.
+	my $rotate = _rotate($root);
+	my ( $name, $signature ) = eval {
+		$rotate->_bind(
+			'fugubsd-1-root.pub',
+			$bytes,
+			'fugubsd-1-contact.pem',
+			Fugu::File->read("$root/contact1.pem"),
+			Fugu::File->read("$root/contact1.sec")
+		);
+	};
+	my $why = $@ || $rotate->error;
+	ok( defined $signature, 'the certificate signs the binding' )
+	    or diag($why);
+	return unless defined $signature;
+
+	is( $name, 'fugubsd-1-root.pub.fugubsd-1-contact.p7s',
+		'and the name takes the binding extension of the type' );
+
+	# _bind verifies what it wrote, and this read proves that the
+	# bytes it answers are the signature of that run.
+	my $work = tempdir( CLEANUP => 1 );
+	Fugu::File->write( "$work/$name", $signature );
+	ok(
+		$x509->verify(
+			keys      => ["$root/contact1.pem"],
+			file      => $target,
+			signature => "$work/$name"
+		),
+		'and the published certificate verifies it'
+	);
 };
 
 subtest 'a bound key that names no key in force fails the step' => sub {

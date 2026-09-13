@@ -70,7 +70,9 @@ L<Fugu::KeyDir> holds that name and the retention rule.
 
 The type of the signer key selects the signer and the extension. A
 signify key signs with C<signify(1)>, an OpenPGP key signs with
-C<gpg(1)>, and a certificate signs with C<openssl(1)>.
+C<gpg(1)>, and a certificate signs with C<openssl(1)>. A PEM private
+key names no certificate, so the signer of that type reads the
+published certificate of the key beside the private half.
 
 Each C<current> and C<next> key of a subordinate purpose holds one
 binding over the public key file of the current root. That signature

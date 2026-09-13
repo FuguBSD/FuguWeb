@@ -73,8 +73,9 @@ use constant {
 
 # The signer of each key type, per WEB-TRUST-8. A binding of a key
 # takes the private half of that key, so the type of the signer key
-# selects the class. Each class follows Fugu::Signer, so one call
-# shape signs for all three.
+# selects the class. Each class follows Fugu::Signer, and Fugu::X509
+# needs the certificate of the key as well, so _bind names it in
+# every call. The other two classes ignore that argument.
 my %SIGNER = (
 	signify => 'Fugu::Signify',
 	openpgp => 'Fugu::OpenPGP',
@@ -722,7 +723,13 @@ sub _bind ( $self, $target, $bytes, $signer, $public, $private )
 		mode => 0600 );
 
 	my $sig = $class->new;
+
+	# A PEM private key names no certificate, so Fugu::X509 signs
+	# with the certificate of the key beside it. The call therefore
+	# names the staged public half. Fugu::Signify and Fugu::OpenPGP
+	# read no public argument in sign, and they ignore this one.
 	$sig->sign(
+		public    => "$work/$signer",
 		secret    => "$work/$stem.sec",
 		file      => "$work/$target",
 		signature => "$work/$name",
