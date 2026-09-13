@@ -43,8 +43,10 @@ use MIME::Base64 ();
 # fingerprint and a Web Key Directory hash. Fugu::Signify parses the
 # manifest. Nothing generic lives here.
 #
-# The module runs no command. A site build neither signs nor verifies,
-# so the manifest pair is a source file and not a generated one.
+# A site build neither signs nor verifies, so the manifest pair is a
+# source file and not a generated one. The check verifies each
+# binding, per WEB-TRUST-9: a signify binding needs no command, and a
+# binding of another type runs the command of its type.
 
 # The two files of the manifest pair. The rotation workflow writes
 # them, and the build copies them as they stand.
@@ -344,7 +346,8 @@ sub key_set ($self)
 #	stray file and a stale digest are faults of the checkout, and
 #	the answer must not depend on a build having run.
 #
-#	The method verifies no signature. That is the work of a
+#	The method verifies each binding, per WEB-TRUST-9. It verifies
+#	no SHA256.sig, per WEB-KEYS-33. That one is the work of a
 #	consumer install: the site build cannot sign, so a site that
 #	verified its own manifest would prove nothing.
 sub problems ($self)
