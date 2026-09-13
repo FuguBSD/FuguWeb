@@ -41,8 +41,9 @@ use POSIX        ();
 # Every generic part lives in Fugu. Fugu::KeyDir holds the name
 # pattern, the publication order, and the text of the KEYS file and of
 # security.txt. Fugu::OpenPGP decodes an armored key and computes a
-# fingerprint and a Web Key Directory hash. Fugu::Signify parses the
-# manifest. Nothing generic lives here.
+# fingerprint and a Web Key Directory hash. Fugu::X509 decodes a PEM
+# certificate and reads its fingerprint, its subject and its validity.
+# Fugu::Signify parses the manifest. Nothing generic lives here.
 #
 # A site build neither signs nor verifies, so the manifest pair is a
 # source file and not a generated one. The check verifies each
@@ -94,8 +95,9 @@ use constant WKD_NAME => qr{\A[ybndrfg8ejkmcpqxot1uwisza345h769]{32}\z};
 use constant ROOT_PURPOSE => 'root';
 
 # How long before its expiry a current key with no successor is a
-# problem, per WEB-OPENPGP-4. A rotation runs in two steps, and the
-# consumers need the gap between them, so 30 days is the warning.
+# problem, per WEB-OPENPGP-4 and WEB-X509-6. A rotation runs in two
+# steps, and the consumers need the gap between them, so 30 days is
+# the warning.
 use constant EXPIRY_WARNING => 30 * 24 * 60 * 60;
 
 # The verifier of each binding type. Every class follows Fugu::Signer,
@@ -121,10 +123,13 @@ sub new ( $class, %args )
 	die "the description holds no keys block\n"
 	    unless defined $config->keys_dir;
 
+	# The reader of each key type needs no command of its own. The
+	# expiry of an OpenPGP key is the one read that runs gpg(1).
 	return bless {
 		config  => $config,
 		keydir  => Fugu::KeyDir->new( org => $config->keys_org ),
 		openpgp => Fugu::OpenPGP->new,
+		x509    => Fugu::X509->new,
 		error   => undef,
 	}, $class;
 }
@@ -281,6 +286,7 @@ sub generated ($self)
 
 	my $rows = $self->{keydir}->index_data($set)
 	    or return $self->_fail( $self->{keydir}->error );
+	$self->_describe( $rows, $set ) or return;
 	$out{ $self->_in_dir(INDEX_PAGE) } =
 	    $self->_index_page( $rows, $self->_by_target );
 
@@ -310,9 +316,13 @@ sub generated ($self)
 
 # $self->key_set:
 #	The key set for Fugu::KeyDir: every key block of the
-#	description, with the armored body of each OpenPGP key read
-#	from its file. The method returns undef on a failure, and
-#	error holds the reason.
+#	description, with the bytes of each key that a later read
+#	needs. An OpenPGP key carries its armored body, and a
+#	certificate the DER that its PEM block holds. The method
+#	returns undef on a failure, and error holds the reason.
+#
+#	WEB-KEYS-26. The reader of each type runs here, before one
+#	byte reaches the output.
 sub key_set ($self)
 {
 	$self->{error} = undef;
@@ -327,6 +337,20 @@ sub key_set ($self)
 
 		if ( $key->{type} eq 'openpgp' ) {
 			$entry{armor} = $bytes;
+		}
+		elsif ( $key->{type} eq 'x509' ) {
+
+			# WEB-X509-1. The decoder takes one CERTIFICATE
+			# block, so a file that holds a private key or
+			# a second block fails here. It needs no
+			# openssl(1). A build that copied first would
+			# publish the private half of a signing
+			# identity.
+			my $der = $self->{x509}->decode_pem($bytes)
+			    or return $self->_fail(
+				"$key->{name}: " . $self->{x509}->error );
+
+			$entry{der} = $der;
 		}
 		else {
 			my $why = _signify_problem($bytes);
@@ -349,7 +373,8 @@ sub key_set ($self)
 #	directory is good.
 #
 #	%args:
-#		expiry => 0	leave out the rules of WEB-OPENPGP-4
+#		expiry => 0	leave out the validity rules of
+#				WEB-OPENPGP-4 and WEB-X509-6
 #
 #	The checks read the source directory and not the output. A
 #	stray file and a stale digest are faults of the checkout, and
@@ -360,15 +385,15 @@ sub key_set ($self)
 #	consumer install: the site build cannot sign, so a site that
 #	verified its own manifest would prove nothing.
 #
-#	The clock decides the expiry rules of WEB-OPENPGP-4, and no
-#	step of the rotation can make a key expire later. A caller
-#	that reads back the work of one step therefore leaves them
-#	out, and it reads the bytes that the step wrote alone. An
-#	expired current key is still current at that read, so a step
-#	of its purpose could never be made. The 30-day report reads
-#	the whole directory, so it would fail a step of another
-#	purpose, which writes no next key of the purpose that it
-#	names. App::FuguWeb::Rotate::_accept holds both reasons.
+#	The clock decides the validity rules of WEB-OPENPGP-4 and
+#	WEB-X509-6, and no step of the rotation can make a key expire
+#	later. A caller that reads back the work of one step therefore
+#	leaves them out, and it reads the bytes that the step wrote
+#	alone. An expired current key is still current at that read,
+#	so a step of its purpose could never be made. The 30-day
+#	report reads the whole directory, so it would fail a step of
+#	another purpose, which writes no next key of the purpose that
+#	it names. App::FuguWeb::Rotate::_accept holds both reasons.
 sub problems ( $self, %args )
 {
 	my $config = $self->{config};
@@ -666,30 +691,25 @@ sub _signature_problems ($self)
 }
 
 # $self->_fingerprint_problems($set):
-#	The declared fingerprint of an OpenPGP key equals the one that
-#	its armored body gives. A key block that declares none is not
-#	a fault. The fingerprint is a convenience for a reader, and
-#	the digest of the manifest is what binds the bytes.
+#	The declared fingerprint of a key equals the one that its own
+#	bytes give, per WEB-KEYS-22 and WEB-X509-4. A key block that
+#	declares none is not a fault. The fingerprint is a convenience
+#	for a reader, and the digest of the manifest is what binds the
+#	bytes.
+#
+#	App::FuguWeb::Config takes a fingerprint on an OpenPGP key and
+#	on a certificate alone, so no signify key reaches this rule.
 sub _fingerprint_problems ( $self, $set )
 {
 	my $dir = $self->{config}->keys_dir;
 
 	my @problems;
 	for my $key (@$set) {
-		next unless $key->{type} eq 'openpgp';
 		next unless defined $key->{fingerprint};
 
-		my $binary = $self->{openpgp}->decode_armor( $key->{armor} );
-		unless ( defined $binary ) {
-			push @problems,
-			    "$dir/$key->{name}: " . $self->{openpgp}->error;
-			next;
-		}
-
-		my $found = $self->{openpgp}->fingerprint($binary);
+		my ( $found, $why ) = $self->_fingerprint_of($key);
 		unless ( defined $found ) {
-			push @problems,
-			    "$dir/$key->{name}: " . $self->{openpgp}->error;
+			push @problems, "$dir/$key->{name}: $why";
 			next;
 		}
 
@@ -702,21 +722,48 @@ sub _fingerprint_problems ( $self, $set )
 	return @problems;
 }
 
+# $self->_fingerprint_of($key):
+#	The fingerprint that the bytes of a key give, or undef with
+#	the reason behind it.
+#
+#	The fingerprint of an OpenPGP key covers its public key
+#	packet, and the fingerprint of a certificate is the SHA-256 of
+#	its DER form. The two therefore differ in width, and the
+#	description reader holds each one to its own. Each read needs
+#	no command.
+sub _fingerprint_of ( $self, $key )
+{
+	if ( $key->{type} eq 'openpgp' ) {
+		my $binary = $self->{openpgp}->decode_armor( $key->{armor} )
+		    or return ( undef, $self->{openpgp}->error );
+
+		my $found = $self->{openpgp}->fingerprint($binary)
+		    or return ( undef, $self->{openpgp}->error );
+
+		return $found;
+	}
+
+	my $found = $self->{x509}->fingerprint( $key->{der} )
+	    or return ( undef, $self->{x509}->error );
+
+	return $found;
+}
+
 # $self->_expiry_problems($set):
-#	The expiry rule of WEB-OPENPGP-4. A current or next OpenPGP
-#	key whose expiry has passed is a problem. A current key that
+#	The validity rules of WEB-OPENPGP-4 and WEB-X509-6. A current
+#	or next key whose expiry has passed is a problem, and so is a
+#	certificate whose notBefore has not come. A current key that
 #	expires within EXPIRY_WARNING is a problem when its purpose
 #	holds no next key, because one rotation runs in two steps and
 #	the consumers need the gap between them.
 #
-#	A key with no expiry never reaches either rule: the key
+#	A signify key carries no date, and it reaches no rule. An
+#	OpenPGP key with no expiry reaches none either: the key
 #	directory retires a key with an until date, and the machine
 #	rotates, per WEB-OPENPGP-3.
 #
-#	The read runs gpg(1), which reports the expiry that the key
-#	itself carries. An absent command is a problem of the host,
-#	and the reason of the call names it: a key that nothing read
-#	must never pass.
+#	An absent command is a problem of the host, and the reason of
+#	the call names it: a key that nothing read must never pass.
 sub _expiry_problems ( $self, $set )
 {
 	my $dir = $self->{config}->keys_dir;
@@ -729,42 +776,78 @@ sub _expiry_problems ( $self, $set )
 
 	my @problems;
 	for my $key (@$set) {
-		next unless $key->{type} eq 'openpgp';
+		next if $key->{type} eq 'signify';
 		next
 		    unless $key->{status} eq 'current'
 		    || $key->{status} eq 'next';
 
-		my $expiry = $self->{openpgp}->expiry(
-			public => $self->{config}->keys_path( $key->{name} ) );
-		unless ( defined $expiry ) {
-			push @problems,
-			    "$dir/$key->{name}: " . $self->{openpgp}->error;
+		my ( $window, $why ) = $self->_validity($key);
+		unless ($window) {
+			push @problems, "$dir/$key->{name}: $why";
 			next;
 		}
 
-		# 0 is the answer for a key that holds no expiry, and
-		# an epoch is the answer for a key that holds one.
-		next unless $expiry;
+		if ( $window->{start} > $now ) {
+			push @problems,
+			      "$dir/$key->{name}: the $key->{status} key is"
+			    . ' not valid before '
+			    . _utc_date( $window->{start} );
+			next;
+		}
 
-		if ( $expiry <= $now ) {
+		# 0 is the end of a key that never expires, and an
+		# epoch is the end of a key that does.
+		next unless $window->{end};
+
+		if ( $window->{end} <= $now ) {
 			push @problems,
 			    "$dir/$key->{name}: the $key->{status} key expired"
 			    . ' on '
-			    . _utc_date($expiry);
+			    . _utc_date( $window->{end} );
 			next;
 		}
 
 		next unless $key->{status} eq 'current';
 		next if $successor{ $key->{purpose} };
-		next if $expiry > $now + EXPIRY_WARNING;
+		next if $window->{end} > $now + EXPIRY_WARNING;
 
 		push @problems,
 		      "$dir/$key->{name}: the current key expires on "
-		    . _utc_date($expiry)
+		    . _utc_date( $window->{end} )
 		    . ", and the purpose $key->{purpose} holds no next key";
 	}
 
 	return @problems;
+}
+
+# $self->_validity($key):
+#	The window in which a key is valid, as a hash reference with
+#	start and end, or undef with the reason behind it. Each value
+#	is an epoch: a start of 0 has passed already, and an end of 0
+#	never comes.
+#
+#	gpg(1) reports the expiry that an OpenPGP key carries, and an
+#	OpenPGP key is valid from the moment that it exists, so that
+#	read answers the end alone. The dates of a certificate come
+#	from its own DER, and that read needs no openssl(1).
+sub _validity ( $self, $key )
+{
+	if ( $key->{type} eq 'openpgp' ) {
+		my $expiry = $self->{openpgp}->expiry(
+			public => $self->{config}->keys_path( $key->{name} ) );
+		return ( undef, $self->{openpgp}->error )
+		    unless defined $expiry;
+
+		return { start => 0, end => $expiry };
+	}
+
+	my $certificate = $self->{x509}->parse( $key->{der} )
+	    or return ( undef, $self->{x509}->error );
+
+	return {
+		start => $certificate->{not_before},
+		end   => $certificate->{not_after},
+	};
 }
 
 # _utc_date($epoch):
@@ -774,6 +857,51 @@ sub _expiry_problems ( $self, $set )
 sub _utc_date ($epoch)
 {
 	return POSIX::strftime( '%Y-%m-%d', gmtime $epoch );
+}
+
+# $self->_describe($rows, $set):
+#	Add the subject and the validity dates of each certificate to
+#	its row of the human page, per WEB-X509-5. The method answers
+#	1, or undef with the reason in error.
+#
+#	A reader of the page compares the subject with what a signed
+#	binary reports. The fingerprint names one certificate, and it
+#	changes at each renewal, so the subject is what holds across
+#	one.
+#
+#	Fugu::KeyDir holds no certificate, so the two fields join the
+#	rows here. The row of every other type carries neither, and
+#	the page writes an empty cell for one.
+sub _describe ( $self, $rows, $set )
+{
+	my %der =
+	    map { $_->{name} => $_->{der} }
+	    grep { $_->{type} eq 'x509' } @$set;
+
+	for my $row (@$rows) {
+		my $der = $der{ $row->{name} } or next;
+
+		my $certificate = $self->{x509}->parse($der)
+		    or return $self->_fail(
+			"$row->{name}: " . $self->{x509}->error );
+
+		$row->{subject} = _name_text( $certificate->{subject} );
+		$row->{validity} =
+		      _utc_date( $certificate->{not_before} ) . ' to '
+		    . _utc_date( $certificate->{not_after} );
+	}
+
+	return 1;
+}
+
+# _name_text($name):
+#	One line for the distinguished name of a certificate: each
+#	attribute type with its value. Fugu::X509 answers a hash, so
+#	the type sorts the line and two builds write one byte
+#	sequence.
+sub _name_text ($name)
+{
+	return join ', ', map { "$_=$name->{$_}" } sort keys %$name;
 }
 
 # $self->_index_page($rows, $by_target):
@@ -1010,15 +1138,19 @@ sub _fail ( $self, $reason )
 #	publication order. Every value is escaped, and a value that
 #	the description left out becomes an empty cell.
 #
+#	The subject and the validity cells hold the two facts of a
+#	certificate, per WEB-X509-5, and a key of another type leaves
+#	them empty.
+#
 #	The last cell of a row holds the bindings of that key, per
 #	WEB-TRUST-11. Each one names its signer and links its file, so
 #	a reader fetches the signature beside the key that it covers.
 sub _index_body ( $rows, $by_target )
 {
 	my @head = (
-		'Key',    'Purpose',     'Serial', 'Type',
-		'Status', 'Fingerprint', 'Since',  'Until',
-		'Bindings'
+		'Key',    'Purpose',     'Serial',  'Type',
+		'Status', 'Fingerprint', 'Subject', 'Validity',
+		'Since',  'Until',       'Bindings'
 	);
 
 	my $html = "<h1>Keys</h1>\n<table>\n<thead>\n<tr>";
@@ -1031,7 +1163,8 @@ sub _index_body ( $rows, $by_target )
 
 		$html .= qq{<tr><td><a href="$href">$stem</a></td>};
 		$html .= '<td>' . _cell( $row->{$_} ) . '</td>'
-		    for qw(purpose serial type status fingerprint since until);
+		    for qw(purpose serial type status fingerprint
+		    subject validity since until);
 		$html .= '<td>'
 		    . _bindings( $by_target->{ $row->{name} } ) . "</td>";
 		$html .= "</tr>\n";

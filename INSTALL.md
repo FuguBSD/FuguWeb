@@ -5,8 +5,11 @@ FuguWeb runs on Perl v5.36 or later over the Fugu library, with `mandoc` and
 install flows: from a checkout with make, and from CPAN with cpanm.
 
 The key verbs `fuguweb mint-key`, `fuguweb import-key` and `fuguweb promote-key`
-also need `signify(1)`, which `make deps-test` installs. No other command signs,
-so a build and a check run without it.
+each need the command of their key type. `signify(1)` signs a signify key,
+`gpg(1)` signs an OpenPGP key, and `openssl(1)` signs a certificate. `make deps`
+installs each one. A build signs nothing and verifies nothing, so it runs
+without the three. A check verifies each binding, so it needs the command of
+each type that the key directory holds.
 
 ## From a checkout
 

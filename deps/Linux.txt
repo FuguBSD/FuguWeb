@@ -18,5 +18,10 @@ runtime pkg lowdown
 # that need it.
 runtime pkg gnupg
 
+# openssl(1) signs and verifies the binding of a certificate, per
+# WEB-X509. t/fuguweb/rotate.t and t/fuguweb/keys.t each skip the
+# assertions that need it.
+runtime pkg openssl
+
 test cpan Perl::Critic
 test cpan Perl::Tidy

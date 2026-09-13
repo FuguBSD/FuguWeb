@@ -57,13 +57,19 @@ C<mint-key> makes a C<signify> key or an C<openpgp> key. An OpenPGP
 mint takes C<--email>, the one user id of the key, and an optional
 C<--expires> date of the form C<YYYY-MM-DD>.
 
+C<import-key> publishes a key of every type, C<x509> included. An
+issuer makes a certificate, so no verb mints one: C<--file> names one
+PEM certificate, and C<--secret> names its unencrypted PEM private
+key.
+
 One signify key of the directory is the root of trust, and its purpose
 word is C<root>. Every step but two takes C<--signer>, the private
 half of the current root. A root step takes one C<--bind>
 I<stem>=I<path> for each key in force. The verbs are the commands that
-sign, so they are the commands that need C<signify(1)> and, for an
-OpenPGP key, C<gpg(1)>. Each one exits C<EXIT_TOOL_MISSING> without
-the command that its step needs.
+sign, so they are the commands that need C<signify(1)>, and the
+command of each other type: C<gpg(1)> for an OpenPGP key and
+C<openssl(1)> for a certificate. Each one exits C<EXIT_TOOL_MISSING>
+without the command that its step needs.
 
 A site that publishes its first key holds no C<keys> block, because
 such a block cannot load until a C<key> block stands beside it. The

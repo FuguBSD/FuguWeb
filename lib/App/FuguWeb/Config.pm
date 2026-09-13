@@ -70,6 +70,26 @@ my %KEY_SETTING =
 # vocabulary, so the two can never disagree.
 my %KEY_STATUS = map { $_ => 1 } Fugu::KeyDir::STATUSES;
 
+# The settings that the key block of each type takes, per WEB-KEYS-7
+# and WEB-X509-4. An email address is the user id of an OpenPGP key,
+# and a fingerprint names the bytes of an OpenPGP key or of a
+# certificate. A signify key file holds its whole public key in one
+# body line, so it takes neither. Either setting on a key of another
+# type therefore describes another file.
+my %TYPE_SETTING = (
+	signify => {},
+	openpgp => { email       => 1, fingerprint => 1 },
+	x509    => { fingerprint => 1 },
+);
+
+# The width of the fingerprint of each type that takes one. An
+# OpenPGP fingerprint holds 40 hexadecimal characters, and the
+# SHA-256 of the DER of a certificate holds 64.
+my %FINGERPRINT_WIDTH = (
+	openpgp => 40,
+	x509    => 64,
+);
+
 # A timestamp of RFC 3339, which is what the Expires field of
 # security.txt holds. The pattern takes a Z and a numeric offset, and
 # it takes an optional fraction of a second.
@@ -875,17 +895,17 @@ sub _key_entry ( $self, $reason, $name, $parts, $settings )
 			    . join( ', ', Fugu::KeyDir::STATUSES ) );
 	}
 
-	# The two OpenPGP settings describe an armored key. A signify
-	# key has no email address and no OpenPGP fingerprint, so
-	# either one on a signify key is a block that describes
+	# Each type takes the settings of its own file. A signify key
+	# has no email address and no fingerprint, and a certificate
+	# has no user id, so such a setting is a block that describes
 	# another file.
-	if ( $parts->{type} ne 'openpgp' ) {
-		for my $only (qw(email fingerprint)) {
-			next unless defined $settings->{$only};
-			return $self->_fail( $reason,
-				      "key \"$stem\" names $only, and $name"
-				    . " is a $parts->{type} key" );
-		}
+	my $takes = $TYPE_SETTING{ $parts->{type} } // {};
+	for my $only (qw(email fingerprint)) {
+		next unless defined $settings->{$only};
+		next if $takes->{$only};
+		return $self->_fail( $reason,
+			      "key \"$stem\" names $only, and $name"
+			    . " is a $parts->{type} key" );
 	}
 
 	# The Web Key Directory hash comes from the local part, and the
@@ -913,14 +933,21 @@ sub _key_entry ( $self, $reason, $name, $parts, $settings )
 		$wkd = $hash;
 	}
 
-	# The Web Key Directory hash and the KEYS file both write the
-	# fingerprint as it stands, so the form is checked here and
-	# nowhere else.
+	# The human page and the KEYS file both write the fingerprint
+	# as it stands, so the form is checked here and nowhere else.
+	# The width comes from the type, because the two digests
+	# differ: a check that took the shorter one would pass half of
+	# the SHA-256 of a certificate.
 	my $fingerprint = $settings->{fingerprint};
-	if ( defined $fingerprint && $fingerprint !~ /\A[0-9A-Fa-f]{40}\z/ ) {
-		return $self->_fail( $reason,
-			      "key \"$stem\" fingerprint is $fingerprint,"
-			    . ' which is not 40 hexadecimal characters' );
+	if ( defined $fingerprint ) {
+		my $width = $FINGERPRINT_WIDTH{ $parts->{type} };
+
+		unless ( $fingerprint =~ /\A[0-9A-Fa-f]{$width}\z/ ) {
+			return $self->_fail( $reason,
+				      "key \"$stem\" fingerprint is"
+				    . " $fingerprint, which is not $width"
+				    . ' hexadecimal characters' );
+		}
 	}
 
 	return {

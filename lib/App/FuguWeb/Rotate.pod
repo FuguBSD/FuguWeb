@@ -39,6 +39,16 @@ App::FuguWeb::Rotate - write the key directory of a site
         signer  => '/tmp/root-1.sec',
     ) or die $rotate->error;
 
+    # An import. An issuer makes a certificate, so no verb mints
+    # one, and the private key of the publisher signs its binding.
+    $facts = $rotate->import_key(
+        purpose => 'sign',
+        type    => 'x509',
+        file    => '/tmp/sign-1.pem',
+        secret  => '/tmp/sign-1.key',
+        signer  => '/tmp/root-1.sec',
+    ) or die $rotate->error;
+
     # A subordinate promote. The retiring key signs the key that
     # takes its place.
     $facts = $rotate->promote(
@@ -71,6 +81,11 @@ retires the old one. The first key of a purpose is current at once.
 A mint makes a signify pair or an OpenPGP key. An OpenPGP key is one
 Ed25519 primary key with one Curve25519 encryption subkey, and the
 email of the caller is its one user id.
+
+An issuer makes an X.509 certificate, so no verb mints one. The import
+publishes it, and the unencrypted PEM private key of the publisher
+signs its binding. A renewal is a rotation: the new certificate enters
+as the C<next> key, and a promote retires the old one.
 
 This class signs, and a site build does not. It runs no command of its
 own: L<Fugu::Signify> holds every call of C<signify(1)>,
@@ -196,9 +211,10 @@ key directory, and the private half goes to C<secret> with no group
 mode and no other mode.
 
 C<type> names the key type. The default is C<signify>, and C<openpgp>
-is the other type that a mint makes. C<signer> is the private half of
-the current root key. C<bind> is a hash reference of key stem to path,
-and a first root mint takes one entry for each key in force.
+is the other type that a mint makes. A mint of another type fails
+before it generates one byte. C<signer> is the private half of the
+current root key. C<bind> is a hash reference of key stem to path, and
+a first root mint takes one entry for each key in force.
 
 An OpenPGP mint needs C<email>, which becomes the one user id of the
 key, and it takes an optional C<expires>. C<expires> is a date of the
@@ -224,6 +240,17 @@ Publish a key that another tool made, under the next name of the
 purpose. C<file> is the public key file, and C<secret> is the private
 half of that key, which writes the binding of the new key. The caller
 holds that half already, so the step writes no key file of its own.
+
+C<type> names the key type, and the step reads every type that a key
+directory holds: C<signify>, C<openpgp> and C<x509>. An C<x509>
+C<file> holds one PEM certificate, and a file that holds a private key
+or a second block fails the step. C<secret> is then an unencrypted PEM
+private key: the verbs take no passphrase, so a caller that holds a
+PKCS#12 file converts it first.
+
+The C<key> block of an OpenPGP key and of a certificate takes the
+C<fingerprint> of the key that the step published. An import takes no
+C<email>, because it generates no user id.
 
 The step takes every other option of a mint of its purpose, and it
 answers the same facts.

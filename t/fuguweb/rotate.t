@@ -1267,11 +1267,11 @@ subtest 'a bound key that names no key in force fails the step' => sub {
 	ok( !-e "$root/root2.sec", 'and it generates no pair' );
 };
 
-# WEB-ROTATE-1 and WEB-ROTATE-2. Each verb takes a --type, and the
-# default is signify. A mint makes a signify pair or an OpenPGP key.
-# Plan 005 adds the certificate and opens the import to every type, so
-# each verb must refuse the type that it does not read, before it
-# writes.
+# WEB-ROTATE-1, WEB-ROTATE-2 and WEB-X509-2. Each verb takes a --type,
+# and the default is signify. A mint makes a signify pair or an
+# OpenPGP key: an issuer makes a certificate, so no verb mints one. An
+# import publishes a key of each type that a key directory holds, and
+# it refuses every other word. Each verb refuses before it writes.
 subtest 'each verb refuses the key type that it does not read' => sub {
 	my $root   = _keyed();
 	my @before = _names($root);
@@ -1287,21 +1287,180 @@ subtest 'each verb refuses the key type that it does not read' => sub {
 		'and the reason names the verb and the type' );
 	ok( !-e "$root/rel2.sec", 'and it generates no pair' );
 
-	for my $type (qw(openpgp x509)) {
-		( $facts, $error ) = _import(
-			$root,
-			type   => $type,
-			file   => "$root/web/keys/fugubsd-1-release.pub",
-			secret => "$root/rel1.sec",
-			signer => "$root/root1.sec"
-		);
-		ok( !$facts, "an import of the type $type fails" );
-		like( $error, qr/^import-key reads no key of the type $type$/,
-			'and the reason names that verb and its type' );
-	}
+	( $facts, $error ) = _import(
+		$root,
+		type   => 'ssh',
+		file   => "$root/web/keys/fugubsd-1-release.pub",
+		secret => "$root/rel1.sec",
+		signer => "$root/root1.sec"
+	);
+	ok( !$facts, 'an import of a type that no key directory holds fails' );
+	like( $error, qr/^import-key reads no key of the type ssh$/,
+		'and the reason names that verb and its type' );
 
 	is_deeply( [ _names($root) ], [@before],
 		'and no step writes one file' );
+};
+
+# WEB-X509-2. An issuer makes a certificate, so the import is the verb
+# that publishes one. It copies the certificate under the next name of
+# the purpose, and the private key of the publisher signs the binding.
+#
+# The subtest drives the real command. openssl(1) makes the
+# certificate, the step signs the binding with it, and the check
+# verifies that binding with it. The skip therefore stands before the
+# first assertion.
+subtest 'import-key publishes a certificate, and a promote renews it' => sub {
+	my $x509 = Fugu::X509->new;
+	plan skip_all => 'openssl(1) is not installed'
+	    unless $x509->is_available;
+
+	my $root = _keyed();
+	my $work = tempdir( CLEANUP => 1 );
+
+	# A code signing certificate of Apple Developer ID carries the
+	# team identifier in its subject. An issuer makes that one, and
+	# this fixture is its own issuer: the renderer knows no issuer
+	# by name, and the root manifest vouches for the bytes.
+	$x509->generate(
+		subject => '/O=Example/OU=TEAMID/CN=Example Signer',
+		days    => 365,
+		public  => "$work/sign.pem",
+		secret  => "$work/sign.key",
+	) or die 'the certificate fixture failed: ' . $x509->error . "\n";
+
+	my ( $exit, $out, $err ) = _run(
+		'--project', $root, 'import-key',
+		'--purpose', 'sign',
+		'--type',    'x509',
+		'--file',    "$work/sign.pem",
+		'--secret',  "$work/sign.key",
+		'--signer',  "$root/root1.sec",
+	);
+	is( $exit, 0, 'the import succeeds' ) or diag($err);
+	return unless $exit == 0;
+
+	my %facts = map { split /=/, $_, 2 } split /\n/, $out;
+	is( $facts{name}, 'fugubsd-1-sign.pem',
+		'the name takes the extension of the type' );
+	is( $facts{status}, 'current',
+		'and the first key of the purpose is current' );
+
+	my $published = "$root/web/keys/fugubsd-1-sign.pem";
+	is( Fugu::File->read($published), Fugu::File->read("$work/sign.pem"),
+		'the certificate goes in byte for byte' );
+	ok( !-e "$root/web/keys/fugubsd-1-sign.key",
+		'and the step writes no private half' );
+
+	# WEB-X509-4. The step reads the fingerprint from the
+	# certificate that it published, and never from an argument.
+	my $der = $x509->decode_pem( Fugu::File->read($published) );
+	my %block = _block( $root, 'fugubsd-1-sign' );
+	is( $block{fingerprint}, $x509->fingerprint($der),
+		'the key block names the SHA-256 of the DER form' );
+	is( $block{email}, undef, 'and an import writes no address' );
+
+	# WEB-TRUST-3 and WEB-X509-7. The private key of the publisher
+	# signs a detached CMS signature over the public key file of
+	# the current root, and the binding takes the extension of the
+	# signer type.
+	my $binding = 'fugubsd-1-root.pub.fugubsd-1-sign.p7s';
+	ok( -f "$root/web/keys/$binding", 'the certificate binds to the root' );
+	ok(
+		$x509->verify(
+			keys      => [$published],
+			file      => "$root/web/keys/fugubsd-1-root.pub",
+			signature => "$root/web/keys/$binding"
+		),
+		'and the published certificate verifies that binding'
+	);
+
+	# The reader verifies the binding itself, with openssl(1), and
+	# it holds the certificate to every rule of the directory.
+	is_deeply( [ _problems($root) ], [], 'the reader reports no problem' );
+
+	# WEB-ROTATE-9 and WEB-TRUST-4. A renewal is a rotation. The
+	# new certificate enters as the next key, and the promote makes
+	# it current. The retiring certificate signs the chain binding,
+	# so a consumer that pins the old one reaches the new one.
+	$x509->generate(
+		subject => '/O=Example/OU=TEAMID/CN=Example Signer',
+		days    => 365,
+		public  => "$work/renewal.pem",
+		secret  => "$work/renewal.key",
+	) or die 'the renewal fixture failed: ' . $x509->error . "\n";
+
+	( $exit, $out, $err ) = _run(
+		'--project', $root, 'import-key',
+		'--purpose', 'sign',
+		'--type',    'x509',
+		'--file',    "$work/renewal.pem",
+		'--secret',  "$work/renewal.key",
+		'--signer',  "$root/root1.sec",
+	);
+	is( $exit, 0, 'the import of the renewal succeeds' ) or diag($err);
+	return unless $exit == 0;
+
+	%facts = map { split /=/, $_, 2 } split /\n/, $out;
+	is( $facts{status}, 'next', 'and the renewal waits as the next key' );
+
+	( $exit, $out, $err ) = _run(
+		'--project',  $root, 'promote-key',
+		'--purpose',  'sign',
+		'--signer',   "$root/root1.sec",
+		'--retiring', "$work/sign.key",
+	);
+	is( $exit, 0, 'the promote succeeds' ) or diag($err);
+	return unless $exit == 0;
+
+	my $chain = 'fugubsd-2-sign.pem.fugubsd-1-sign.p7s';
+	ok(
+		$x509->verify(
+			keys      => [$published],
+			file      => "$root/web/keys/fugubsd-2-sign.pem",
+			signature => "$root/web/keys/$chain"
+		),
+		'the retiring certificate signs the chain binding'
+	);
+	ok( !-e "$root/web/keys/$binding",
+		'and the binding of the retired certificate is gone' );
+	is_deeply( [ _problems($root) ], [],
+		'and the reader reports no problem' );
+};
+
+# WEB-X509-9. An absent openssl(1) fails the step with the exit code
+# of a missing tool, as WEB-ROTATE-17 holds for signify(1). A caller
+# then tells a tool that it must install from a step that failed.
+subtest 'an absent openssl takes the code of a missing tool' => sub {
+	my $x509 = Fugu::X509->new;
+	plan skip_all => 'openssl(1) is not installed'
+	    unless $x509->is_available;
+
+	my $root = _keyed();
+	my $work = tempdir( CLEANUP => 1 );
+
+	$x509->generate(
+		subject => '/CN=Example Signer',
+		days    => 365,
+		public  => "$work/sign.pem",
+		secret  => "$work/sign.key",
+	) or die 'the certificate fixture failed: ' . $x509->error . "\n";
+
+	my ( $exit, $out, $err ) = do {
+		local $ENV{PATH} = '/nonexistent';
+		_run(
+			'--project', $root, 'import-key',
+			'--purpose', 'sign',
+			'--type',    'x509',
+			'--file',    "$work/sign.pem",
+			'--secret',  "$work/sign.key",
+			'--signer',  "$root/root1.sec",
+		);
+	};
+	is( $exit, 6, 'the command takes the missing tool code' );
+	like( $err, qr/openssl/, 'and the reason names the command' );
+	ok( !-e "$root/web/keys/fugubsd-1-sign.pem",
+		'and it publishes no certificate' );
 };
 
 subtest 'a second mint waits for the promote' => sub {
