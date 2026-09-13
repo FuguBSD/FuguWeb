@@ -238,6 +238,19 @@ It takes no
 and no
 .Fl Fl expires ,
 because it generates no key.
+The block of an imported
+.Cm openpgp
+key therefore carries no
+.Ic email ,
+and the Web Key Directory serves no file for the address of its user
+id.
+The
+.Pa KEYS
+file still holds that key, and the
+.Ic Encryption
+field of
+.Pa security.txt
+can still name it.
 A site with no
 .Ic keys
 block takes one from

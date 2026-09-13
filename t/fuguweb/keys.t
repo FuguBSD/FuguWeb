@@ -7,10 +7,16 @@
 # never reads the repository. The key material is a fixture, so the
 # test needs no signify(1). The fixture holds one binding that gpg(1)
 # made, and every assertion which reads that binding needs gpg(1).
-# Each certificate of the fixture reads with no command. One subtest
-# makes a certificate that expires soon, because no fixed date can
-# stand 30 days from the day of the run, and openssl(1) makes that
-# one. Its skip stands before the first assertion of the subtest.
+# Each certificate of the fixture reads with no command.
+#
+# Three subtests make their own key material. Two of them make a
+# certificate with openssl(1). One of those two signs a binding with
+# a key that no block names. The other makes a certificate on each
+# side of the 30-day bar, because no fixed date can stand 30 days
+# from the day of the run. The third subtest makes an OpenPGP key
+# with gpg(1), and that key signs a binding of the same shape. The
+# skip of each of the three stands before the first assertion of its
+# subtest.
 #
 # A few subtests drive the real command through App::FuguWeb::CLI,
 # which renders. Those need the renderers, so each one skips without
@@ -748,6 +754,63 @@ subtest 'an absent command for a binding type of the directory' => sub {
 		'and the signify binding verifies without one' );
 };
 
+# WEB-TRUST-9 and WEB-OPENPGP-5. The verifier imports the one public
+# key of the signer into an empty home, so an armored signature that
+# another key made must fail.
+#
+# The published key is the fixed fixture, and gpg(1) makes the key
+# that signs the binding. The verify needs gpg(1) too, so the skip
+# stands before the first assertion of the subtest.
+subtest 'an OpenPGP binding that its signer does not verify' => sub {
+	my $pgp = Fugu::OpenPGP->new;
+	plan skip_all => 'gpg(1) is not installed' unless $pgp->is_available;
+
+	# The signature is a real one, and a key of no block made it.
+	# The name says that the contact key made it, so the walk pins
+	# the published key and the check fails.
+	my $work = tempdir( CLEANUP => 1 );
+	$pgp->generate(
+		email  => 'other@example.net',
+		public => "$work/other.asc",
+		secret => "$work/other.sec",
+	) or die 'the OpenPGP fixture failed: ' . $pgp->error . "\n";
+
+	spew( "$work/fugubsd-1-root.pub", $ROOT );
+	$pgp->sign(
+		secret    => "$work/other.sec",
+		file      => "$work/fugubsd-1-root.pub",
+		signature => "$work/binding.asc",
+	) or die 'the binding fixture failed: ' . $pgp->error . "\n";
+
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-contact.asc' => $OPENPGP,
+			'fugubsd-1-root.pub.fugubsd-1-contact.asc' =>
+			    slurp("$work/binding.asc"),
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = current
+}
+RC
+	);
+
+	like(
+		problems($root),
+		qr{^keys/fugubsd-1-root\.pub\.fugubsd-1-contact\.asc: .*no key verified}ms,
+		'the check names the binding'
+	);
+};
+
 # WEB-TRUST-9 and WEB-X509-7. The verifier pins the one certificate of
 # the signer, so a CMS signature that another key made must fail. A
 # signify binding and an OpenPGP binding each have such a test above.
@@ -803,8 +866,8 @@ RC
 
 	like(
 		problems($root),
-		qr{^keys/fugubsd-1-root\.pub\.fugubsd-1-sign\.p7s: \S}m,
-		'the check names the binding and a reason'
+		qr{^keys/fugubsd-1-root\.pub\.fugubsd-1-sign\.p7s: .*no key verified}ms,
+		'the check names the binding'
 	);
 };
 
@@ -1177,7 +1240,7 @@ RC
 	# email on a certificate, per WEB-KEYS-7, so no certificate
 	# can reach that directory at all. This assertion therefore
 	# proves the path of the OpenPGP address, and the skip of the
-	# certificate stands on the loader above.
+	# certificate stands on the loader below.
 	is_deeply(
 		[ grep { m{openpgpkey/hu/} } sort keys %$generated ],
 		[ '.well-known/openpgpkey/hu/' . WKD_HASH ],

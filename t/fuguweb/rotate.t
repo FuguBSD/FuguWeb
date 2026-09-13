@@ -1777,8 +1777,9 @@ subtest 'import-key publishes a key that another tool made' => sub {
 # made, and an import takes no --email. The block of an imported key
 # therefore names the fingerprint alone.
 #
-# gpg(1) makes the key and verifies the binding, so the skip stands
-# before the first assertion of the subtest.
+# The subtest drives the real command, as the certificate import
+# above does. gpg(1) makes the key and verifies the binding, so the
+# skip stands before the first assertion of the subtest.
 subtest 'import-key publishes an OpenPGP key that gpg(1) made' => sub {
 	my $pgp = Fugu::OpenPGP->new;
 	plan skip_all => 'gpg(1) is not installed' unless $pgp->is_available;
@@ -1791,22 +1792,22 @@ subtest 'import-key publishes an OpenPGP key that gpg(1) made' => sub {
 		secret => "$work/contact.sec",
 	) or die 'the OpenPGP key fixture failed: ' . $pgp->error . "\n";
 
-	my $rotate = _rotate($root);
-	my $facts  = $rotate->import_key(
-		purpose => 'contact',
-		type    => 'openpgp',
-		file    => "$work/contact.asc",
-		secret  => "$work/contact.sec",
-		signer  => "$root/root1.sec",
+	my ( $exit, $out, $err ) = _run(
+		'--project', $root, 'import-key',
+		'--purpose', 'contact',
+		'--type',    'openpgp',
+		'--file',    "$work/contact.asc",
+		'--secret',  "$work/contact.sec",
+		'--signer',  "$root/root1.sec",
 	);
-	ok( $facts, 'the import of an OpenPGP key succeeds' )
-	    or diag( $rotate->error );
-	return unless $facts;
+	is( $exit, 0, 'the import of an OpenPGP key succeeds' ) or diag($err);
+	return unless $exit == 0;
 
-	my $dir  = "$root/web/keys";
-	my $name = 'fugubsd-1-contact.asc';
-	is( $facts->{name}, $name, 'the name takes the OpenPGP extension' );
-	is( $facts->{status}, 'current',
+	my %facts = map { split /=/, $_, 2 } split /\n/, $out;
+	my $dir   = "$root/web/keys";
+	my $name  = 'fugubsd-1-contact.asc';
+	is( $facts{name}, $name, 'the name takes the OpenPGP extension' );
+	is( $facts{status}, 'current',
 		'and the first key of the purpose is current' );
 	is( Fugu::File->read("$dir/$name"),
 		Fugu::File->read("$work/contact.asc"),
