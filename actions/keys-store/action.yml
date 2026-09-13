@@ -56,10 +56,30 @@ runs:
         VISIBILITY: ${{ inputs.visibility }}
         MOVE: ${{ inputs.move }}
       run: |
+        # The action splits the repository list into words, so
+        # pathname expansion stays off and no word becomes a file
+        # name.
+        set -f
+
         if [ -z "$SLOT" ]; then
           echo "keys-store: the slot letter is empty" >&2
           exit 1
         fi
+
+        # The list reaches gh as words, and each word must name one
+        # repository. A word that opens with a dash becomes a flag
+        # of the command.
+        case "$VISIBILITY" in
+          *[!A-Za-z0-9._/,-]*)
+            echo "keys-store: the visibility list holds a character" \
+              "that no repository name takes" >&2
+            exit 1
+            ;;
+          -*)
+            echo "keys-store: the visibility list opens with a dash" >&2
+            exit 1
+            ;;
+        esac
 
         upper=$(printf '%s' "$PURPOSE" | tr '[:lower:]-' '[:upper:]_')
 

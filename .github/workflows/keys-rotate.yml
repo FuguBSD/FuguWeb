@@ -160,6 +160,7 @@ jobs:
         env:
           STEP: ${{ inputs.step }}
           PURPOSE: ${{ inputs.purpose }}
+          TYPE: ${{ inputs.type }}
           PREFIX: ${{ inputs.secret_prefix }}
           OWNER: ${{ inputs.owner }}
           DIRECTORY: ${{ inputs.directory }}
@@ -175,6 +176,14 @@ jobs:
             mint | import | promote) ;;
             *) fault="the step $STEP is not mint, import or promote" ;;
           esac
+
+          # A required input takes an empty value. The loop below
+          # reads the words of a value, and an empty value holds no
+          # word. The purpose becomes a field of each secret name,
+          # and of each key file name.
+          if [ -z "$PURPOSE" ]; then
+            fault="the purpose is empty"
+          fi
 
           for word in $PURPOSE $SUBORDINATE; do
             case "$word" in
@@ -207,10 +216,17 @@ jobs:
             fault="a $STEP reads no public key file"
           fi
 
+          # WEB-ROTATE-1. mint-key and import-key declare --type, and
+          # promote-key declares none: a promote takes the type of
+          # the key that it promotes.
+          if [ "$STEP" = promote ] && [ -n "$TYPE" ]; then
+            fault="a promote reads no key type"
+          fi
+
           # WEB-TRUST-7. A first root mint and a root promote write
-          # the binding of each subordinate key again. No other step
-          # writes one, and a bound key that it does not need is a
-          # caller mistake that the verb refuses.
+          # the binding of each subordinate key again. No step of
+          # another purpose writes one, so a subordinate list there
+          # names work that no step of this run does.
           if [ "$PURPOSE" != root ] && [ -n "$SUBORDINATE" ]; then
             fault="a step of $PURPOSE binds no subordinate purpose"
           fi
@@ -302,93 +318,109 @@ jobs:
 
       # WEB-TRUST-7. A first root mint and a root promote write the
       # binding of each current and next subordinate key again, so
-      # each of those private halves reaches the verb as a file.
+      # each of those private halves reaches the verb as a file. The
+      # action takes the whole list, and one place therefore reads a
+      # slot, per WEB-ACTIONS-3.
+      - name: Read the slot of each subordinate purpose
+        if: inputs.purpose == 'root' && inputs.subordinate_purposes != ''
+        uses: FuguBSD/FuguWeb/actions/keys-slot@main
+        with:
+          purpose: ${{ inputs.subordinate_purposes }}
+          secret-prefix: ${{ inputs.secret_prefix }}
+          owner: ${{ inputs.owner }}
+          token: ${{ steps.app.outputs.token }}
+          secrets: ${{ toJSON(secrets) }}
+          work: ${{ runner.temp }}/keys
+
+      # WEB-ROTATE-6, WEB-TRUST-2 and WEB-TRUST-7. A first root mint
+      # and a root promote sign with the root key of this run, and
+      # they write the binding of each subordinate key again. Every
+      # other root step signs with the current root and binds nothing.
       #
-      # The step reads the slot of each named purpose itself. A
-      # composite action runs a fixed number of times, and the number
-      # of subordinate purposes is an input, so keys-slot cannot serve
-      # this loop.
+      # This step answers which of the two the run is, and the verb
+      # step below reads that one answer.
       - name: Name the bound keys of a root step
+        id: bind
         if: inputs.purpose == 'root'
         env:
           WORK: ${{ runner.temp }}/keys
-          PREFIX: ${{ inputs.secret_prefix }}
-          OWNER: ${{ inputs.owner }}
-          GH_TOKEN: ${{ steps.app.outputs.token }}
-          SECRETS_JSON: ${{ toJSON(secrets) }}
+          STEP: ${{ inputs.step }}
           SUBORDINATE: ${{ inputs.subordinate_purposes }}
         run: |
+          # The step splits the purpose list into words, so pathname
+          # expansion stays off and no word becomes a file name.
+          set -f
           umask 077
           : > "$WORK/bind.args"
 
-          # The description carries the status of every key, and the
-          # verb reads it from there as well, per WEB-ROTATE-4. The
-          # last field of a key name is its purpose.
+          if [ "$STEP" != promote ] && [ -s "$WORK/root-active.sec" ]; then
+            echo "bind=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "bind=yes" >> "$GITHUB_OUTPUT"
+
+          # WEB-ROTATE-4. The description carries the status of each
+          # key, and the verb reads it from there as well. The block
+          # below reads a line as Fugu::Config reads one: a # opens a
+          # comment, each end of the line loses its whitespace, and a
+          # value loses its quotation marks. The two key patterns are
+          # the two block name forms of _with_statuses in Rotate.pm.
           statuses=$(awk '
-            /^[[:space:]]*key[[:space:]]+"/ {
-              stem = $0
-              sub(/^[^"]*"/, "", stem)
-              sub(/".*$/, "", stem)
+            {
+              line = $0
+              sub(/#.*/, "", line)
+              sub(/^[[:space:]]+/, "", line)
+              sub(/[[:space:]]+$/, "", line)
+            }
+            line == "}" {
+              stem = ""
               next
             }
-            stem != "" && /^[[:space:]]*status[[:space:]]*=/ {
-              value = $0
-              sub(/^[^=]*=[[:space:]]*/, "", value)
-              sub(/[[:space:]]*$/, "", value)
-              print stem, value
+            line ~ /^key[[:space:]]+"[^"]*"[[:space:]]*\{$/ {
+              stem = line
+              sub(/^key[[:space:]]+"/, "", stem)
+              sub(/"[[:space:]]*\{$/, "", stem)
+              next
+            }
+            line ~ /^key[[:space:]]+[^"[:space:]]+[[:space:]]*\{$/ {
+              stem = line
+              sub(/^key[[:space:]]+/, "", stem)
+              sub(/[[:space:]]*\{$/, "", stem)
+              next
+            }
+            stem != "" && line ~ /^status[[:space:]=]/ {
+              value = line
+              sub(/^status[[:space:]]*=?[[:space:]]*/, "", value)
+              if (value ~ /^".*"$/) {
+                sub(/^"/, "", value)
+                sub(/"$/, "", value)
+              }
+              print stem "\t" value
               stem = ""
             }
           ' .fuguwebrc)
 
+          # The last field of a key name is its purpose, and the step
+          # above wrote the two slot files of each subordinate one.
           for purpose in $SUBORDINATE; do
-            upper=$(printf '%s' "$purpose" | tr '[:lower:]-' '[:upper:]_')
-
-            if slot=$(gh api \
-              "/orgs/$OWNER/actions/variables/${PREFIX}_${upper}_SLOT" \
-              --jq .value 2>"$WORK/slot.err"); then
-              :
-            elif grep -q 'HTTP 404' "$WORK/slot.err"; then
-              slot=""
-            else
-              echo "keys-rotate: cannot read the slot of $purpose" >&2
-              cat "$WORK/slot.err" >&2
-              exit 1
-            fi
-            rm -f "$WORK/slot.err"
-
-            case "$slot" in
-              A) active=A; idle=B ;;
-              B) active=B; idle=A ;;
-              *) active=""; idle=A ;;
-            esac
-
-            while read -r stem status; do
+            while IFS=$'\t' read -r stem status; do
               case "$stem" in
                 *-"$purpose") ;;
                 *) continue ;;
               esac
               case "$status" in
-                current) letter="$active" ;;
-                next) letter="$idle" ;;
+                current) role=active ;;
+                next) role=idle ;;
                 *) continue ;;
               esac
 
-              if [ -z "$letter" ]; then
-                echo "keys-rotate: no slot of $purpose holds $stem" >&2
+              if [ ! -s "$WORK/$purpose-$role.sec" ]; then
+                echo "keys-rotate: the $role slot of $purpose holds" \
+                  "no key, and the step binds $stem again" >&2
                 exit 1
               fi
 
-              value=$(printf '%s' "$SECRETS_JSON" |
-                jq -r --arg name "${PREFIX}_${upper}_KEY_$letter" \
-                  '.[$name] // ""')
-              if [ -z "$value" ]; then
-                echo "keys-rotate: slot $letter of $purpose is empty," \
-                  "and the step binds $stem again" >&2
-                exit 1
-              fi
-
-              printf '%s\n' "$value" > "$WORK/$stem.sec"
-              printf '%s=%s\n' "$stem" "$WORK/$stem.sec" \
+              printf '%s=%s\n' "$stem" "$WORK/$purpose-$role.sec" \
                 >> "$WORK/bind.args"
             done <<< "$statuses"
           done
@@ -412,25 +444,28 @@ jobs:
           EMAIL: ${{ inputs.email }}
           EXPIRES: ${{ inputs.expires }}
           FILE: ${{ inputs.file }}
+          BIND: ${{ steps.bind.outputs.bind }}
         run: |
           root="$WORK/root-active.sec"
           args=(--purpose "$PURPOSE")
+
+          # WEB-ROTATE-1. mint-key and import-key declare --type, and
+          # promote-key declares none. The guard step refuses a
+          # promote that names a type, so this value is empty there.
           if [ -n "$TYPE" ]; then
             args+=(--type "$TYPE")
           fi
 
           # WEB-ROTATE-6 and WEB-TRUST-2. A step of a subordinate
           # purpose signs the manifest with the current root. A root
-          # step signs with the root key of this run: a first mint
-          # with the key that it makes, and a promote with the key
-          # that it makes current. Neither one takes a signer.
+          # step that binds signs with the root key of this run: a
+          # first mint with the key that it makes, and a promote with
+          # the key that it makes current. Neither one takes a
+          # signer, and the step above answers which run this is.
+          bind="${BIND:-no}"
           signer=yes
-          bind=no
-          if [ "$PURPOSE" = root ]; then
-            if [ "$STEP" = promote ] || [ ! -s "$root" ]; then
-              signer=no
-              bind=yes
-            fi
+          if [ "$bind" = yes ]; then
+            signer=no
           fi
 
           case "$STEP" in
@@ -577,10 +612,20 @@ jobs:
           DIRECTORY: ${{ inputs.directory }}
           URL: ${{ inputs.url }}
         run: |
+          # The step splits the list into words, so pathname
+          # expansion stays off and no name becomes another file.
+          set -f
           files=$(git diff --name-only --diff-filter=d HEAD^ HEAD \
             -- "$DIRECTORY")
 
-          stale="no read ran"
+          # WEB-ACTIONS-7. The variable moves on the proof of this
+          # step, and an empty list proves nothing.
+          if [ -z "$files" ]; then
+            echo "keys-rotate: the commit wrote no file of" \
+              "$DIRECTORY, and this step proves nothing" >&2
+            exit 1
+          fi
+
           for _ in $(seq 1 40); do
             stale=""
             for file in $files; do

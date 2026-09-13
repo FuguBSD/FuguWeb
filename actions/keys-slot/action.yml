@@ -1,12 +1,12 @@
 name: Read a key slot
 description: >-
-  Read the slot variable of one purpose, and write the private half of its
-  current key and of its next key as files.
+  Read the slot variable of each named purpose, and write the private half of
+  the current key and of the next key of each one as files.
 
 # WEB-ACTIONS-3. The two slot secrets of a purpose keep fixed names,
 # and the variable names the slot that holds the current key. This
-# action turns that pair into two files, so a verb reads each private
-# half as a file, per D-03.
+# action turns the pair of each named purpose into two files, so a
+# verb reads each private half as a file, per D-03.
 #
 # The action takes the secrets as one JSON object, because a composite
 # action reads no secrets context of its own. The caller passes
@@ -15,7 +15,9 @@ description: >-
 
 inputs:
   purpose:
-    description: The purpose word of the key, for example release
+    description: >-
+      The purpose words of the keys, separated by spaces, for example release.
+      The outputs answer the first word.
     required: true
   secret-prefix:
     description: The first field of each secret name and of the variable
@@ -30,15 +32,16 @@ inputs:
     description: The secrets context of the caller, as toJSON(secrets)
     required: true
   work:
-    description: The directory that takes the two key files
+    description: The directory that takes the key files
     required: true
 
 outputs:
   active:
-    description: The slot letter of the current key, or nothing
+    description: >-
+      The slot letter of the current key of the first purpose, or nothing
     value: ${{ steps.slot.outputs.active }}
   idle:
-    description: The slot letter that takes the next key
+    description: The slot letter that takes the next key of the first purpose
     value: ${{ steps.slot.outputs.idle }}
 
 runs:
@@ -54,58 +57,78 @@ runs:
         SECRETS_JSON: ${{ inputs.secrets }}
         WORK: ${{ inputs.work }}
       run: |
+        # The action splits the purpose list into words, so pathname
+        # expansion stays off and no word becomes a file name.
+        set -f
         umask 077
         mkdir -p "$WORK"
         chmod 700 "$WORK"
 
-        # A purpose word is lower case, and a secret name is upper
-        # case. No expression changes the case, so the shell does.
-        upper=$(printf '%s' "$PURPOSE" | tr '[:lower:]-' '[:upper:]_')
-
-        # A variable that no rotation has written answers 404, and
-        # that is the state of a first mint. Every other failure is a
-        # fault: a run that read one as "no slot" would sign with the
-        # wrong key.
-        if slot=$(gh api \
-          "/orgs/$OWNER/actions/variables/${PREFIX}_${upper}_SLOT" \
-          --jq .value 2>"$WORK/slot.err"); then
-          :
-        elif grep -q 'HTTP 404' "$WORK/slot.err"; then
-          slot=""
-        else
-          echo "keys-slot: cannot read the slot variable of $PURPOSE" >&2
-          cat "$WORK/slot.err" >&2
-          rm -f "$WORK/slot.err"
+        # An empty list writes no file, and a caller that read the
+        # size of an absent file would take it for an empty slot.
+        if [ -z "$PURPOSE" ]; then
+          echo "keys-slot: the purpose list is empty" >&2
           exit 1
         fi
-        rm -f "$WORK/slot.err"
 
-        case "$slot" in
-          A) active=A; idle=B ;;
-          B) active=B; idle=A ;;
-          *) active=""; idle=A ;;
-        esac
-        echo "active=$active" >> "$GITHUB_OUTPUT"
-        echo "idle=$idle" >> "$GITHUB_OUTPUT"
+        first=yes
+        for purpose in $PURPOSE; do
+          # A purpose word is lower case, and a secret name is upper
+          # case. No expression changes the case, so the shell does.
+          upper=$(printf '%s' "$purpose" | tr '[:lower:]-' '[:upper:]_')
 
-        # WEB-ACTIONS-6. A slot that holds nothing leaves an empty
-        # file, and the caller reads the size of the file to tell a
-        # key from no key. signify(1) refuses a key file with no
-        # final newline, so a file that holds a key ends in one, and
-        # a lone newline would read as a key.
-        for role in active idle; do
-          case "$role" in
-            active) letter="$active" ;;
-            idle) letter="$idle" ;;
-          esac
-          path="$WORK/$PURPOSE-$role.sec"
-          : > "$path"
-          if [ -n "$letter" ]; then
-            value=$(printf '%s' "$SECRETS_JSON" |
-              jq -r --arg name "${PREFIX}_${upper}_KEY_$letter" \
-                '.[$name] // ""')
-            if [ -n "$value" ]; then
-              printf '%s\n' "$value" > "$path"
-            fi
+          # A variable that no rotation has written answers 404, and
+          # that is the state of a first mint. Every other failure is
+          # a fault: a run that read one as "no slot" would sign with
+          # the wrong key.
+          if slot=$(gh api \
+            "/orgs/$OWNER/actions/variables/${PREFIX}_${upper}_SLOT" \
+            --jq .value 2>"$WORK/slot.err"); then
+            :
+          elif grep -q 'HTTP 404' "$WORK/slot.err"; then
+            slot=""
+          else
+            echo "keys-slot: cannot read the slot variable of $purpose" >&2
+            cat "$WORK/slot.err" >&2
+            rm -f "$WORK/slot.err"
+            exit 1
           fi
+          rm -f "$WORK/slot.err"
+
+          case "$slot" in
+            A) active=A; idle=B ;;
+            B) active=B; idle=A ;;
+            *) active=""; idle=A ;;
+          esac
+
+          # A step answers one pair of outputs, so the first word
+          # of the list takes them. A caller that reads them names
+          # one purpose.
+          if [ "$first" = yes ]; then
+            echo "active=$active" >> "$GITHUB_OUTPUT"
+            echo "idle=$idle" >> "$GITHUB_OUTPUT"
+            first=no
+          fi
+
+          # WEB-ACTIONS-6. A slot that holds nothing leaves an empty
+          # file, and the caller reads the size of the file to tell a
+          # key from no key. signify(1) refuses a key file with no
+          # final newline, so a file that holds a key ends in one,
+          # and a lone newline would read as a key.
+          for role in active idle; do
+            case "$role" in
+              active) letter="$active" ;;
+              idle) letter="$idle" ;;
+            esac
+            path="$WORK/$purpose-$role.sec"
+            : > "$path"
+            if [ -n "$letter" ]; then
+              value=$(printf '%s' "$SECRETS_JSON" |
+                jq -r --arg name "${PREFIX}_${upper}_KEY_$letter" \
+                  '.[$name] // ""')
+              if [ -n "$value" ]; then
+                printf '%s\n' "$value" > "$path"
+              fi
+            fi
+          done
         done

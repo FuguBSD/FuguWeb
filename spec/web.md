@@ -368,9 +368,10 @@ input, so an organization keeps the names that it has.
 - **WEB-ACTIONS-2** — The workflow must output each fact of WEB-ROTATE-13, and
   the digest and the URL of a new key file. A caller declares the key with them.
 - **WEB-ACTIONS-3** — Two composite actions must hold the slots.
-  `actions/keys-slot` reads the slot variable of one purpose and writes the
-  working key files. `actions/keys-store` writes a secret from a file and moves
-  the variable. A caller can compose the two on its own.
+  `actions/keys-slot` reads the slot variable of each purpose that the caller
+  names, and writes the working key files. `actions/keys-store` writes a secret
+  from a file and moves the variable. A caller can compose the two on its own.
+  One place must read a slot variable, and the workflow must read none itself.
 - **WEB-ACTIONS-4** — Each secret must reach a step through the environment, and
   never through the script text. The workflow must read a secret by a name that
   an input forms, through the JSON form of the `secrets` context.
