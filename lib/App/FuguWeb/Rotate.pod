@@ -195,14 +195,19 @@ fails and the caller commits nothing.
 
 =item App::FuguWeb::Rotate->new(config => $config, ...)
 
-The rotation over one description. C<config> is an
-L<App::FuguWeb::Config>.
+The rotation over one key directory of one description. C<config> is
+an L<App::FuguWeb::Config>.
 
-A site that publishes its first key holds no C<keys> block, because
-such a block cannot load until a C<key> block stands beside it. The
-caller then names C<org>, and it can name C<dir> and C<url>. One
-commit carries the C<keys> block, the first C<key> block and the key
-itself.
+C<dir> names the directory that each step writes. A description with
+one C<keys> block needs none, and a description with several refuses a
+step without it. Each directory holds its own root of trust, per D-02,
+so a step of one directory reads no key of another.
+
+A directory that publishes its first key holds no C<keys> block,
+because such a block cannot load until a C<key> block stands beside
+it. The caller then names C<dir> and C<org>, and it can name C<url>.
+One commit carries the C<keys> block, the first C<key> block and the
+key itself. A second key directory of a site arrives the same way.
 
 =item $rotate->mint(purpose => $word, ...)
 

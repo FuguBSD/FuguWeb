@@ -67,12 +67,14 @@ use constant {
 	SIGNATURE => 'SHA256.sig',
 };
 
-# The purpose word of the root of trust, and the default key type of
-# every verb. App::FuguWeb::Keys holds the root word, so the reader
-# and the writer can never disagree about it.
+# The purpose word of the root of trust, the default key type of
+# every verb, and the default key directory of a site that names
+# none. App::FuguWeb::Keys holds the root word, so the reader and the
+# writer can never disagree about it.
 use constant {
 	ROOT => App::FuguWeb::Keys::ROOT_PURPOSE,
 	TYPE => 'signify',
+	DIR  => 'keys',
 };
 
 # The key type that a mint generates, per WEB-ROTATE-2 and
@@ -107,22 +109,45 @@ sub new ( $class, %args )
 	my $config = $args{config};
 	die "config is a necessary argument\n" unless defined $config;
 
+	# WEB-ROTATE-21. The caller names the directory that the step
+	# writes. A description with one keys block needs no name, and
+	# a description with none takes the default: a site publishes
+	# its first key before a block can stand.
+	my @dirs = $config->keys_dirs;
+	my $dir = $args{dir} // ( @dirs == 1 ? $dirs[0] : @dirs ? undef : DIR );
+
 	# A keys block cannot load until a key block stands beside it,
-	# so a site that publishes its first key holds neither yet.
-	# The caller then names the organization word, the directory
-	# and the prefix, and one commit carries all of it with the
-	# first key, per WEB-ROTATE-15.
-	my $fresh = !defined $config->keys_dir;
+	# so a directory that publishes its first key holds neither
+	# yet. The caller then names the organization word, the
+	# directory and the prefix, and one commit carries all of it
+	# with the first key, per WEB-ROTATE-15.
+	my $fresh = defined $dir && !grep { $_ eq $dir } @dirs;
 
 	return bless {
 		config       => $config,
 		tool_missing => 0,
 		bootstrap    => $fresh,
-		dir          => $config->keys_dir // $args{dir} // 'keys',
-		org          => $config->keys_org // $args{org},
-		url          => $config->keys_url // $args{url},
+		dir          => $dir,
+		dirs         => \@dirs,
+		org          => $config->keys_org($dir) // $args{org},
+		url          => $config->keys_url($dir) // $args{url},
 		error        => undef,
 	}, $class;
+}
+
+# $self->_selected:
+#	Hold a step to one key directory. The method answers 1, or
+#	undef with a reason in $self->error.
+#
+#	WEB-ROTATE-21. A description with several keys blocks names no
+#	one directory, and a step writes one. The caller names it.
+sub _selected ($self)
+{
+	return 1 if defined $self->{dir};
+
+	return $self->_fail( 'the description holds the key directories '
+		    . join( ' and ', @{ $self->{dirs} } )
+		    . ', so the step needs --dir' );
 }
 
 # $self->config:
@@ -202,6 +227,8 @@ sub import_key ( $self, %args )
 sub promote ( $self, %args )
 {
 	$self->{error} = undef;
+
+	$self->_selected or return;
 
 	my $purpose = $args{purpose};
 	my $set     = $self->_set or return;
@@ -313,6 +340,8 @@ sub promote ( $self, %args )
 #	every rule of the trust order, so they share this method.
 sub _add ( $self, $verb, %args )
 {
+	$self->_selected or return;
+
 	my $purpose = $args{purpose};
 	my $type    = $args{type} // TYPE;
 
@@ -720,7 +749,7 @@ sub _free ( $self, $bind )
 sub _of_target ( $self, $set, $target )
 {
 	my @drop;
-	for my $binding ( $self->{config}->site_bindings ) {
+	for my $binding ( $self->{config}->site_bindings( $self->{dir} ) ) {
 		next unless $binding->{target} eq $target;
 		next if $set->{ $binding->{signer} }{status} eq 'retired';
 
@@ -1206,7 +1235,7 @@ sub _key_bytes ( $self, $set )
 sub _binding_bytes ($self)
 {
 	return $self->_bytes_of( map { $_->{name} }
-		    $self->{config}->site_bindings );
+		    $self->{config}->site_bindings( $self->{dir} ) );
 }
 
 # $self->_bytes_of(@names):
@@ -1250,12 +1279,14 @@ sub _set ($self)
 	my $dir = $self->_dir;
 	return $self->_fail("$dir is no directory") unless -d $dir;
 
-	my %block = map { $_->{name} => $_ } $self->{config}->site_keys;
+	my %block =
+	    map { $_->{name} => $_ } $self->{config}->site_keys( $self->{dir} );
 
 	# A binding carries no key block: its name holds the target
 	# and the signer, and App::FuguWeb::Config parses it.
 	my %binding =
-	    map { $_->{name} => 1 } $self->{config}->site_bindings;
+	    map { $_->{name} => 1 }
+	    $self->{config}->site_bindings( $self->{dir} );
 
 	# The reader takes every name of the directory, a dotted one
 	# included, so this scan must agree with it. A writer that
@@ -1329,9 +1360,9 @@ sub _by_status ( $set, $purpose, $status )
 #	`fuguweb check` reports each one.
 sub _accept ($self)
 {
-	my @problems =
-	    App::FuguWeb::Keys->new( config => $self->{config} )
-	    ->problems( expiry => 0 );
+	my @problems = App::FuguWeb::Keys->new(
+		config => $self->{config},
+		dir    => $self->{dir} )->problems( expiry => 0 );
 	return 1 unless @problems;
 
 	return $self->_fail( 'the key directory holds a problem: ' . join '; ',
@@ -1363,7 +1394,8 @@ sub _reload ($self)
 sub _confirm ( $self, $want )
 {
 	my %status =
-	    map { $_->{stem} => $_->{status} } $self->{config}->site_keys;
+	    map { $_->{stem} => $_->{status} }
+	    $self->{config}->site_keys( $self->{dir} );
 
 	for my $stem ( sort keys %$want ) {
 		my $found = $status{$stem};

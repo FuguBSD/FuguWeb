@@ -59,13 +59,19 @@ my %KEY_OPTION = (
 	'signer=s'  => 'the private half of the current root key',
 	'bind=s%'   => 'the private half of one subordinate key, '
 	    . 'as <stem>=<path>',
+
+	# WEB-ROTATE-21. A step writes one key directory. A
+	# description with one keys block needs no name, and one with
+	# several refuses a step without it.
+	'dir=s' => 'the key directory (default: the one of the '
+	    . 'description, or keys)',
 );
 
-# The words that describe the key directory. A site that publishes its
-# first key holds no keys block, so the first mint takes them.
+# The words that describe the key directory. A directory that
+# publishes its first key holds no keys block, so the first mint takes
+# them.
 my %BLOCK_OPTION = (
 	'org=s' => 'bootstrap the keys block with this org',
-	'dir=s' => 'the key directory name (default: keys)',
 	'url=s' => 'the published prefix of the directory',
 );
 
@@ -104,7 +110,7 @@ my %COMMANDS = (
 		usage   => '--purpose <word> [--type <type>] --secret <path>'
 		    . ' [--signer <path>] [--bind <stem>=<path>]'
 		    . ' [--email <address>] [--expires <date>]'
-		    . ' [--org <word> [--dir <name>] [--url <prefix>]]',
+		    . ' [--dir <name>] [--org <word> [--url <prefix>]]',
 		options => {
 			%KEY_OPTION, %BLOCK_OPTION,
 
@@ -127,7 +133,7 @@ my %COMMANDS = (
 		usage   => '--purpose <word> [--type <type>] --file <path>'
 		    . ' --secret <path> [--signer <path>]'
 		    . ' [--bind <stem>=<path>]'
-		    . ' [--org <word> [--dir <name>] [--url <prefix>]]',
+		    . ' [--dir <name>] [--org <word> [--url <prefix>]]',
 		options => {
 			%KEY_OPTION, %BLOCK_OPTION,
 
@@ -144,7 +150,7 @@ my %COMMANDS = (
 		summary => 'Make the next key of a purpose current',
 		usage   => '--purpose <word> --retiring <path>'
 		    . ' [--secret <path>] [--signer <path>]'
-		    . ' [--bind <stem>=<path>]',
+		    . ' [--bind <stem>=<path>] [--dir <name>]',
 		options => {
 			%KEY_OPTION,
 			'retiring=s' =>

@@ -289,7 +289,8 @@ sub _manifest ($root)
 }
 
 # _problems($root):
-#	What App::FuguWeb::Keys reports about the directory.
+#	What App::FuguWeb::Keys reports about each key directory of
+#	the project, as fuguweb check reads them.
 sub _problems ($root)
 {
 	my $reason;
@@ -297,20 +298,23 @@ sub _problems ($root)
 		error => \$reason )
 	    or return ("load: $reason");
 
-	return App::FuguWeb::Keys->new( config => $config )->problems;
+	return map {
+		App::FuguWeb::Keys->new( config => $config, dir => $_ )
+		    ->problems
+	} $config->keys_dirs;
 }
 
-# _keys($root):
-#	An App::FuguWeb::Keys over the description of the project, so
-#	a subtest can drive one rule of the check alone.
-sub _keys ($root)
+# _keys($root, $dir):
+#	An App::FuguWeb::Keys over one key directory of the project,
+#	so a subtest can drive one rule of the check alone.
+sub _keys ( $root, $dir = 'keys' )
 {
 	my $reason;
 	my $config = App::FuguWeb::Config->load( root => $root,
 		error => \$reason )
 	    or die "load $root: $reason\n";
 
-	return App::FuguWeb::Keys->new( config => $config );
+	return App::FuguWeb::Keys->new( config => $config, dir => $dir );
 }
 
 # _block($root, $stem):
@@ -2126,7 +2130,7 @@ subtest 'the published prefix reaches the description' => sub {
 		'the mint succeeds' )
 	    or diag( $rotate->error );
 
-	is( $rotate->config->keys_url, 'https://example.invalid/other',
+	is( $rotate->config->keys_url('keys'), 'https://example.invalid/other',
 		'the description carries the prefix that the caller named' );
 };
 
@@ -2165,7 +2169,7 @@ RC
 		'the mint fails'
 	);
 
-	my %stem = map { $_->{stem} => 1 } $rotate->config->site_keys;
+	my %stem = map { $_->{stem} => 1 } $rotate->config->site_keys('keys');
 	ok( !$stem{'fugubsd-3-release'},
 		'the description of the object names no key that it wrote' );
 	ok( $stem{'fugubsd-1-release'}, 'and it still names the current key' );
@@ -2322,6 +2326,96 @@ subtest 'the key directory word names one directory' => sub {
 	}
 
 	ok( !-e "$root/escaped", 'and no directory stands outside the source' );
+};
+
+# WEB-ROTATE-21. The directory word selects the key directory that a
+# step writes. A description with one keys block needs none, and every
+# subtest above reads that.
+subtest 'a step names the key directory that it writes' => sub {
+	my $root = _keyed();
+
+	# The description holds no block of the second directory yet,
+	# so the mint takes the name, the organization word and the
+	# prefix, per WEB-ROTATE-15.
+	my $reason;
+	my $config =
+	    App::FuguWeb::Config->load( root => $root, error => \$reason )
+	    or die "load: $reason\n";
+	my $second = App::FuguWeb::Rotate->new(
+		config => $config,
+		dir    => 'other',
+		org    => 'other',
+		url    => 'https://www.example.net/other',
+	);
+	ok(
+		$second->mint(
+			purpose => 'root',
+			secret  => "$root/other1.sec"
+		),
+		'the first root mint of a second directory succeeds'
+	) or diag( $second->error );
+
+	ok( -f "$root/web/other/other-1-root.pub",
+		'the key lands in the directory that the caller named' );
+	ok( -f "$root/web/other/SHA256", 'with a manifest of its own' );
+	ok( !-e "$root/web/keys/other-1-root.pub",
+		'and never in the first directory' );
+
+	my $both =
+	    App::FuguWeb::Config->load( root => $root, error => \$reason )
+	    or die "load: $reason\n";
+	is_deeply( [ $both->keys_dirs ],
+		[ 'keys', 'other' ], 'the description names both directories' );
+
+	# A description with several blocks names no one directory, so
+	# a step that names none refuses before it writes.
+	my $blind = App::FuguWeb::Rotate->new( config => $both );
+	ok(
+		!$blind->mint(
+			purpose => 'release',
+			secret  => "$root/blind.sec",
+			signer  => "$root/root1.sec"
+		),
+		'a step that names no directory fails'
+	);
+	like(
+		$blind->error,
+		qr{the description holds the key directories keys and other, so the step needs --dir},
+		'and the reason names each directory'
+	);
+	ok( !-e "$root/blind.sec", 'and the step writes no private half' );
+
+	# The named directory is the one that the step writes, and the
+	# root of that directory signs its manifest, per D-02.
+	my $named = App::FuguWeb::Rotate->new( config => $both, dir => 'other' );
+	ok(
+		$named->mint(
+			purpose => 'release',
+			secret  => "$root/other-rel1.sec",
+			signer  => "$root/other1.sec"
+		),
+		'a step that names the second directory succeeds'
+	) or diag( $named->error );
+
+	ok( -f "$root/web/other/other-1-release.pub",
+		'the new key lands in the named directory' );
+	ok( !-e "$root/web/keys/other-1-release.pub",
+		'and the first directory keeps its own keys' );
+	is( join( '; ', _problems($root) ),
+		'', 'and every directory passes the checks' );
+
+	# Every verb takes the word, so a promote of a second
+	# directory reaches its own keys.
+	my ( $exit, $out, $err ) = _run(
+		'--project',  $root, 'promote-key',
+		'--purpose',  'release',
+		'--dir',      'other',
+		'--signer',   "$root/other1.sec",
+		'--retiring', "$root/other-rel1.sec",
+	);
+	is( $exit, 1, 'a promote with no next key fails the step' );
+	like( $err, qr/the purpose release holds no next key/,
+		'and the reason reads the keys of the named directory' );
 };
 
 subtest 'an absent signify takes the code of a missing tool' => sub {

@@ -6,11 +6,13 @@ App::FuguWeb::Keys - the key directory of a site
 
     use App::FuguWeb::Keys;
 
-    my $keys = App::FuguWeb::Keys->new(config => $config);
+    my $keys = App::FuguWeb::Keys->new(config => $config, dir => 'keys');
 
     my @paths     = $keys->paths;
     my $generated = $keys->generated;
     my @problems  = $keys->problems;
+
+    my ($files, $why) = App::FuguWeb::Keys->site_generated($config);
 
 =head1 DESCRIPTION
 
@@ -37,12 +39,14 @@ the command of its type. An absent command is a problem of the host,
 and the check reports it rather than pass a binding that nothing
 read.
 
-A description with no C<keys> block has no key directory. A caller
-tests C<< $config->keys_dir >> first, and this class dies without one.
+One object reads one key directory. A description can name several,
+and each one holds its own root of trust, per D-02. A caller reads
+C<< $config->keys_dirs >> first, and this class dies for a name that
+no block holds.
 
 =head1 THE DESCRIPTION
 
-One C<keys> block names the key directory. The name is one segment
+Each C<keys> block names one key directory. The name is one segment
 below the source directory. The block also names the organization
 word:
 
@@ -64,7 +68,12 @@ key, C<.asc> is an armored OpenPGP key, and C<.pem> is one X.509
 certificate. The status is C<current>, C<next> or C<retired>.
 
 L<App::FuguWeb::Config> reads and validates both blocks. It resolves
-each block to its file, so this class repeats no name pattern.
+each C<key> block to its file, so this class repeats no name pattern.
+The directory that holds the file owns the block.
+
+A description holds as many C<keys> blocks as the site publishes
+directories. Two blocks must not name one directory, and one block
+alone names the C<contact> and the C<expires> of the site.
 
 =head1 THE PUBLISHED TREE
 
@@ -85,10 +94,12 @@ each block to its file, so this class repeats no name pattern.
 
 The two well-known paths sit at the site root, because a reader asks
 for the registered path and never for one below the key directory.
+The site holds one such tree, and every key directory writes into it.
 
 One Web Key Directory file holds every key of one address, in
-publication order. A rotation gives one address a current key and a
-next key, and a reader takes the whole file.
+publication order, across every directory. A rotation gives one
+address a current key and a next key, and a reader takes the whole
+file.
 
 An address whose keys are all C<retired> serves no file. C<gpg
 --locate-keys> reads that file to encrypt a message, and a retired key
@@ -98,10 +109,11 @@ is the one key that must not answer it.
 
 =head2 new
 
-    App::FuguWeb::Keys->new(config => $config)
+    App::FuguWeb::Keys->new(config => $config, dir => 'keys')
 
-C<config> is an L<App::FuguWeb::Config> and is required. The method
-dies when the description holds no C<keys> block.
+C<config> is an L<App::FuguWeb::Config>, and C<dir> is the name of one
+key directory of it. Both are required, and the method dies for a name
+that no C<keys> block holds.
 
 =head2 error
 
@@ -113,9 +125,12 @@ The reason of the most recent failure, or C<undef> after a success.
 
     $keys->paths
 
-Every path that the key directory adds to the output, relative to the
+Every path that this key directory adds to the output, relative to the
 output directory. The method reads no file: the description and the
 file names decide the list.
+
+Two directories that serve one address name one path there, so
+L<App::FuguWeb::Config/key_paths> holds each path once.
 
 =head2 copies
 
@@ -128,15 +143,27 @@ references with C<from> and C<to>.
 
     $keys->generated
 
-Every file that the build writes itself, as a hash reference of output
-path to bytes. The method returns C<undef> on a failure, and C<error>
-holds the reason.
+Every file that the build writes itself for this directory, as a hash
+reference of output path to bytes. The method returns C<undef> on a
+failure, and C<error> holds the reason.
+
+=head2 site_generated
+
+    App::FuguWeb::Keys->site_generated($config)
+
+Every file that the build writes itself for the key directories of the
+site, as a hash reference of output path to bytes. The method answers
+that reference, or C<undef> with the reason behind it.
+
+The Web Key Directory file of one address gathers the keys of that
+address across every directory, in publication order, so the build
+writes one file where two directories name one address.
 
 =head2 key_set
 
     $keys->key_set
 
-The key set for L<Fugu::KeyDir>: every key block of the description,
+The key set for L<Fugu::KeyDir>: every key block of this directory,
 with the bytes of each key that a later read needs. An OpenPGP key
 carries its armored body, and a certificate the DER that its PEM block
 holds. The decoder of each type runs here, so a file that holds no key
@@ -169,10 +196,10 @@ C<next> key of the purpose that the report names.
 
     App::FuguWeb::Keys->shaped($config, $path)
 
-Whether a path of the output is one that a build of the key directory
-writes. The set is bounded: a generated name of the key directory, a
-key file or a binding file that L<Fugu::KeyDir> parses, and the three
-well-known paths.
+Whether a path of the output is one that a build of a key directory
+writes. The method reads each declared directory. The set is bounded:
+a generated name of a key directory, a key file or a binding file that
+L<Fugu::KeyDir> parses, and the three well-known paths.
 
 The prune and the clean read this one answer, so a build can never
 remove a file that the clean refuses. A stale key file needs it: the
@@ -191,7 +218,7 @@ took it would delete that site.
 
 Every key file has a block, and every block has a file. A binding
 needs no block, and its target and its signer are each a key of the
-directory.
+same directory: a binding never crosses a directory, per D-02.
 
 =item *
 
