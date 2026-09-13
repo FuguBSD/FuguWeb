@@ -221,16 +221,36 @@ and
 as a mint of that purpose does, with
 .Fl Fl file
 beside them.
-It reads a
-.Cm signify
-key alone, and a
-.Fl Fl type
-of another type fails.
+The
+.Ar type
+defaults to
+.Cm signify ,
+and
+.Cm openpgp
+and
+.Cm x509
+are the other two.
+An issuer makes an
+.Cm x509
+certificate, so this command is the one that publishes one.
 It takes no
 .Fl Fl email
 and no
 .Fl Fl expires ,
 because it generates no key.
+The block of an imported
+.Cm openpgp
+key therefore carries no
+.Ic email ,
+and the Web Key Directory serves no file for the address of its user
+id.
+The
+.Pa KEYS
+file still holds that key, and the
+.Ic Encryption
+field of
+.Pa security.txt
+can still name it.
 A site with no
 .Ic keys
 block takes one from
@@ -583,9 +603,11 @@ The file extension gives the type:
 .Pa .pub
 is a
 .Xr signify 1
-key, and
+key,
 .Pa .asc
-is an armored OpenPGP key.
+is an armored OpenPGP key, and
+.Pa .pem
+is one X.509 certificate.
 The block sets a
 .Ic status
 of
@@ -603,6 +625,9 @@ An OpenPGP key can set an
 and a
 .Ic fingerprint
 of 40 hexadecimal characters.
+A certificate can set a
+.Ic fingerprint
+of 64 hexadecimal characters, which is the SHA-256 of its DER form.
 .Pp
 One signify key of the directory is the root of trust, and its purpose
 word is
@@ -642,6 +667,8 @@ Every OpenPGP key, when the set holds one.
 .It Pa keys/index.html
 The human page, with the serial, purpose, type, status, fingerprint,
 dates and bindings of each key.
+The row of a certificate names its subject and its validity dates
+beside the fingerprint.
 .It Pa .well-known/openpgpkey/hu/<hash>
 The Web Key Directory file of each email address.
 .It Pa .well-known/openpgpkey/policy
@@ -683,27 +710,36 @@ or
 .Xr openssl 1 ,
 and an absent command is a problem.
 .Pp
-The check reads the expiry of each
+The check reads the validity of each
 .Cm current
 and
 .Cm next
-OpenPGP key with
-.Xr gpg 1 .
-An expiry that passed is a problem.
+key that carries one.
+It reads the expiry of an OpenPGP key with
+.Xr gpg 1 ,
+and the
+.Ql notBefore
+and
+.Ql notAfter
+of a certificate from the certificate itself.
+An expiry that passed is a problem, and so is a certificate whose
+.Ql notBefore
+has not come.
 An expiry within 30 days of a
 .Cm current
 key is a problem when its purpose holds no
 .Cm next
 key, because one rotation runs in two steps.
-A key with no expiry reaches neither rule.
+A signify key carries no date, and an OpenPGP key with no expiry
+reaches no rule.
 .Pp
-A key verb does not fail for either report, so
+A key verb fails for none of these reports, so
 .Cm mint-key
 and
 .Cm import-key
 each run on a directory that
 .Cm check
-rejects for an expiry.
+rejects for a date.
 An expired
 .Cm current
 key is still
@@ -813,6 +849,33 @@ makes a key with no expiry.
 A key directory retires a key with an
 .Ic until
 date, so a rotation needs no expiry on the key itself.
+.Pp
+An issuer makes an
+.Cm x509
+certificate, such as a code signing certificate of Apple Developer ID,
+so no verb mints one.
+.Cm import-key
+publishes it:
+.Fl Fl file
+names one PEM certificate, and
+.Fl Fl secret
+names its unencrypted PEM private key.
+The verbs take no passphrase, so convert a PKCS#12 file with
+.Ic openssl pkcs12
+first.
+The private key signs the binding of the new key, and
+.Xr openssl 1
+makes that detached CMS signature.
+The
+.Ic key
+block of the new key takes the
+.Ic fingerprint ,
+which the command reads from the certificate that it published.
+The renderer knows no issuer by name, and the root manifest vouches
+for the certificate.
+A renewal is a rotation: the new certificate enters as
+.Cm next ,
+and a promote retires the old one.
 .Ss The first root mint
 The first mint of the
 .Cm root
@@ -893,9 +956,10 @@ The build failed: a renderer failed, or a manual source is malformed.
 The check found a problem.
 .It 6
 A renderer, or a command of a key step such as
-.Xr signify 1
+.Xr signify 1 ,
+.Xr gpg 1
 or
-.Xr gpg 1 ,
+.Xr openssl 1 ,
 is not installed.
 .El
 .Sh EXAMPLES
@@ -928,6 +992,14 @@ $ fuguweb mint-key --purpose contact --type openpgp \e
 	--secret ~/keys/contact-1.sec --signer ~/keys/root-1.sec
 .Ed
 .Pp
+Publish a code signing certificate, whose private key stays with the
+publisher:
+.Bd -literal -offset indent
+$ fuguweb import-key --purpose sign --type x509 \e
+	--file ~/keys/sign-1.pem --secret ~/keys/sign-1.key \e
+	--signer ~/keys/root-1.sec
+.Ed
+.Pp
 Rotate the release key:
 .Bd -literal -offset indent
 $ fuguweb mint-key --purpose release \e
@@ -948,6 +1020,7 @@ $ fuguweb promote-key --purpose root \e
 .Xr gpg 1 ,
 .Xr lowdown 1 ,
 .Xr mandoc 1 ,
+.Xr openssl 1 ,
 .Xr pod2man 1 ,
 .Xr signify 1 ,
 .Xr mdoc 7

@@ -50,8 +50,9 @@ use Time::Local ();
 # the directory, loads the description again, and asks
 # App::FuguWeb::Keys->problems. A step that leaves one problem fails,
 # so the writer can never publish a directory that the checks reject.
-# That read leaves out the expiry rules of WEB-OPENPGP-4 alone. The
-# clock decides those, and _accept states why each one stays out.
+# That read leaves out the validity rules of WEB-OPENPGP-4 and
+# WEB-X509-6 alone. The clock decides those, and _accept states why
+# each one stays out.
 #
 # The module runs no command of its own. Fugu::Signify holds every
 # call of signify(1), the class of each other key type holds every
@@ -75,11 +76,19 @@ use constant {
 };
 
 # The key type that a mint generates, per WEB-ROTATE-2 and
-# WEB-OPENPGP-1. An import publishes a key that another tool made, and
-# it reads the default type alone: plan 005 opens it to the other two.
+# WEB-OPENPGP-1. An issuer makes a certificate, so no verb mints one.
 my %MINT_TYPE = (
 	signify => 1,
 	openpgp => 1,
+);
+
+# The key type that an import publishes, per WEB-X509-2. The step
+# takes a key that another tool made, so it reads every type that a
+# key directory holds.
+my %IMPORT_TYPE = (
+	signify => 1,
+	openpgp => 1,
+	x509    => 1,
 );
 
 # The signer of each key type, per WEB-TRUST-8. A binding of a key
@@ -162,7 +171,8 @@ sub mint ( $self, %args )
 #
 #	The step takes the options of a mint of its purpose, and
 #	--file beside them, per WEB-X509-2. The caller holds the
-#	private half already, so the step writes none.
+#	private half already, so the step writes none. An issuer makes
+#	a certificate, so this verb is the one that publishes one.
 #
 #	%args:
 #		purpose => $word	what the key signs
@@ -307,9 +317,10 @@ sub _add ( $self, $verb, %args )
 	my $type    = $args{type} // TYPE;
 
 	# WEB-ROTATE-1, WEB-ROTATE-2 and WEB-X509-2. A mint generates a
-	# signify pair or an OpenPGP key. An import reads one type
-	# today, and plan 005 opens it to the other two.
-	my $known = $verb eq 'mint' ? $MINT_TYPE{$type} : $type eq TYPE;
+	# signify pair or an OpenPGP key, and an import publishes a key
+	# of every type. An issuer makes a certificate, so a mint of
+	# one fails here and never in openssl(1).
+	my $known = $verb eq 'mint' ? $MINT_TYPE{$type} : $IMPORT_TYPE{$type};
 	return $self->_fail("$verb-key reads no key of the type $type")
 	    unless $known;
 
@@ -379,13 +390,15 @@ sub _add ( $self, $verb, %args )
 	    : $self->_read_pair( $args{file}, $args{secret} );
 	return unless defined $public;
 
-	# WEB-OPENPGP-2. The key block of an OpenPGP key names the
-	# address and the fingerprint of the key that the step
-	# generated.
+	# WEB-OPENPGP-2 and WEB-X509-4. The key block names the
+	# fingerprint of the key that the step publishes, and the block
+	# of an OpenPGP mint names its address beside it. A signify key
+	# takes neither setting, per WEB-KEYS-7.
 	my $settings =
 	      $type eq 'openpgp'
 	    ? $self->_openpgp_settings( $public, $args{email} )
-	    : [];
+	    : $type eq 'x509' ? $self->_x509_settings($public)
+	    :                   [];
 	return unless $settings;
 
 	my $keys = $self->_key_bytes($set) or return;
@@ -797,17 +810,21 @@ sub _generate_openpgp ( $self, $work, $stem, $name, %args )
 }
 
 # $self->_openpgp_settings($public, $email):
-#	The two settings that the key block of an OpenPGP key takes,
-#	as a list of name and value pairs. The method answers an array
+#	The settings that the key block of an OpenPGP key takes, as a
+#	list of name and value pairs. The method answers an array
 #	reference, or undef with a reason in $self->error.
 #
 #	WEB-OPENPGP-2. The fingerprint comes from the key that the
-#	step generated, and never from an argument. WEB-KEYS-22 holds
+#	step publishes, and never from an argument. WEB-KEYS-22 holds
 #	a declared fingerprint to the one that the body gives, so a
 #	step which copied an argument could publish a directory that
 #	its own reader rejects.
 #
-#	The reader of Fugu::OpenPGP needs no gpg(1). The generator ran
+#	A mint names the address of the user id that it wrote, per
+#	WEB-OPENPGP-1. An import takes no address: the key comes from
+#	another tool, and _type_options refuses the option there.
+#
+#	The reader of Fugu::OpenPGP needs no gpg(1). The key stands
 #	already, so this read adds no command of its own.
 sub _openpgp_settings ( $self, $public, $email )
 {
@@ -815,14 +832,47 @@ sub _openpgp_settings ( $self, $public, $email )
 
 	my $binary = $pgp->decode_armor($public)
 	    or return $self->_fail(
-		'cannot decode the generated public key: ' . $pgp->error );
+		'cannot decode the public key: ' . $pgp->error );
 
 	my $fingerprint = $pgp->fingerprint($binary)
 	    or return $self->_fail(
-		'cannot read the fingerprint of the generated public key: '
+		'cannot read the fingerprint of the public key: '
 		    . $pgp->error );
 
-	return [ [ email => $email ], [ fingerprint => $fingerprint ] ];
+	my @setting;
+	push @setting, [ email => $email ]
+	    if defined $email && length $email;
+	push @setting, [ fingerprint => $fingerprint ];
+
+	return \@setting;
+}
+
+# $self->_x509_settings($public):
+#	The one setting that the key block of a certificate takes, as
+#	a list of name and value pairs. The method answers an array
+#	reference, or undef with a reason in $self->error.
+#
+#	WEB-X509-4. The fingerprint is the SHA-256 of the DER form,
+#	and the step reads it from the certificate that it publishes.
+#
+#	WEB-X509-1. The decoder takes one CERTIFICATE block, so a
+#	--file that holds a private key or a second block fails the
+#	step here, before one byte reaches the directory. The reader
+#	needs no openssl(1).
+sub _x509_settings ( $self, $public )
+{
+	my $x509 = Fugu::X509->new;
+
+	my $der = $x509->decode_pem($public)
+	    or return $self->_fail(
+		'cannot decode the certificate: ' . $x509->error );
+
+	my $fingerprint = $x509->fingerprint($der)
+	    or return $self->_fail(
+		'cannot read the fingerprint of the certificate: '
+		    . $x509->error );
+
+	return [ [ fingerprint => $fingerprint ] ];
 }
 
 # _epoch_of($date):
@@ -1263,9 +1313,9 @@ sub _by_status ( $set, $purpose, $status )
 # $self->_accept:
 #	The problems that App::FuguWeb::Keys reports, as a failure.
 #
-#	The read leaves out the expiry rules of WEB-OPENPGP-4. The
-#	clock decides those, and no step can make a key expire later.
-#	Each half stays out for a reason of its own.
+#	The read leaves out the validity rules of WEB-OPENPGP-4 and
+#	WEB-X509-6. The clock decides those, and no step can move a
+#	date that a key carries.
 #
 #	An expired current key is still current when this method
 #	reads it back, so a step of its purpose could never be made:
@@ -1276,7 +1326,7 @@ sub _by_status ( $set, $purpose, $status )
 #	holds a next key. A step of another purpose writes no such
 #	key, so it would fail for a report that it cannot answer.
 #
-#	`fuguweb check` reports both.
+#	`fuguweb check` reports each one.
 sub _accept ($self)
 {
 	my @problems =

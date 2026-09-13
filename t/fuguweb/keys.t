@@ -7,6 +7,16 @@
 # never reads the repository. The key material is a fixture, so the
 # test needs no signify(1). The fixture holds one binding that gpg(1)
 # made, and every assertion which reads that binding needs gpg(1).
+# Each certificate of the fixture reads with no command.
+#
+# Three subtests make their own key material. Two of them make a
+# certificate with openssl(1). One of those two signs a binding with
+# a key that no block names. The other makes a certificate on each
+# side of the 30-day bar, because no fixed date can stand 30 days
+# from the day of the run. The third subtest makes an OpenPGP key
+# with gpg(1), and that key signs a binding of the same shape. The
+# skip of each of the three stands before the first assertion of its
+# subtest.
 #
 # A few subtests drive the real command through App::FuguWeb::CLI,
 # which renders. Those need the renderers, so each one skips without
@@ -22,12 +32,14 @@ use Digest::SHA ();
 use File::Path qw(make_path remove_tree);
 use Cwd ();
 use File::Temp qw(tempdir);
+use POSIX ();
 
 use_ok('App::FuguWeb::Check');
 use_ok('App::FuguWeb::Config');
 use_ok('App::FuguWeb::Keys');
 use_ok('App::FuguWeb::Render');
 use_ok('Fugu::OpenPGP');
+use_ok('Fugu::X509');
 use_ok('App::FuguWeb::CLI');
 use_ok('App::FuguWeb::Site');
 use_ok('Fugu::Log');
@@ -130,6 +142,70 @@ my $SIGNATURE = <<'SIG';
 untrusted comment: verify with k.pub
 RWS/n+2mbBbQjaszJlHbcECAmX6zY46E8MrxS6vpDXtY33UrTfBBVbrutfEVICOlrSP+m3H++WREZe3nc18vW/2QkeczyJcMFAo=
 SIG
+
+# Three real X.509 certificates. openssl(1) made each one, and the
+# test reads them with Fugu::X509, which needs no command. Each pair
+# of dates is fixed, so no assertion below depends on the day of the
+# run.
+#
+# This certificate is valid from 2020 to 2999. It is therefore valid
+# on every day that this test runs, and it never reaches the 30-day
+# report of WEB-X509-6.
+my $CERT = <<'PEM';
+-----BEGIN CERTIFICATE-----
+MIIB6TCCAY+gAwIBAgIUS6qvjtHt4Hjk53+pwP4db2ngz8gwCgYIKoZIzj0EAwIw
+STELMAkGA1UEBhMCU0UxEDAOBgNVBAoMB0V4YW1wbGUxDzANBgNVBAsMBlRFQU1J
+RDEXMBUGA1UEAwwORXhhbXBsZSBTaWduZXIwIBcNMjAwMTAxMDAwMDAwWhgPMjk5
+OTEyMzEyMzU5NTlaMEkxCzAJBgNVBAYTAlNFMRAwDgYDVQQKDAdFeGFtcGxlMQ8w
+DQYDVQQLDAZURUFNSUQxFzAVBgNVBAMMDkV4YW1wbGUgU2lnbmVyMFkwEwYHKoZI
+zj0CAQYIKoZIzj0DAQcDQgAEkBYDhRjDnbaRDy23zerOgcJj52sSdgJYKVob+hrX
+4XmRzgOQ4V429n0WfO2KcL828VGFl4++u/7Cy77q9kCMOKNTMFEwHQYDVR0OBBYE
+FCItjDYuouLybpxUm/M2H28FZ/RMMB8GA1UdIwQYMBaAFCItjDYuouLybpxUm/M2
+H28FZ/RMMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIgI4A0pA8F
+p/lWpQrxI9dgkh/Zjfi620AIxPe2likNuLYCIQDINQaYXeWTX6DSyyYB9WuLLAJg
+lQy/3EEqC1pkyGu30w==
+-----END CERTIFICATE-----
+PEM
+
+# The SHA-256 of the DER form of the certificate above, per
+# WEB-X509-4, and the subject that it carries. Fugu::X509 answers the
+# subject as a hash of attribute type to value, and the human page
+# writes one line of it, sorted by the type.
+use constant {
+	CERT_FINGERPRINT =>
+	    'C3A6AAE7262F644D2F2FFD2ADCB34F645A7387CD101A398A0FD0E1361AF3BE72',
+	CERT_SUBJECT => 'C=SE, CN=Example Signer, O=Example, OU=TEAMID',
+};
+
+# A certificate whose validity passed, and one whose validity has not
+# started. The check of WEB-X509-6 needs both sides of the window.
+my $EXPIRED_CERT = <<'PEM';
+-----BEGIN CERTIFICATE-----
+MIIBiDCCAS2gAwIBAgIUJ5GFVkr4fBWxm93QDpQvREErItUwCgYIKoZIzj0EAwIw
+GTEXMBUGA1UEAwwORXhwaXJlZCBTaWduZXIwHhcNMDAwMTAxMDAwMDAwWhcNMDEw
+MTAxMDAwMDAwWjAZMRcwFQYDVQQDDA5FeHBpcmVkIFNpZ25lcjBZMBMGByqGSM49
+AgEGCCqGSM49AwEHA0IABNZAfkRWwW4Qkk8mZ24Q0dC5slDv7cXMsDPhqOhIlYzi
+dJU6fykjIMxs52aiGdMwmhjQqUD61DVyMeVM987lbiijUzBRMB0GA1UdDgQWBBR7
+IWLvo05TUsUhw1mcZEZLsD9y5zAfBgNVHSMEGDAWgBR7IWLvo05TUsUhw1mcZEZL
+sD9y5zAPBgNVHRMBAf8EBTADAQH/MAoGCCqGSM49BAMCA0kAMEYCIQD/6lV3cyO2
+KVGnbr3hjQzk9DtTtBMSUCZutBaz6scxwQIhAMs+VQcRGwWdxUSJogu2xZiJ5ULv
+5Bkp9pTtMhiETpqo
+-----END CERTIFICATE-----
+PEM
+
+my $FUTURE_CERT = <<'PEM';
+-----BEGIN CERTIFICATE-----
+MIIBiTCCAS+gAwIBAgIUKa+Zc5yYip9wOVOCqLJuGp/ElgMwCgYIKoZIzj0EAwIw
+GDEWMBQGA1UEAwwNRnV0dXJlIFNpZ25lcjAiGA8yMDkwMDEwMTAwMDAwMFoYDzIw
+OTkwMTAxMDAwMDAwWjAYMRYwFAYDVQQDDA1GdXR1cmUgU2lnbmVyMFkwEwYHKoZI
+zj0CAQYIKoZIzj0DAQcDQgAEz9/pBsXt+/LvEY09c+LgeUrS9LqEeJWQ0mjqPY7u
+slW5HqVPDApMq2Xy/YGFahCU5cpEqEWLVVX1Gbh3+glts6NTMFEwHQYDVR0OBBYE
+FE+oSPP6edfPDIXLdKMRnEqng3qfMB8GA1UdIwQYMBaAFE+oSPP6edfPDIXLdKMR
+nEqng3qfMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIhAP8/q0L4
+fIc1AwRB7cWF0XoOvLSRyXGqco9u4PYUHKsFAiAxjJhgSoHeuquUS+4lKU0g1TOw
+7SFgeedO/WnmwuxElQ==
+-----END CERTIFICATE-----
+PEM
 
 my $KEYS_BLOCK = <<'RC';
 keys "keys" {
@@ -417,21 +493,23 @@ subtest 'the generated files' => sub {
 		'and it holds no signify key, which gpg cannot read' );
 
 	# WEB-KEYS-13 names every column of the page, so the test does
-	# too. A row that lost six of eight columns passed before.
+	# too. A row that lost six columns passed before.
 	my $page = $generated->{'keys/index.html'};
 	for my $head (
-		'Key',    'Purpose',     'Serial',   'Type',
-		'Status', 'Fingerprint', 'Since',    'Until',
-		'Bindings'
+		'Key',         'Purpose', 'Serial',   'Type',
+		'Status',      'Fingerprint', 'Subject', 'Validity',
+		'Since',       'Until',   'Bindings'
 	    )
 	{
 		like( $page, qr{<th>\Q$head\E</th>},
 			"the page names the $head column" );
 	}
 
+	# The subject and the validity cells belong to a certificate,
+	# so a key of another type leaves each one empty.
 	like(
 		$page,
-		qr{<td>release</td><td>1</td><td>signify</td><td>current</td><td></td><td>2026-09-07</td><td></td>},
+		qr{<td>release</td><td>1</td><td>signify</td><td>current</td><td></td><td></td><td></td><td>2026-09-07</td><td></td>},
 		'and a signify row holds each value in order'
 	);
 	like(
@@ -674,6 +752,123 @@ subtest 'an absent command for a binding type of the directory' => sub {
 	# reports one problem and not two.
 	unlike( $found, qr{fugubsd-1-release\.sig},
 		'and the signify binding verifies without one' );
+};
+
+# WEB-TRUST-9 and WEB-OPENPGP-5. The verifier imports the one public
+# key of the signer into an empty home, so an armored signature that
+# another key made must fail.
+#
+# The published key is the fixed fixture, and gpg(1) makes the key
+# that signs the binding. The verify needs gpg(1) too, so the skip
+# stands before the first assertion of the subtest.
+subtest 'an OpenPGP binding that its signer does not verify' => sub {
+	my $pgp = Fugu::OpenPGP->new;
+	plan skip_all => 'gpg(1) is not installed' unless $pgp->is_available;
+
+	# The signature is a real one, and a key of no block made it.
+	# The name says that the contact key made it, so the walk pins
+	# the published key and the check fails.
+	my $work = tempdir( CLEANUP => 1 );
+	$pgp->generate(
+		email  => 'other@example.net',
+		public => "$work/other.asc",
+		secret => "$work/other.sec",
+	) or die 'the OpenPGP fixture failed: ' . $pgp->error . "\n";
+
+	spew( "$work/fugubsd-1-root.pub", $ROOT );
+	$pgp->sign(
+		secret    => "$work/other.sec",
+		file      => "$work/fugubsd-1-root.pub",
+		signature => "$work/binding.asc",
+	) or die 'the binding fixture failed: ' . $pgp->error . "\n";
+
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-contact.asc' => $OPENPGP,
+			'fugubsd-1-root.pub.fugubsd-1-contact.asc' =>
+			    slurp("$work/binding.asc"),
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = current
+}
+RC
+	);
+
+	like(
+		problems($root),
+		qr{^keys/fugubsd-1-root\.pub\.fugubsd-1-contact\.asc: .*no key verified}ms,
+		'the check names the binding'
+	);
+};
+
+# WEB-TRUST-9 and WEB-X509-7. The verifier pins the one certificate of
+# the signer, so a CMS signature that another key made must fail. A
+# signify binding and an OpenPGP binding each have such a test above.
+#
+# The published certificate is the fixed fixture, and openssl(1) makes
+# the key that signs the binding. The verify needs openssl(1) too, so
+# the skip stands before the first assertion of the subtest.
+subtest 'a certificate binding that its signer does not verify' => sub {
+	my $x509 = Fugu::X509->new;
+	plan skip_all => 'openssl(1) is not installed'
+	    unless $x509->is_available;
+
+	# The signature is a real one, and a key of no block made it.
+	# The name says that the sign key made it, so the walk pins
+	# the published certificate and the check fails.
+	my $work = tempdir( CLEANUP => 1 );
+	$x509->generate(
+		subject => '/CN=Another Signer',
+		days    => 3650,
+		public  => "$work/other.pem",
+		secret  => "$work/other.key",
+	) or die 'the certificate fixture failed: ' . $x509->error . "\n";
+
+	spew( "$work/fugubsd-1-root.pub", $ROOT );
+	$x509->sign(
+		public    => "$work/other.pem",
+		secret    => "$work/other.key",
+		file      => "$work/fugubsd-1-root.pub",
+		signature => "$work/binding.p7s",
+	) or die 'the binding fixture failed: ' . $x509->error . "\n";
+
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub' => $ROOT,
+			'fugubsd-1-sign.pem' => $CERT,
+			'fugubsd-1-root.pub.fugubsd-1-sign.p7s' =>
+			    slurp("$work/binding.p7s"),
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-sign" {
+	status = current
+}
+RC
+	);
+
+	like(
+		problems($root),
+		qr{^keys/fugubsd-1-root\.pub\.fugubsd-1-sign\.p7s: .*no key verified}ms,
+		'the check names the binding'
+	);
 };
 
 # WEB-TRUST-10. A signer that is current or next must target the root,
@@ -982,6 +1177,341 @@ RC
 		qr{^keys/fugubsd-1-contact\.asc: the description declares 0{40}, and the key gives \Q@{[FINGERPRINT]}\E$}m,
 		'the check names both fingerprints'
 	);
+};
+
+# WEB-X509-5 and WEB-KEYS-13. The human page names the subject and the
+# validity dates of a certificate beside its fingerprint. A reader of
+# the page compares the subject with what a signed binary reports, and
+# the subject holds across a renewal that changes the fingerprint.
+#
+# WEB-X509-8. The KEYS file and the Web Key Directory each serve an
+# OpenPGP reader, so both skip a certificate.
+subtest 'the page of a certificate' => sub {
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-contact.asc' => $OPENPGP,
+			'fugubsd-1-sign.pem'    => $CERT,
+		},
+		rc => <<"RC"
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = current
+	email  = security\@fugubsd.org
+}
+
+key "fugubsd-1-sign" {
+	status      = current
+	fingerprint = @{[CERT_FINGERPRINT]}
+}
+RC
+	);
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+	return unless $config;
+
+	my $keys      = App::FuguWeb::Keys->new( config => $config );
+	my $generated = $keys->generated;
+	ok( $generated, 'the key directory generates' ) or diag $keys->error;
+	return unless $generated;
+
+	my $page = $generated->{'keys/index.html'};
+	like(
+		$page,
+		qr{<td>sign</td><td>1</td><td>x509</td><td>current</td><td>\Q@{[CERT_FINGERPRINT]}\E</td><td>\Q@{[CERT_SUBJECT]}\E</td><td>2020-01-01 to 2999-12-31</td>},
+		'the row of the certificate holds each value in order'
+	);
+
+	# WEB-X509-8. gpg --import reads the KEYS file, and the type
+	# of the key is what keeps the certificate out of it.
+	unlike( $generated->{'keys/KEYS'}, qr{fugubsd-1-sign},
+		'the KEYS file skips the certificate' );
+
+	# gpg --locate-keys reads the Web Key Directory, which holds
+	# one path for each address. App::FuguWeb::Config refuses an
+	# email on a certificate, per WEB-KEYS-7, so no certificate
+	# can reach that directory at all. This assertion therefore
+	# proves the path of the OpenPGP address, and the skip of the
+	# certificate stands on the loader below.
+	is_deeply(
+		[ grep { m{openpgpkey/hu/} } sort keys %$generated ],
+		[ '.well-known/openpgpkey/hu/' . WKD_HASH ],
+		'and the Web Key Directory serves the OpenPGP address alone'
+	);
+};
+
+# WEB-KEYS-22 and WEB-X509-4. The declared fingerprint of a
+# certificate is the SHA-256 of its DER form, and the check holds it
+# to the one that the bytes give.
+subtest 'a fingerprint that the certificate does not give' => sub {
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub' => $ROOT,
+			'fugubsd-1-sign.pem' => $CERT,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-sign" {
+	status      = current
+	fingerprint = 0000000000000000000000000000000000000000000000000000000000000000
+}
+RC
+	);
+
+	like(
+		problems($root),
+		qr{^keys/fugubsd-1-sign\.pem: the description declares 0{64}, and the key gives \Q@{[CERT_FINGERPRINT]}\E$}m,
+		'the check names both fingerprints'
+	);
+};
+
+# WEB-KEYS-7 and WEB-X509-4. A key block of a certificate takes an
+# optional fingerprint of 64 hexadecimal characters. It takes no
+# email, because a certificate carries no user id. The width comes
+# from the type: a check that took the width of an OpenPGP key would
+# pass 40 characters of a SHA-256.
+subtest 'a key block of a certificate that the loader refuses' => sub {
+	my %case = (
+		'an email on a certificate' => [
+			qr{key "fugubsd-1-sign" names email, and fugubsd-1-sign\.pem is a x509 key},
+			"\temail = x\@example.org\n",
+		],
+		'a fingerprint of 40 characters' => [
+			qr{fingerprint is 0{40}, which is not 64 hexadecimal characters},
+			"\tfingerprint = " . ( '0' x 40 ) . "\n",
+		],
+	);
+
+	for my $name ( sort keys %case ) {
+		my ( $pattern, $setting ) = @{ $case{$name} };
+
+		my $root = project(
+			keys => {
+				'fugubsd-1-root.pub' => $ROOT,
+				'fugubsd-1-sign.pem' => $CERT,
+			},
+			rc => <<"RC"
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-sign" {
+	status = current
+$setting}
+RC
+		);
+
+		my ( $config, $reason ) = load($root);
+		ok( !$config, "$name is refused" );
+		like( $reason, $pattern, 'and the reason names it' );
+	}
+};
+
+# WEB-X509-1. The key file must hold one PEM certificate. The reader
+# takes one CERTIFICATE block, so a private key and a second block
+# each fail it. A directory that held a certificate and its private
+# key in one file would publish that key, and the operator splits the
+# two.
+#
+# The delimiter of the private key is built and never written, because
+# the secret gate reads this file and a block of that name is what it
+# looks for.
+subtest 'a pem file that is not one certificate' => sub {
+	my $block = join ' ', 'PRIVATE', 'KEY';
+	my %case = (
+		'a private key block' => [
+			"-----BEGIN $block-----\n"
+			    . "bm90IGEgY2VydGlmaWNhdGU=\n"
+			    . "-----END $block-----\n",
+			qr{holds a \Q$block\E block, and this method takes a CERTIFICATE block},
+		],
+		'a second certificate block' => [
+			$CERT . $CERT,
+			qr{holds 2 CERTIFICATE blocks, and this method takes one},
+		],
+	);
+
+	for my $name ( sort keys %case ) {
+		my ( $bytes, $pattern ) = @{ $case{$name} };
+
+		my $root = project(
+			keys => {
+				'fugubsd-1-root.pub' => $ROOT,
+				'fugubsd-1-sign.pem' => $bytes,
+			},
+			rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-sign" {
+	status = current
+}
+RC
+		);
+
+		my ( $config, $reason ) = load($root);
+		ok( $config, "$name loads" ) or diag $reason;
+		next unless $config;
+
+		my $keys = App::FuguWeb::Keys->new( config => $config );
+		ok( !$keys->generated, "and $name is refused" );
+		like( $keys->error, qr{^fugubsd-1-sign\.pem: the text $pattern},
+			'and the reason names the file and the fault' );
+
+		my $out = "$root/out";
+		ok( !site( $config, $out )->build, 'the build fails' );
+		ok( !-e "$out/keys/fugubsd-1-sign.pem",
+			'and it copies no key at all' );
+	}
+};
+
+# WEB-X509-6. The check reports a current or next certificate whose
+# notAfter has passed, and one whose notBefore has not come. Each
+# fixture holds a fixed pair of dates, so the answer stands on every
+# day and at every hour.
+#
+# The second sign key is next, and it carries the expired certificate
+# too. The rule reads a key in force, and a next key is one.
+subtest 'a certificate that is not valid today' => sub {
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'   => $ROOT,
+			'fugubsd-1-sign.pem'   => $EXPIRED_CERT,
+			'fugubsd-2-sign.pem'   => $EXPIRED_CERT,
+			'fugubsd-1-notary.pem' => $FUTURE_CERT,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-sign" {
+	status = current
+}
+
+key "fugubsd-2-sign" {
+	status = next
+}
+
+key "fugubsd-1-notary" {
+	status = current
+}
+RC
+	);
+
+	my $found = problems($root);
+	like(
+		$found,
+		qr{^keys/fugubsd-1-sign\.pem: the current key expired on 2001-01-01$}m,
+		'the check names the file and the date of the expiry'
+	);
+	like(
+		$found,
+		qr{^keys/fugubsd-2-sign\.pem: the next key expired on 2001-01-01$}m,
+		'and it reads a next key by the same rule'
+	);
+	like(
+		$found,
+		qr{^keys/fugubsd-1-notary\.pem: the current key is not valid before 2090-01-01$}m,
+		'and the file and the date of a validity that has not started'
+	);
+};
+
+# WEB-X509-6. The check reports a current certificate that expires
+# within 30 days, when its purpose holds no next key. One rotation
+# runs in two steps, and the consumers need the gap between them.
+#
+# No fixed date stands 30 days from the day of the run, so openssl(1)
+# makes each certificate here. It writes notBefore at the current
+# second and notAfter that many days later. A certificate of 30 days
+# therefore stands inside the bar at every hour, and one of 32 days
+# stands outside it.
+subtest 'a certificate that expires soon' => sub {
+	my $x509 = Fugu::X509->new;
+	plan skip_all => 'openssl(1) is not installed'
+	    unless $x509->is_available;
+
+	my $work = tempdir( CLEANUP => 1 );
+	my %pem;
+	for my $case ( [ sign => 30 ], [ notary => 32 ] ) {
+		my ( $purpose, $days ) = @$case;
+
+		$x509->generate(
+			subject => "/CN=Example $purpose",
+			days    => $days,
+			public  => "$work/$purpose.pem",
+			secret  => "$work/$purpose.key",
+		) or die "the $purpose certificate failed: "
+		    . $x509->error . "\n";
+		$pem{$purpose} = slurp("$work/$purpose.pem");
+	}
+
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'   => $ROOT,
+			'fugubsd-1-sign.pem'   => $pem{sign},
+			'fugubsd-1-notary.pem' => $pem{notary},
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-sign" {
+	status = current
+}
+
+key "fugubsd-1-notary" {
+	status = current
+}
+RC
+	);
+
+	# The date comes from the certificate itself, so the assertion
+	# reads no clock of its own.
+	my $expiry = $x509->parse( $x509->decode_pem( $pem{sign} ) );
+	my $date = POSIX::strftime( '%Y-%m-%d', gmtime $expiry->{not_after} );
+
+	my $found = problems($root);
+	like(
+		$found,
+		qr{^keys/fugubsd-1-sign\.pem: the current key expires on \Q$date\E, and the purpose sign holds no next key$}m,
+		'the check names the file, the date and the purpose'
+	);
+	unlike( $found, qr{fugubsd-1-notary\.pem: the current key expires},
+		'and a certificate outside the bar adds none' );
 };
 
 subtest 'a description that the loader refuses' => sub {
@@ -2764,9 +3294,16 @@ subtest 'a stale binding takes the shape of the key directory' => sub {
 	spew( "$out/$stale", "stale\n" );
 	spew( "$out/$other", "mine\n" );
 
+	# WEB-OUTPUT-10. A key file of each type takes a shape of the
+	# key directory, and the description of this site names no
+	# certificate at all.
+	my $dropped = 'keys/fugubsd-9-sign.pem';
+	spew( "$out/$dropped", "stale\n" );
+
 	ok( site( $config, $out )->build, 'a second build succeeds' );
-	ok( !-e "$out/$stale", 'the build removes the stale binding' );
-	ok( -e "$out/$other",  'and keeps the name of another shape' );
+	ok( !-e "$out/$stale",   'the build removes the stale binding' );
+	ok( !-e "$out/$dropped", 'and the stale certificate with it' );
+	ok( -e "$out/$other",    'and keeps the name of another shape' );
 
 	ok( !site( $config, $out )->clean, 'the clean refuses the tree' );
 	ok( -e "$out/$other", 'and removes nothing' );

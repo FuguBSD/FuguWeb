@@ -144,13 +144,16 @@ C<retired>, or a second block declares the same key;
 
 =item *
 
-a C<key> block of a signify key names an C<email> or a C<fingerprint>,
-which describe an OpenPGP key;
+a C<key> block names a setting that its type does not take: an
+C<email> or a C<fingerprint> on a signify key, and an C<email> on a
+certificate;
 
 =item *
 
-an C<email> is not a local part and a domain, or a C<fingerprint> is
-not 40 hexadecimal characters.
+an C<email> is not a local part and a domain, or a C<fingerprint> does
+not hold the width of its type. The fingerprint of an OpenPGP key
+holds 40 hexadecimal characters, and the SHA-256 of the DER of a
+certificate holds 64.
 
 =back
 
@@ -256,7 +259,7 @@ The C<key> blocks, in file order. Each entry is a hashref:
     name         the key file in the directory
     stem         the block name, which is the name without the
                  extension
-    type         signify or openpgp, from the extension
+    type         signify, openpgp or x509, from the extension
     serial       the rotation count of the purpose
     purpose      what the key signs
     status       current, next or retired

@@ -35,14 +35,18 @@ manifest parser. The renderer holds the wiring only.
 - **WEB-KEYS-4** — The `keys` block must take an optional `url`, which is the
   published prefix of the directory. The value must be an absolute URL.
 - **WEB-KEYS-5** — Each `key` block must name the stem of one key file in the
-  directory. The extension of that file gives the type. The renderer must reject
-  a stem that names no file, and one that names more than one.
+  directory. The extension of that file gives the type: `.pub` names a signify
+  key, `.asc` an armored OpenPGP key, and `.pem` an X.509 certificate. The
+  renderer must reject a stem that names no file, and one that names more than
+  one.
 - **WEB-KEYS-6** — Each `key` block must take a `status` of `current`, `next` or
   `retired`, and optional `since` and `until` values.
 - **WEB-KEYS-7** — A `key` block of an OpenPGP key must take an optional `email`
-  and an optional `fingerprint`. The renderer must reject either setting on a
-  key of another type. The `email` value must be a local part and a domain, and
-  the `fingerprint` value must be 40 hexadecimal characters.
+  and an optional `fingerprint`. A block of a certificate must take an optional
+  `fingerprint`. The renderer must reject an `email` on a certificate, and it
+  must reject both settings on a signify key. The `email` value must be a local
+  part and a domain. The `fingerprint` of an OpenPGP key must be 40 hexadecimal
+  characters, and the one of a certificate must be 64, per WEB-X509-4.
 - **WEB-KEYS-8** — The renderer must reject a setting that neither block
   defines, and a `key` block that a second block declares again.
 - **WEB-KEYS-9** — The directory must hold a `SHA256` file and a `SHA256.sig`
@@ -72,8 +76,9 @@ manifest parser. The renderer holds the wiring only.
   OpenPGP key, with every such key in publication order.
 - **WEB-KEYS-13** — The build must generate `<dir>/index.html`. The page must
   name the serial, the purpose, the type, the status, the fingerprint and the
-  dates of each key. It must link each key file, and must list the bindings of
-  each key, per WEB-TRUST-11.
+  dates of each key. It must name the subject and the validity dates of a
+  certificate, per WEB-X509-5. It must link each key file, and must list the
+  bindings of each key, per WEB-TRUST-11.
 - **WEB-KEYS-14** — The build must generate `.well-known/openpgpkey/hu/<hash>`
   for each email address that a key names, and must generate
   `.well-known/openpgpkey/policy` beside it. The file must hold the binary form
@@ -88,9 +93,10 @@ manifest parser. The renderer holds the wiring only.
   file, so the build and the checks read one list.
 - **WEB-KEYS-17** — The build must sign nothing and must verify nothing.
 - **WEB-KEYS-26** — The build must read each key file before it copies one. It
-  must decode an armored key, and it must hold a signify key to its own shape. A
-  build that refuses a key must copy no key at all. A build that fails later can
-  leave the keys that it wrote, and the checks report the tree.
+  must decode an armored key and a certificate, per WEB-X509-1, and it must hold
+  a signify key to its own shape. A build that refuses a key must copy no key at
+  all. A build that fails later can leave the keys that it wrote, and the checks
+  report the tree.
 
 ### The checks
 
@@ -103,7 +109,8 @@ manifest parser. The renderer holds the wiring only.
 - **WEB-KEYS-21** — `SHA256` must name every key file and every binding file
   with the digest that the file has, and must name nothing else.
 - **WEB-KEYS-22** — The declared fingerprint of an OpenPGP key must equal the
-  fingerprint that its body gives.
+  fingerprint that its body gives. The declared fingerprint of a certificate
+  must equal the SHA-256 of its DER form.
 - **WEB-KEYS-33** — `SHA256.sig` must hold a signify signature. The file must
   hold two lines. The first line must be an `untrusted comment: ` line. The
   second line must hold 100 base64 characters. Those characters must decode to
@@ -452,7 +459,9 @@ it, so the build keeps it and the clean refuses the tree.
 
   - a generated name of the key directory: `SHA256`, `SHA256.sig`, `KEYS` or
     `index.html`;
-  - a key file of the key directory, whose name matches rule WEB-KEYS-19;
+  - a key file of the key directory, whose name matches rule WEB-KEYS-19. A
+    signify key, an OpenPGP key and a certificate each take one shape there, per
+    rule WEB-KEYS-5;
   - a binding file of the key directory, whose name matches rule WEB-KEYS-19;
   - `.well-known/security.txt`;
   - `.well-known/openpgpkey/policy`;

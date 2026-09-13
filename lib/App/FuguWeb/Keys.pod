@@ -24,8 +24,10 @@ Every generic part lives in Fugu. L<Fugu::KeyDir> holds the name
 pattern of a key and of a binding, the publication order, the
 retention rule, and the text of the C<KEYS> file and of
 F<security.txt>. L<Fugu::OpenPGP> decodes an armored key and computes
-a fingerprint and a Web Key Directory hash. L<Fugu::Signify> parses
-the manifest. Nothing generic lives here.
+a fingerprint and a Web Key Directory hash. L<Fugu::X509> decodes a
+PEM certificate and reads its fingerprint, its subject and its
+validity. L<Fugu::Signify> parses the manifest. Nothing generic lives
+here.
 
 A site build neither signs nor verifies, so the manifest pair is a
 source file and not a generated one. The check verifies each binding,
@@ -58,8 +60,8 @@ word:
 
 The block name of a C<key> block is the stem of the key file. The
 extension of the file on disk decides the type: C<.pub> is a signify
-key, and C<.asc> is an armored OpenPGP key. The status is C<current>,
-C<next> or C<retired>.
+key, C<.asc> is an armored OpenPGP key, and C<.pem> is one X.509
+certificate. The status is C<current>, C<next> or C<retired>.
 
 L<App::FuguWeb::Config> reads and validates both blocks. It resolves
 each block to its file, so this class repeats no name pattern.
@@ -68,7 +70,10 @@ each block to its file, so this class repeats no name pattern.
 
     keys/<stem>.pub          each key file, byte for byte
     keys/<stem>.asc
+    keys/<stem>.pem
     keys/<key>.<stem>.sig    each binding, byte for byte
+    keys/<key>.<stem>.asc
+    keys/<key>.<stem>.p7s
     keys/SHA256              the manifest pair, copied as it stands
     keys/SHA256.sig
     keys/KEYS                every OpenPGP key, in the Apache form
@@ -132,7 +137,10 @@ holds the reason.
     $keys->key_set
 
 The key set for L<Fugu::KeyDir>: every key block of the description,
-with the armored body of each OpenPGP key read from its file.
+with the bytes of each key that a later read needs. An OpenPGP key
+carries its armored body, and a certificate the DER that its PEM block
+holds. The decoder of each type runs here, so a file that holds no key
+of its type fails before the build copies one.
 
 =head2 problems
 
@@ -147,9 +155,10 @@ The checks read the source directory and not the output. A stray file
 and a stale digest are faults of the checkout, so the answer must not
 depend on a build having run.
 
-C<expiry> C<0> leaves out the expiry rules of an OpenPGP key. The
-clock decides those, and no step of L<App::FuguWeb::Rotate> can make a
-key expire later. A step reads its own work back with this argument.
+C<expiry> C<0> leaves out the validity rules of an OpenPGP key and of
+a certificate. The clock decides those, and no step of
+L<App::FuguWeb::Rotate> can move a date that a key carries. A step
+reads its own work back with this argument.
 
 An expired C<current> key is still C<current> at that read, so a step
 of its purpose could never be made. The 30-day report reads the whole
@@ -215,15 +224,20 @@ that the file has, and it names nothing else.
 
 =item *
 
-The declared fingerprint of an OpenPGP key equals the computed one.
+The declared fingerprint of an OpenPGP key and of a certificate
+equals the computed one. The fingerprint of a certificate is the
+SHA-256 of its DER form.
 
 =item *
 
-No C<current> or C<next> OpenPGP key has an expiry that passed. A
-C<current> key that expires within 30 days is a problem when its
-purpose holds no C<next> key, because one rotation runs in two steps.
-The read runs C<gpg(1)>, and an absent command is a problem of the
-host. A key with no expiry reaches neither rule.
+No C<current> or C<next> key has an expiry that passed, and no
+certificate of that status waits for its C<notBefore>. A C<current>
+key that expires within 30 days is a problem when its purpose holds no
+C<next> key, because one rotation runs in two steps. The expiry of an
+OpenPGP key comes from C<gpg(1)>, and an absent command is a problem
+of the host. The dates of a certificate come from its own bytes. A
+signify key carries no date, and an OpenPGP key with no expiry reaches
+no rule.
 
 =item *
 

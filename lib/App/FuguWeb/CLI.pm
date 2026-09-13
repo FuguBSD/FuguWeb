@@ -107,7 +107,11 @@ my %COMMANDS = (
 		    . ' [--org <word> [--dir <name>] [--url <prefix>]]',
 		options => {
 			%KEY_OPTION, %BLOCK_OPTION,
-			'type=s' => 'the key type (default: signify)',
+
+			# WEB-ROTATE-2. An issuer makes a certificate,
+			# so no mint generates one.
+			'type=s' => 'the key type, signify or openpgp '
+			    . '(default: signify)',
 
 			# WEB-OPENPGP-1 and WEB-OPENPGP-3. An OpenPGP
 			# mint needs the address of the user id, and it
@@ -126,7 +130,12 @@ my %COMMANDS = (
 		    . ' [--org <word> [--dir <name>] [--url <prefix>]]',
 		options => {
 			%KEY_OPTION, %BLOCK_OPTION,
-			'type=s' => 'the key type (default: signify)',
+
+			# WEB-X509-2. An import publishes a key that
+			# another tool made, of every type that a key
+			# directory holds.
+			'type=s' => 'the key type, signify, openpgp or '
+			    . 'x509 (default: signify)',
 			'file=s' => 'the public key file to publish',
 		},
 		method => 'cmd_import_key',
