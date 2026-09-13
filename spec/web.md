@@ -138,10 +138,12 @@ command, and it runs the command of another type, per WEB-TRUST-9.
 - **WEB-ROTATE-1** — The verbs must be `fuguweb mint-key`, `fuguweb import-key`
   and `fuguweb promote-key`. Each verb must take a `--purpose` word. `mint-key`
   must take a `--type`, and the default must be `signify`.
-- **WEB-ROTATE-2** — A mint must take the next serial of the purpose, and
-  generate a signify pair with no passphrase. It must write the public half into
-  the key directory. It must write the private half to the named path, and that
-  file must take no group mode and no other mode.
+- **WEB-ROTATE-2** — A mint must take the next serial of the purpose. It must
+  generate a key of the type that `--type` names: a signify pair, or an OpenPGP
+  key per WEB-OPENPGP-1. The signify pair and the OpenPGP secret half must take
+  no passphrase. It must write the public half into the key directory. It must
+  write the private half to the named path, and that file must take no group
+  mode and no other mode.
 - **WEB-ROTATE-3** — A mint must give the new key the status `current` when the
   purpose holds no current key, and the status `next` otherwise.
 - **WEB-ROTATE-4** — The command must read the status of each key from the
@@ -178,8 +180,8 @@ command, and it runs the command of another type, per WEB-TRUST-9.
 - **WEB-ROTATE-14** — The command must reach no network and must hold no token.
   The caller holds the credential.
 - **WEB-ROTATE-16** — A mint must record the date of the run as `since` on the
-  new `key` block. A promote must record it as `until` on the block of the key
-  that it retires. Both dates must read in UTC.
+  new `key` block, whatever the type of the key. A promote must record it as
+  `until` on the block of the key that it retires. Both dates must read in UTC.
 - **WEB-ROTATE-17** — An absent `signify(1)` must fail the command with the exit
   code of a missing tool. A caller then tells it from a rotation that failed.
 - **WEB-ROTATE-18** — A mint must refuse a `--secret` path that stands already,
@@ -223,9 +225,11 @@ the retention rule, and one signer and one verifier for each key type. The
 renderer and the verbs hold the wiring only.
 
 - **WEB-TRUST-1** — Each key directory must hold exactly one `current` key of
-  the purpose `root`, and that key must be a signify key. A directory with no
-  key is the one exception. The first mint of the root purpose must accept a
-  directory whose keys hold no root, and must bind each of them per WEB-TRUST-7.
+  the purpose `root`, and that key must be a signify key. A mint and an import
+  of the root purpose must refuse a key of another type. The mint must refuse
+  before it generates one. A directory with no key is the one exception. The
+  first mint of the root purpose must accept a directory whose keys hold no
+  root, and must bind each of them per WEB-TRUST-7.
 - **WEB-TRUST-2** — The current root key must sign `SHA256`, and no other key
   must sign it. A step of a subordinate purpose must take the private half of
   the current root as `--signer`.
@@ -278,12 +282,21 @@ library holds each call, and the verbs hold the wiring.
 - **WEB-OPENPGP-2** — The mint must write the `email` and the `fingerprint` of
   the new key into its `key` block. It must read the fingerprint from the key
   that it generated, and never from an argument.
-- **WEB-OPENPGP-3** — The mint must take an optional `--expires` date, and must
-  set the key expiry to it. A mint without one must set no expiry. The key
-  directory retires a key with an `until` date, and the machine rotates.
+- **WEB-OPENPGP-3** — The mint must take an optional `--expires` date of the
+  form `YYYY-MM-DD`. It must set the key expiry to the start of that date in
+  UTC. It must refuse a date that is not after the day of the run. The reason
+  must name the date that the caller gave. A mint without one must set no
+  expiry. The key directory retires a key with an `until` date, and the machine
+  rotates.
 - **WEB-OPENPGP-4** — The check must report a `current` or `next` OpenPGP key
   whose expiry has passed. It must report a `current` key that expires within 30
-  days, when its purpose holds no `next` key.
+  days, when its purpose holds no `next` key. A step of the rotation must not
+  fail for either report. An expired `current` key stays `current`, so a step
+  that failed for that report could never mint the successor. The 30-day report
+  reads the whole directory, so it would fail a step of another purpose, and
+  that step cannot answer it. A promote of an expired OpenPGP key fails in the
+  signer. WEB-TRUST-4 makes the retiring key sign the chain binding, and gpg(1)
+  signs nothing with an expired key.
 - **WEB-OPENPGP-5** — A binding by an OpenPGP key must be an armored detached
   signature. The verifier must import the one public key of the signer into an
   empty home, and a signature of another key must fail.

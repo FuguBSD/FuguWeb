@@ -28,6 +28,17 @@ App::FuguWeb::Rotate - write the key directory of a site
         signer  => '/tmp/root-1.sec',
     ) or die $rotate->error;
 
+    # An OpenPGP mint. gpg(1) makes the key and the subkey, and
+    # the email is the one user id.
+    $facts = $rotate->mint(
+        purpose => 'contact',
+        type    => 'openpgp',
+        email   => 'security@fugubsd.org',
+        expires => '2028-01-01',
+        secret  => '/tmp/contact-1.sec',
+        signer  => '/tmp/root-1.sec',
+    ) or die $rotate->error;
+
     # A subordinate promote. The retiring key signs the key that
     # takes its place.
     $facts = $rotate->promote(
@@ -57,9 +68,14 @@ C<mint> makes the next key of a purpose, and C<import_key> publishes a
 key that another tool made. C<promote> makes that key current and
 retires the old one. The first key of a purpose is current at once.
 
+A mint makes a signify pair or an OpenPGP key. An OpenPGP key is one
+Ed25519 primary key with one Curve25519 encryption subkey, and the
+email of the caller is its one user id.
+
 This class signs, and a site build does not. It runs no command of its
-own: L<Fugu::Signify> holds every call of C<signify(1)>, and the class
-of each other key type holds every call of its own command.
+own: L<Fugu::Signify> holds every call of C<signify(1)>,
+L<Fugu::OpenPGP> holds every call of C<gpg(1)>, and the class of each
+other key type holds every call of its own command.
 
 =head1 THE BINDINGS
 
@@ -179,10 +195,20 @@ Generate the next key of the purpose. The public half goes into the
 key directory, and the private half goes to C<secret> with no group
 mode and no other mode.
 
-C<type> names the key type, and the default is C<signify>. C<signer>
-is the private half of the current root key. C<bind> is a hash
-reference of key stem to path, and a first root mint takes one entry
-for each key in force.
+C<type> names the key type. The default is C<signify>, and C<openpgp>
+is the other type that a mint makes. C<signer> is the private half of
+the current root key. C<bind> is a hash reference of key stem to path,
+and a first root mint takes one entry for each key in force.
+
+An OpenPGP mint needs C<email>, which becomes the one user id of the
+key, and it takes an optional C<expires>. C<expires> is a date of the
+form C<YYYY-MM-DD>, and the key expires at the start of that date in
+UTC. A mint with no C<expires> makes a key with no expiry. A mint of
+another type takes neither option.
+
+The C<key> block of an OpenPGP key takes the C<email> and the
+C<fingerprint> of the new key. The fingerprint comes from the key that
+the step generated, and never from an argument.
 
 C<secret> must name no file that stands, and it must not name
 C<signer>. The private half of a key is the one thing that a rotation
@@ -247,7 +273,7 @@ declares the public one.
 
 L<App::FuguWeb::Keys>, L<Fugu::KeyDir>, L<Fugu::Signify>,
 L<Fugu::OpenPGP>, L<Fugu::X509>, L<App::FuguWeb::Config>,
-C<signify(1)>
+C<signify(1)>, C<gpg(1)>
 
 =head1 AUTHORS
 

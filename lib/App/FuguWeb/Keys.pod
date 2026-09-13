@@ -137,6 +137,7 @@ with the armored body of each OpenPGP key read from its file.
 =head2 problems
 
     $keys->problems
+    $keys->problems( expiry => 0 )
 
 What the key directory of the checkout is not true of, each one a
 sentence that names the file. An empty list means the directory is
@@ -145,6 +146,15 @@ good.
 The checks read the source directory and not the output. A stray file
 and a stale digest are faults of the checkout, so the answer must not
 depend on a build having run.
+
+C<expiry> C<0> leaves out the expiry rules of an OpenPGP key. The
+clock decides those, and no step of L<App::FuguWeb::Rotate> can make a
+key expire later. A step reads its own work back with this argument.
+
+An expired C<current> key is still C<current> at that read, so a step
+of its purpose could never be made. The 30-day report reads the whole
+directory, so it would fail a step of another purpose, which writes no
+C<next> key of the purpose that the report names.
 
 =head2 shaped
 
@@ -206,6 +216,14 @@ that the file has, and it names nothing else.
 =item *
 
 The declared fingerprint of an OpenPGP key equals the computed one.
+
+=item *
+
+No C<current> or C<next> OpenPGP key has an expiry that passed. A
+C<current> key that expires within 30 days is a problem when its
+purpose holds no C<next> key, because one rotation runs in two steps.
+The read runs C<gpg(1)>, and an absent command is a problem of the
+host. A key with no expiry reaches neither rule.
 
 =item *
 

@@ -13,5 +13,10 @@ runtime dist https://github.com/FuguBSD/Fugu/releases/download/v0.5.0/Fugu.tar.g
 runtime pkg mandoc
 runtime pkg lowdown
 
+# gpg(1) makes an OpenPGP key and its binding, per WEB-OPENPGP.
+# t/fuguweb/rotate.t and t/fuguweb/keys.t each skip the assertions
+# that need it.
+runtime pkg gnupg
+
 test cpan Perl::Critic
 test cpan Perl::Tidy

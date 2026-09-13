@@ -46,6 +46,8 @@
 .Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
+.Op Fl Fl email Ar address
+.Op Fl Fl expires Ar date
 .Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
 .Nm fuguweb
 .Cm import-key
@@ -181,6 +183,8 @@ holds no stylesheet, because every build writes one.
 .Fl Fl secret Ar path
 .Op Fl Fl signer Ar path
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
+.Op Fl Fl email Ar address
+.Op Fl Fl expires Ar date
 .Op Fl Fl org Ar word Oo Fl Fl dir Ar name Oc Op Fl Fl url Ar prefix
 .Xc
 Mint the next key of a purpose.
@@ -188,7 +192,14 @@ The
 .Ar type
 defaults to
 .Cm signify ,
-which is the one type that this release mints.
+and
+.Cm openpgp
+is the other type that this release mints.
+An OpenPGP mint needs
+.Fl Fl email ,
+and it takes an optional
+.Fl Fl expires .
+A mint of another type takes neither option.
 See
 .Sx KEY ROTATION .
 .It Xo Cm import-key
@@ -202,9 +213,24 @@ See
 .Xc
 Publish a key that another tool made, under the next name of the
 purpose.
-The command takes the options of a mint of that purpose, and
+The command takes
+.Fl Fl purpose ,
+.Fl Fl signer
+and
+.Fl Fl bind
+as a mint of that purpose does, with
 .Fl Fl file
 beside them.
+It reads a
+.Cm signify
+key alone, and a
+.Fl Fl type
+of another type fails.
+It takes no
+.Fl Fl email
+and no
+.Fl Fl expires ,
+because it generates no key.
 A site with no
 .Ic keys
 block takes one from
@@ -213,8 +239,15 @@ block takes one from
 and
 .Fl Fl url ,
 as a mint does.
-It writes no key file of its own: the caller holds the private half,
-which signs the binding of the new key.
+.Fl Fl secret
+names the private half of the key in
+.Fl Fl file ,
+and that file must stand.
+The command writes no key file of its own, and that private half
+signs the binding of the new key.
+A mint refuses a
+.Fl Fl secret
+that stands already, because a mint writes one.
 See
 .Sx KEY ROTATION .
 .It Xo Cm promote-key
@@ -649,6 +682,46 @@ A binding of another type needs
 or
 .Xr openssl 1 ,
 and an absent command is a problem.
+.Pp
+The check reads the expiry of each
+.Cm current
+and
+.Cm next
+OpenPGP key with
+.Xr gpg 1 .
+An expiry that passed is a problem.
+An expiry within 30 days of a
+.Cm current
+key is a problem when its purpose holds no
+.Cm next
+key, because one rotation runs in two steps.
+A key with no expiry reaches neither rule.
+.Pp
+A key verb does not fail for either report, so
+.Cm mint-key
+and
+.Cm import-key
+each run on a directory that
+.Cm check
+rejects for an expiry.
+An expired
+.Cm current
+key is still
+.Cm current
+when the verb reads its work back, so a step of that purpose could
+never be made.
+The 30-day report reads the whole directory, so it would fail a step
+of another purpose, which writes no
+.Cm next
+key of the purpose that the report names.
+.Pp
+.Cm promote-key
+fails when the key that retires is an OpenPGP key whose expiry
+passed.
+That key signs the chain binding, and
+.Xr gpg 1
+signs nothing with an expired key.
+Promote the successor before the current key expires.
 .Sh KEY ROTATION
 A consumer verifies a release against the copy of the public key that
 it holds.
@@ -661,15 +734,19 @@ word is
 .Cm root .
 The current root key signs the manifest, and every other key binds to
 it.
+.Cm mint-key
+and
+.Cm import-key
+refuse a key of another type for the
+.Cm root
+purpose, and the mint refuses before it generates one.
 Every step takes the private half of the current root as
 .Fl Fl signer ,
 with two exceptions below.
 .Pp
 .Cm mint-key
-generates the next key of the purpose with
-.Xr signify 1 ,
-writes its public half into the key directory, and writes its private
-half to
+generates the next key of the purpose, writes its public half into the
+key directory, and writes its private half to
 .Fl Fl secret
 with no group and no other permissions.
 The new key takes the status
@@ -700,6 +777,42 @@ The promote removes the root binding of the retired key, and the chain
 binding stays published.
 A retired key keeps its file and its URL, so a release that it signed
 still verifies.
+.Ss The key types
+.Xr signify 1
+generates a
+.Cm signify
+key.
+The public half is one comment line and one key body.
+.Pp
+.Xr gpg 1
+generates an
+.Cm openpgp
+key: one Ed25519 primary key with one Curve25519 encryption subkey.
+.Fl Fl email
+names the address, which is the one user id of the key, and a
+correspondent encrypts to the subkey.
+Both halves are armored text.
+The
+.Ic key
+block of the new key takes that
+.Ic email
+and the
+.Ic fingerprint ,
+which the command reads from the key that it generated.
+.Pp
+.Fl Fl expires
+is a date of the form
+.Ar YYYY-MM-DD ,
+and the key expires at the start of that date, in UTC.
+The date must be after the day of the run.
+The day of the run and each earlier date fail the mint, and the reason
+names the date that you gave.
+A mint with no
+.Fl Fl expires
+makes a key with no expiry.
+A key directory retires a key with an
+.Ic until
+date, so a rotation needs no expiry on the key itself.
 .Ss The first root mint
 The first mint of the
 .Cm root
@@ -779,8 +892,10 @@ The build failed: a renderer failed, or a manual source is malformed.
 .It 5
 The check found a problem.
 .It 6
-A renderer, or
-.Xr signify 1 ,
+A renderer, or a command of a key step such as
+.Xr signify 1
+or
+.Xr gpg 1 ,
 is not installed.
 .El
 .Sh EXAMPLES
@@ -806,6 +921,13 @@ $ fuguweb mint-key --purpose release \e
 	--secret ~/keys/release-1.sec --signer ~/keys/root-1.sec
 .Ed
 .Pp
+Publish an OpenPGP contact key that expires at the start of 2028:
+.Bd -literal -offset indent
+$ fuguweb mint-key --purpose contact --type openpgp \e
+	--email security@fugubsd.org --expires 2028-01-01 \e
+	--secret ~/keys/contact-1.sec --signer ~/keys/root-1.sec
+.Ed
+.Pp
 Rotate the release key:
 .Bd -literal -offset indent
 $ fuguweb mint-key --purpose release \e
@@ -823,6 +945,7 @@ $ fuguweb promote-key --purpose root \e
 	--bind fugubsd-2-release=~/keys/release-2.sec
 .Ed
 .Sh SEE ALSO
+.Xr gpg 1 ,
 .Xr lowdown 1 ,
 .Xr mandoc 1 ,
 .Xr pod2man 1 ,
