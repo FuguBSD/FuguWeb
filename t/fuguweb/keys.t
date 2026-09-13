@@ -30,13 +30,37 @@ use_ok('App::FuguWeb::CLI');
 use_ok('App::FuguWeb::Site');
 use_ok('Fugu::Log');
 
-# A real signify public key, and a real OpenPGP public key. Both are
-# fixtures of this file: signify(1) verified the manifest below
-# against the first, and gpg(1) imported the second.
+# Two real signify public keys, and a real OpenPGP public key. Each
+# one is a fixture of this file: signify(1) made both signify pairs,
+# and gpg(1) exported the armored key.
+#
+# The root key is the root of trust of the directory, per WEB-TRUST-1.
+# Its purpose word is root, and the release key is a subordinate key.
+my $ROOT = <<'KEY';
+untrusted comment: fugubsd-1-root public key
+RWQ9Jj8uRVle/Px7eFON/VRu4xaO1j1KlTo0EBVXNqKuETmYBtLGNLvr
+KEY
+
 my $SIGNIFY = <<'KEY';
 untrusted comment: fugubsd-1-release public key
-RWRPa1Nd3YmPwqMMjxtMv+TPkCbHp43jYR8s7TGqxx1EI70I2bKmsAlE
+RWTm3yAPqZL2WmdfUi65cf2UcgjKGqyICHwk2y6sZTKSTY1GZFKvCs2W
 KEY
+
+# The binding of the release key over the root key file: the private
+# half of the release key signed the bytes of fugubsd-1-root.pub. A
+# current signer targets the root, so the retention rule takes it.
+my $BINDING = <<'SIG';
+untrusted comment: verify with fugubsd-1-release.pub
+RWTm3yAPqZL2WuoEneZq0cxgMzo4nBYewBJxzd78c2N+2iXrlH1DGngZc6o+2WsA8qQb8t+ZXCDB4gc+3itRk1J4ziPhjhE8NAw=
+SIG
+
+# The binding of the root key over the release key file. The signature
+# verifies, and the retention rule refuses it: a current signer must
+# target the root, and this one targets a subordinate key.
+my $OFF_ROOT = <<'SIG';
+untrusted comment: verify with fugubsd-1-root.pub
+RWQ9Jj8uRVle/NhGKA7te3yKRrH01B7ztDFIzNBYaiJhp/JD6wF0Ig5Zozg7lHEp0uz247WVOrP1yY/tA+ZN8hMPBQAE5LXbeAE=
+SIG
 
 my $OPENPGP = <<'KEY';
 -----BEGIN PGP PUBLIC KEY BLOCK-----
@@ -92,6 +116,11 @@ keys "keys" {
 	url     = https://www.fugubsd.org/keys
 }
 
+key "fugubsd-1-root" {
+	status = current
+	since  = 2026-09-07
+}
+
 key "fugubsd-1-release" {
 	status = current
 	since  = 2026-09-07
@@ -104,6 +133,12 @@ key "fugubsd-1-contact" {
 	fingerprint = 98385F7E3C8DB42F0CC6DBE8EB2D04A3AF4ECE55
 }
 RC
+
+# The program that the renderer probe of a fixture runs. The probe
+# needs a program that exists, and no fixture of this file calls a
+# renderer. OpenBSD and Linux hold true(1) in /bin, and macOS holds it
+# in /usr/bin.
+my $TRUE = ( grep { -x } qw(/usr/bin/true /bin/true) )[0];
 
 # digest($bytes):
 #	The lowercase hex SHA256 of the bytes, as the manifest writes
@@ -165,8 +200,10 @@ sub project (%args)
 
 	my %keys = %{
 		$args{keys} // {
+			'fugubsd-1-root.pub'    => $ROOT,
 			'fugubsd-1-release.pub' => $SIGNIFY,
 			'fugubsd-1-contact.asc' => $OPENPGP,
+			'fugubsd-1-root.pub.fugubsd-1-release.sig' => $BINDING,
 		}
 	};
 
@@ -267,11 +304,15 @@ subtest 'the published paths' => sub {
 	is( $config->keys_expires, '2027-09-07T00:00:00Z', 'keys_expires' );
 	is( $config->keys_url, 'https://www.fugubsd.org/keys', 'keys_url' );
 
+	# WEB-KEYS-16. The inventory names each binding file beside
+	# each key file, so the build and the checks read one list.
 	my %path = map { $_ => 1 } $config->key_paths;
 	for my $name (
-		'keys/fugubsd-1-release.pub', 'keys/fugubsd-1-contact.asc',
-		'keys/SHA256',                'keys/SHA256.sig',
-		'keys/KEYS',                  'keys/index.html',
+		'keys/fugubsd-1-root.pub',    'keys/fugubsd-1-release.pub',
+		'keys/fugubsd-1-contact.asc', 'keys/SHA256',
+		'keys/SHA256.sig',            'keys/KEYS',
+		'keys/index.html',
+		'keys/fugubsd-1-root.pub.fugubsd-1-release.sig',
 		'.well-known/openpgpkey/hu/' . WKD_HASH,
 		'.well-known/openpgpkey/policy',
 		'.well-known/security.txt'
@@ -280,7 +321,7 @@ subtest 'the published paths' => sub {
 		ok( $path{$name}, "the inventory names $name" );
 	}
 
-	is( scalar keys %path, 9, 'and it names nothing else' );
+	is( scalar keys %path, 11, 'and it names nothing else' );
 
 	my %inventory = map { $_ => 1 } $config->inventory;
 	ok( $inventory{'keys/KEYS'}, 'the inventory of the site holds them' );
@@ -292,7 +333,7 @@ subtest 'the key blocks' => sub {
 	ok( $config, 'the description loads' ) or diag $reason;
 
 	my ($signify) =
-	    grep { $_->{type} eq 'signify' } $config->site_keys;
+	    grep { $_->{purpose} eq 'release' } $config->site_keys;
 	is( $signify->{name}, 'fugubsd-1-release.pub', 'the file name' );
 	is( $signify->{stem}, 'fugubsd-1-release',     'the stem' );
 	is( $signify->{serial},  1,         'the serial' );
@@ -307,6 +348,16 @@ subtest 'the key blocks' => sub {
 	is( $openpgp->{email}, 'security@fugubsd.org', 'the email' );
 	is( $openpgp->{wkd}, WKD_HASH, 'the Web Key Directory hash' );
 	is( $openpgp->{fingerprint}, FINGERPRINT, 'the fingerprint' );
+
+	# A binding carries no block: its name holds the target, the
+	# signer and the type, and Fugu::KeyDir parses it.
+	my @binding = $config->site_bindings;
+	is( scalar @binding, 1, 'the directory holds one binding' );
+	is( $binding[0]{name}, 'fugubsd-1-root.pub.fugubsd-1-release.sig',
+		'the binding file name' );
+	is( $binding[0]{target}, 'fugubsd-1-root.pub', 'the target' );
+	is( $binding[0]{signer}, 'fugubsd-1-release.pub', 'the signer' );
+	is( $binding[0]{type},   'signify',              'the signer type' );
 };
 
 subtest 'the generated files' => sub {
@@ -330,8 +381,9 @@ subtest 'the generated files' => sub {
 	# too. A row that lost six of eight columns passed before.
 	my $page = $generated->{'keys/index.html'};
 	for my $head (
-		'Key',    'Purpose',     'Serial', 'Type',
-		'Status', 'Fingerprint', 'Since',  'Until'
+		'Key',    'Purpose',     'Serial',   'Type',
+		'Status', 'Fingerprint', 'Since',    'Until',
+		'Bindings'
 	    )
 	{
 		like( $page, qr{<th>\Q$head\E</th>},
@@ -357,6 +409,16 @@ subtest 'the generated files' => sub {
 	like( $page, qr{href="fugubsd-1-release\.pub"},
 		'and it links each key beside it' );
 	like( $page, qr{<td>release</td>}, 'and it names each purpose' );
+
+	# WEB-TRUST-11. The row of a key lists each binding that names
+	# it, with the signer and a link to the file. A reader of one
+	# key thus sees every key that attests it.
+	like( $page, qr{<th>Bindings</th>}, 'the page names the binding column' );
+	like(
+		$page,
+		qr{<td><a href="fugubsd-1-root\.pub\.fugubsd-1-release\.sig">fugubsd-1-release</a></td>},
+		'and the row of the root lists the binding of the release key'
+	);
 
 	my $binary = $generated->{ '.well-known/openpgpkey/hu/' . WKD_HASH };
 	ok( defined $binary, 'the Web Key Directory file exists' );
@@ -443,12 +505,215 @@ subtest 'a good directory has no problem' => sub {
 	is( problems( project() ), '', 'nothing to report' );
 };
 
-subtest 'a key file that no block names' => sub {
+# WEB-TRUST-1. One signify key of the directory is the root of trust,
+# and its purpose word is root. A directory with no such key gives a
+# consumer no anchor to pin, and every binding of it names a target
+# that nothing vouches for.
+subtest 'a directory with keys and no root' => sub {
 	my $root = project(
 		keys => {
 			'fugubsd-1-release.pub' => $SIGNIFY,
 			'fugubsd-1-contact.asc' => $OPENPGP,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+
+key "fugubsd-1-contact" {
+	status = current
+}
+RC
+	);
+
+	like(
+		problems($root),
+		qr{^keys: it holds no current key of the purpose root}m,
+		'the check names the purpose'
+	);
+};
+
+# WEB-TRUST-1. The root of trust is a signify key, per D-02. One line
+# holds such a key, so a consumer pins it with one line of its own.
+subtest 'a root key that is no signify key' => sub {
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.asc'    => $OPENPGP,
+			'fugubsd-1-release.pub' => $SIGNIFY,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+	);
+
+	like(
+		problems($root),
+		qr{^keys/fugubsd-1-root\.asc: the root key is a openpgp key}m,
+		'the check names the type'
+	);
+};
+
+# WEB-TRUST-9. A binding that no key made proves nothing, so the check
+# verifies each one against the public key of its signer. The signify
+# verifier of the Fugu library needs no command.
+subtest 'a binding that its signer does not verify' => sub {
+
+	# The bytes are a real signature, and the root key made them.
+	# The name says that the release key made them, so the walk
+	# pins the release key and the check fails.
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-1-root.pub.fugubsd-1-release.sig' => $OFF_ROOT,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+	);
+
+	like(
+		problems($root),
+		qr{^keys/fugubsd-1-root\.pub\.fugubsd-1-release\.sig: .*no key verified}ms,
+		'the check names the binding'
+	);
+};
+
+# WEB-TRUST-9. A signify binding needs no command, and a binding of
+# another type needs the command of that type. An absent command
+# leaves a binding that nothing read, so the check reports the host.
+subtest 'an absent command for a binding type of the directory' => sub {
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-1-contact.asc' => $OPENPGP,
+			'fugubsd-1-root.pub.fugubsd-1-release.sig' => $BINDING,
+			'fugubsd-1-root.pub.fugubsd-1-contact.asc' =>
+			    "-----BEGIN PGP SIGNATURE-----\n\n-----END PGP SIGNATURE-----\n",
+		}
+	);
+
+	my $found = do {
+		local $ENV{PATH} = '/nonexistent';
+		problems($root);
+	};
+
+	like(
+		$found,
+		qr{^keys/fugubsd-1-root\.pub\.fugubsd-1-contact\.asc: .*gpg}m,
+		'the check names the binding and the command'
+	);
+
+	# The signify binding beside it needs no command, so the run
+	# reports one problem and not two.
+	unlike( $found, qr{fugubsd-1-release\.sig},
+		'and the signify binding verifies without one' );
+};
+
+# WEB-TRUST-10. A signer that is current or next must target the root,
+# so each key in force attests the one anchor. This binding verifies,
+# and the retention rule is what refuses it.
+subtest 'a binding that breaks the retention rule' => sub {
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-1-release.pub.fugubsd-1-root.sig' => $OFF_ROOT,
+		},
+		rc => <<'RC'
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+}
+
+key "fugubsd-1-release" {
+	status = current
+}
+RC
+	);
+
+	like(
+		problems($root),
+		qr{must target the root key fugubsd-1-root\.pub},
+		'the check names the rule'
+	);
+};
+
+# WEB-KEYS-18. A binding needs no key block, and the directory must
+# hold its target and its signer. A binding over a key that the site
+# does not publish verifies nothing at a consumer.
+subtest 'a binding that names a key of no block' => sub {
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-1-contact.asc' => $OPENPGP,
+			'fugubsd-9-root.pub.fugubsd-1-release.sig' => $BINDING,
+		}
+	);
+
+	like(
+		problems($root),
+		qr{^keys/fugubsd-9-root\.pub\.fugubsd-1-release\.sig: it names the target fugubsd-9-root\.pub, and no key block names it}m,
+		'the check names the target'
+	);
+};
+
+# WEB-KEYS-19. A name of the directory matches the key pattern or the
+# binding pattern, and nothing else.
+subtest 'a binding name of another organization' => sub {
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-1-contact.asc' => $OPENPGP,
+			'fugubsd-1-root.pub.other-1-release.sig' => $BINDING,
+		}
+	);
+
+	like(
+		problems($root),
+		qr{^keys/fugubsd-1-root\.pub\.other-1-release\.sig: }m,
+		'the check names the file'
+	);
+};
+
+subtest 'a key file that no block names' => sub {
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-1-contact.asc' => $OPENPGP,
 			'fugubsd-2-release.pub' => $SIGNIFY,
+			'fugubsd-1-root.pub.fugubsd-1-release.sig' => $BINDING,
 		}
 	);
 
@@ -459,9 +724,11 @@ subtest 'a key file that no block names' => sub {
 subtest 'a name that the pattern does not match' => sub {
 	my $root = project(
 		keys => {
+			'fugubsd-1-root.pub'    => $ROOT,
 			'fugubsd-1-release.pub' => $SIGNIFY,
 			'fugubsd-1-contact.asc' => $OPENPGP,
 			'notes.txt'             => "a note\n",
+			'fugubsd-1-root.pub.fugubsd-1-release.sig' => $BINDING,
 		}
 	);
 
@@ -501,15 +768,41 @@ subtest 'a digest that disagrees with its file' => sub {
 	my $root = project(
 		files => {
 			'web/keys/SHA256' => manifest(
+				'fugubsd-1-root.pub'    => $ROOT,
 				'fugubsd-1-release.pub' => "other bytes\n",
 				'fugubsd-1-contact.asc' => $OPENPGP,
+				'fugubsd-1-root.pub.fugubsd-1-release.sig' =>
+				    $BINDING,
 			)
 		}
 	);
 
 	like(
 		problems($root),
-		qr{^keys/fugubsd-1-release\.pub: the manifest records \w+, and the file digests to},
+		qr{^keys/fugubsd-1-release\.pub: the manifest records \w+, and the file digests to}m,
+		'the check names both digests'
+	);
+};
+
+# WEB-KEYS-21 and WEB-TRUST-6. The manifest pins the bytes of every
+# binding file too, so a consumer that fetched a forged binding reads
+# a digest that disagrees with it.
+subtest 'a digest that disagrees with a binding' => sub {
+	my $root = project(
+		files => {
+			'web/keys/SHA256' => manifest(
+				'fugubsd-1-root.pub'    => $ROOT,
+				'fugubsd-1-release.pub' => $SIGNIFY,
+				'fugubsd-1-contact.asc' => $OPENPGP,
+				'fugubsd-1-root.pub.fugubsd-1-release.sig' =>
+				    "other bytes\n",
+			)
+		}
+	);
+
+	like(
+		problems($root),
+		qr{^keys/fugubsd-1-root\.pub\.fugubsd-1-release\.sig: the manifest records \w+, and the file digests to}m,
 		'the check names both digests'
 	);
 };
@@ -531,16 +824,19 @@ subtest 'a manifest that names a key of no block' => sub {
 	my $root = project(
 		files => {
 			'web/keys/SHA256' => manifest(
+				'fugubsd-1-root.pub'    => $ROOT,
 				'fugubsd-1-release.pub' => $SIGNIFY,
 				'fugubsd-1-contact.asc' => $OPENPGP,
 				'fugubsd-9-release.pub' => $SIGNIFY,
+				'fugubsd-1-root.pub.fugubsd-1-release.sig' =>
+				    $BINDING,
 			)
 		}
 	);
 
 	like(
 		problems($root),
-		qr{^keys/SHA256: it names fugubsd-9-release\.pub, which is not a key}m,
+		qr{^keys/SHA256: it names fugubsd-9-release\.pub, which is no key and no binding}m,
 		'the check names the line'
 	);
 };
@@ -1122,8 +1418,8 @@ sub site ( $config, $out )
 		log    => Fugu::Log->new( mode => Fugu::Log::MODE_QUIET() ),
 		render => App::FuguWeb::Render->new(
 			config  => $config,
-			mandoc  => '/bin/true',
-			lowdown => '/bin/true',
+			mandoc  => $TRUE,
+			lowdown => $TRUE,
 		),
 	);
 }
@@ -1158,6 +1454,15 @@ subtest 'the build writes the whole tree' => sub {
 	my $published = do { local $/; <$fh> };
 	close $fh;
 	is( $published, $SIGNIFY, 'a key file is copied byte for byte' );
+
+	# WEB-KEYS-11. A binding goes in byte for byte beside its key.
+	# A consumer verifies the target against these bytes, so a
+	# build that rewrote one would publish a binding that fails.
+	is(
+		slurp("$out/keys/fugubsd-1-root.pub.fugubsd-1-release.sig"),
+		$BINDING,
+		'a binding file is copied byte for byte'
+	);
 
 	is( scalar App::FuguWeb::Check->new( config => $config, out => $out )
 		->run,
@@ -1202,13 +1507,22 @@ keys "keys" {
 	org = fugubsd
 }
 
+key "fugubsd-1-root" {
+	status = current
+}
+
 key "fugubsd-1-release" {
 	status = current
 }
 RC
 	unlink "$root/web/keys/fugubsd-1-contact.asc";
-	spew( "$root/web/keys/SHA256",
-		manifest( 'fugubsd-1-release.pub' => $SIGNIFY ) );
+	spew(
+		"$root/web/keys/SHA256",
+		manifest(
+			'fugubsd-1-root.pub'    => $ROOT,
+			'fugubsd-1-release.pub' => $SIGNIFY,
+			'fugubsd-1-root.pub.fugubsd-1-release.sig' => $BINDING,
+		) );
 
 	my ( $dropped, $why ) = load($root);
 	ok( $dropped, 'the smaller description loads' ) or diag $why;
@@ -1276,6 +1590,10 @@ subtest 'the chrome of a page below the root' => sub {
 	my $root = project( rc => <<'RC' );
 keys "keys" {
 	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
 }
 
 key "fugubsd-1-release" {
@@ -1437,8 +1755,9 @@ RC
 	# The file holds both keys, byte for byte, in publication
 	# order. A length test would pass for one key of any size.
 	my $binary = $generated->{ '.well-known/openpgpkey/hu/' . WKD_HASH };
-	my ($current) = Fugu::OpenPGP->decode_armor($OPENPGP_TWO);
-	my ($retired) = Fugu::OpenPGP->decode_armor($OPENPGP);
+	my $pgp     = Fugu::OpenPGP->new;
+	my $current = $pgp->decode_armor($OPENPGP_TWO);
+	my $retired = $pgp->decode_armor($OPENPGP);
 
 	is( $binary, $current . $retired,
 		'the file holds the current key and then the retired one' );
@@ -1538,8 +1857,8 @@ subtest 'the build reports a stray directory' => sub {
 		out    => $out,
 		render => App::FuguWeb::Render->new(
 			config  => $config,
-			mandoc  => '/bin/true',
-			lowdown => '/bin/true',
+			mandoc  => $TRUE,
+			lowdown => $TRUE,
 		),
 	)->build;
 
@@ -1808,8 +2127,8 @@ subtest 'the build names the stray directory that it keeps' => sub {
 		out    => $out,
 		render => App::FuguWeb::Render->new(
 			config  => $config,
-			mandoc  => '/bin/true',
-			lowdown => '/bin/true',
+			mandoc  => $TRUE,
+			lowdown => $TRUE,
 		),
 	)->build;
 
@@ -2270,6 +2589,31 @@ subtest 'the prune and the clean answer alike' => sub {
 	# A filter that dropped a name would prove less than it says,
 	# so the count is the one that the loop reaches today.
 	is( $tested, 39, 'the test reached every name of both makers' );
+};
+
+# WEB-OUTPUT-10. A binding file takes a shape of the key directory, so
+# the build removes a stale one and the clean takes the tree that holds
+# it. The inventory names what the site holds today, so it cannot
+# answer for a binding that a promote dropped.
+subtest 'a stale binding takes the shape of the key directory' => sub {
+	my $root = project();
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = "$root/out";
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	my $stale = 'keys/fugubsd-1-release.pub.fugubsd-1-root.sig';
+	my $other = 'keys/fugubsd-1-release.pub.fugubsd-1-root.jpg';
+	spew( "$out/$stale", "stale\n" );
+	spew( "$out/$other", "mine\n" );
+
+	ok( site( $config, $out )->build, 'a second build succeeds' );
+	ok( !-e "$out/$stale", 'the build removes the stale binding' );
+	ok( -e "$out/$other",  'and keeps the name of another shape' );
+
+	ok( !site( $config, $out )->clean, 'the clean refuses the tree' );
+	ok( -e "$out/$other", 'and removes nothing' );
 };
 
 subtest 'the shape of a Web Key Directory name' => sub {

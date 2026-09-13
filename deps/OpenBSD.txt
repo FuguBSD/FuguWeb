@@ -1,4 +1,4 @@
-runtime dist https://github.com/FuguBSD/Fugu/releases/latest/download/Fugu.tar.gz
+runtime dist https://github.com/FuguBSD/Fugu/releases/download/v0.5.0/Fugu.tar.gz
 runtime pkg lowdown
 
 # t/fuguweb/rotate.t drives the rotation against signify(1), which

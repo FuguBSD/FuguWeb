@@ -4,8 +4,9 @@ FuguWeb runs on Perl v5.36 or later over the Fugu library, with `mandoc` and
 `lowdown` as the external renderers (`pod2man` ships with perl). There are two
 install flows: from a checkout with make, and from CPAN with cpanm.
 
-`fuguweb rotate-key` also needs `signify(1)`, which `make deps-test` installs.
-No other command signs, so a build and a check run without it.
+The key verbs `fuguweb mint-key`, `fuguweb import-key` and `fuguweb promote-key`
+also need `signify(1)`, which `make deps-test` installs. No other command signs,
+so a build and a check run without it.
 
 ## From a checkout
 

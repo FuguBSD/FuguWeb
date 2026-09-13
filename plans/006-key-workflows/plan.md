@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed. It waits on plan 003. A caller can add the OpenPGP type and the
-certificate type without a change here. The type, the email address, the expiry
-date and the key file are inputs, per WEB-ACTIONS-1.
+Proposed. It can land now. A caller can add the OpenPGP type and the certificate
+type without a change here. The type, the email address, the expiry date and the
+key file are inputs, per WEB-ACTIONS-1.
 
 Implements: WEB-ACTIONS.
 

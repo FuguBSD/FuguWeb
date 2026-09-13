@@ -50,6 +50,25 @@ use constant {
 	EXIT_TOOL_MISSING  => 6,
 };
 
+# The options that every key verb takes. Each private half arrives as
+# a path, per D-03, so one option names one file and the verbs serve
+# GitHub Actions, a vault and a shell the same way.
+my %KEY_OPTION = (
+	'purpose=s' => 'what the key signs, for example release',
+	'secret=s'  => 'the private half of the key of this step',
+	'signer=s'  => 'the private half of the current root key',
+	'bind=s%'   => 'the private half of one subordinate key, '
+	    . 'as <stem>=<path>',
+);
+
+# The words that describe the key directory. A site that publishes its
+# first key holds no keys block, so the first mint takes them.
+my %BLOCK_OPTION = (
+	'org=s' => 'bootstrap the keys block with this org',
+	'dir=s' => 'the key directory name (default: keys)',
+	'url=s' => 'the published prefix of the directory',
+);
+
 # The subcommands. Each entry names the method that runs it, its own
 # options, and whether it runs without a loaded project.
 my %COMMANDS = (
@@ -80,23 +99,41 @@ my %COMMANDS = (
 		},
 		method => 'cmd_check',
 	},
-	'rotate-key' => {
-		summary => 'Mint or promote a release key',
-		usage   => '--step <mint|promote> --purpose <word>'
-		    . ' --secret <path> [--signer <path>]'
+	'mint-key' => {
+		summary => 'Mint the next key of a purpose',
+		usage   => '--purpose <word> [--type <type>] --secret <path>'
+		    . ' [--signer <path>] [--bind <stem>=<path>]'
 		    . ' [--org <word> [--dir <name>] [--url <prefix>]]',
 		options => {
-			'step=s' =>
-			    'mint makes a key, promote makes it current',
-			'purpose=s' =>
-			    'what the key signs, for example release',
-			'secret=s' => 'the private key file to write or read',
-			'signer=s' => 'the private half of the current key',
-			'org=s'    => 'bootstrap the keys block with this org',
-			'dir=s'    => 'the key directory name (default: keys)',
-			'url=s'    => 'the published prefix of the directory',
+			%KEY_OPTION, %BLOCK_OPTION,
+			'type=s' => 'the key type (default: signify)',
 		},
-		method => 'cmd_rotate_key',
+		method => 'cmd_mint_key',
+	},
+	'import-key' => {
+		summary => 'Publish a key that another tool made',
+		usage   => '--purpose <word> [--type <type>] --file <path>'
+		    . ' --secret <path> [--signer <path>]'
+		    . ' [--bind <stem>=<path>]'
+		    . ' [--org <word> [--dir <name>] [--url <prefix>]]',
+		options => {
+			%KEY_OPTION, %BLOCK_OPTION,
+			'type=s' => 'the key type (default: signify)',
+			'file=s' => 'the public key file to publish',
+		},
+		method => 'cmd_import_key',
+	},
+	'promote-key' => {
+		summary => 'Make the next key of a purpose current',
+		usage   => '--purpose <word> --retiring <path>'
+		    . ' [--secret <path>] [--signer <path>]'
+		    . ' [--bind <stem>=<path>]',
+		options => {
+			%KEY_OPTION,
+			'retiring=s' =>
+			    'the private half of the key that retires',
+		},
+		method => 'cmd_promote_key',
 	},
 	init => {
 		summary => 'Write a starter .fuguwebrc',
@@ -305,55 +342,91 @@ sub cmd_init ( $self, $cli, @args )
 	return EXIT_SUCCESS;
 }
 
-# Mint a release key, or promote the one that a mint made
-#
-# The command writes the key directory and the description, per
-# WEB-ROTATE. It stores no secret and it reaches no network: the
-# caller holds the credential, stores the private key, and declares
-# the public one.
-sub cmd_rotate_key ( $self, $cli, @args )
+# Mint the next key of a purpose
+sub cmd_mint_key ( $self, $cli, @args )
 {
-	my $step    = $cli->option('step');
-	my $purpose = $cli->option('purpose');
-	my $secret  = $cli->option('secret');
+	return $self->_key_step(
+		$cli,
+		[qw(purpose secret)],
+		sub ($rotate) {
+			return $rotate->mint(
+				purpose => $cli->option('purpose'),
+				type    => $cli->option('type'),
+				secret  => $cli->option('secret'),
+				signer  => $cli->option('signer'),
+				bind    => $cli->option('bind'),
+			);
+		} );
+}
 
-	for my $need (qw(step purpose secret)) {
+# Publish a key that another tool made
+sub cmd_import_key ( $self, $cli, @args )
+{
+	return $self->_key_step(
+		$cli,
+		[qw(purpose secret file)],
+		sub ($rotate) {
+			return $rotate->import_key(
+				purpose => $cli->option('purpose'),
+				type    => $cli->option('type'),
+				file    => $cli->option('file'),
+				secret  => $cli->option('secret'),
+				signer  => $cli->option('signer'),
+				bind    => $cli->option('bind'),
+			);
+		} );
+}
+
+# Make the next key of a purpose current
+sub cmd_promote_key ( $self, $cli, @args )
+{
+	return $self->_key_step(
+		$cli,
+		[qw(purpose retiring)],
+		sub ($rotate) {
+			return $rotate->promote(
+				purpose  => $cli->option('purpose'),
+				secret   => $cli->option('secret'),
+				signer   => $cli->option('signer'),
+				retiring => $cli->option('retiring'),
+				bind     => $cli->option('bind'),
+			);
+		} );
+}
+
+# $self->_key_step($cli, $need, $step):
+#	Run one step of the key directory and print its facts.
+#
+#	The step writes the key directory and the description, per
+#	WEB-ROTATE and WEB-TRUST. It stores no secret and it reaches
+#	no network: the caller holds the credential, stores each
+#	private key, and declares the public one.
+sub _key_step ( $self, $cli, $need, $step )
+{
+	for my $name (@$need) {
 		next
-		    if defined $cli->option($need)
-		    && length $cli->option($need);
-		$self->{log}->error( '--%s is a necessary option', $need );
-		return EXIT_INVALID_ARGS;
-	}
-
-	unless ( $step eq 'mint' || $step eq 'promote' ) {
-		$self->{log}
-		    ->error( 'The step is mint or promote, not %s', $step );
+		    if defined $cli->option($name)
+		    && length $cli->option($name);
+		$self->{log}->error( '--%s is a necessary option', $name );
 		return EXIT_INVALID_ARGS;
 	}
 
 	# The first key of a site arrives with the block that
 	# describes it, per WEB-ROTATE-15, so the words that describe
-	# the directory reach the rotation and not a separate step.
+	# the directory reach the step and not a separate one.
 	my $rotate = App::FuguWeb::Rotate->new(
 		config => $self->{config},
 		org    => $cli->option('org'),
 		dir    => $cli->option('dir'),
 		url    => $cli->option('url'),
 	);
-	my $facts =
-	    $step eq 'mint'
-	    ? $rotate->mint(
-		purpose => $purpose,
-		secret  => $secret,
-		signer  => $cli->option('signer'),
-	    )
-	    : $rotate->promote( purpose => $purpose, secret => $secret );
 
+	my $facts = $step->($rotate);
 	unless ($facts) {
 		$self->{log}->error( '%s', $rotate->error );
 
-		# A script tells an absent signify(1) from a rotation
-		# that failed, as it does for an absent renderer.
+		# A script tells an absent signify(1) from a step that
+		# failed, as it does for an absent renderer.
 		return $rotate->tool_missing
 		    ? EXIT_TOOL_MISSING
 		    : EXIT_ERROR;

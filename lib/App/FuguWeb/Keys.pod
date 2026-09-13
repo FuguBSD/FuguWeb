@@ -21,13 +21,19 @@ blocks and calls the Fugu modules. It answers with paths, with bytes,
 and with the problems of a check.
 
 Every generic part lives in Fugu. L<Fugu::KeyDir> holds the name
-pattern, the publication order, and the text of the C<KEYS> file and
-of F<security.txt>. L<Fugu::OpenPGP> decodes an armored key and
-computes a fingerprint and a Web Key Directory hash. L<Fugu::Signify>
-parses the manifest. Nothing generic lives here.
+pattern of a key and of a binding, the publication order, the
+retention rule, and the text of the C<KEYS> file and of
+F<security.txt>. L<Fugu::OpenPGP> decodes an armored key and computes
+a fingerprint and a Web Key Directory hash. L<Fugu::Signify> parses
+the manifest. Nothing generic lives here.
 
-The class runs no command. A site build neither signs nor verifies, so
-the manifest pair is a source file and not a generated one.
+A site build neither signs nor verifies, so the manifest pair is a
+source file and not a generated one. The check verifies each binding,
+because a binding that no key made is worth nothing to a consumer. A
+signify binding needs no command, and a binding of another type runs
+the command of its type. An absent command is a problem of the host,
+and the check reports it rather than pass a binding that nothing
+read.
 
 A description with no C<keys> block has no key directory. A caller
 tests C<< $config->keys_dir >> first, and this class dies without one.
@@ -62,6 +68,7 @@ each block to its file, so this class repeats no name pattern.
 
     keys/<stem>.pub          each key file, byte for byte
     keys/<stem>.asc
+    keys/<key>.<stem>.sig    each binding, byte for byte
     keys/SHA256              the manifest pair, copied as it stands
     keys/SHA256.sig
     keys/KEYS                every OpenPGP key, in the Apache form
@@ -145,7 +152,8 @@ depend on a build having run.
 
 Whether a path of the output is one that a build of the key directory
 writes. The set is bounded: a generated name of the key directory, a
-key file that L<Fugu::KeyDir> parses, and the three well-known paths.
+key file or a binding file that L<Fugu::KeyDir> parses, and the three
+well-known paths.
 
 The prune and the clean read this one answer, so a build can never
 remove a file that the clean refuses. A stale key file needs it: the
@@ -162,11 +170,14 @@ took it would delete that site.
 
 =item *
 
-Every key file has a block, and every block has a file.
+Every key file has a block, and every block has a file. A binding
+needs no block, and its target and its signer are each a key of the
+directory.
 
 =item *
 
-Every name matches the pattern of L<Fugu::KeyDir>.
+Every name matches the key pattern or the binding pattern of
+L<Fugu::KeyDir>.
 
 =item *
 
@@ -174,8 +185,18 @@ Every purpose holds exactly one C<current> key.
 
 =item *
 
-C<SHA256> names every key file, with the digest that the file has, and
-it names nothing else.
+The directory holds one C<current> signify key of the purpose C<root>,
+which is the root of trust.
+
+=item *
+
+Each binding verifies against the public key of its signer, and each
+one holds the retention rule of L<Fugu::KeyDir>.
+
+=item *
+
+C<SHA256> names every key file and every binding file, with the digest
+that the file has, and it names nothing else.
 
 =item *
 
@@ -189,7 +210,7 @@ characters decode to 74 bytes, and the first two spell C<Ed>.
 
 =back
 
-The class verifies no signature. That is the work of a consumer
+The class verifies no C<SHA256.sig>. That is the work of a consumer
 install: the site build cannot sign, so a site that verified its own
 manifest would prove nothing. It reads the shape of the signature
 because a file of another shape fails at every consumer install.
@@ -198,7 +219,7 @@ because a file of another shape fails at every consumer install.
 
 L<App::FuguWeb>, L<App::FuguWeb::Config>, L<App::FuguWeb::Check>,
 L<App::FuguWeb::Site>, L<Fugu::KeyDir>, L<Fugu::OpenPGP>,
-L<Fugu::Signify>
+L<Fugu::Signify>, L<Fugu::X509>
 
 =head1 AUTHOR
 

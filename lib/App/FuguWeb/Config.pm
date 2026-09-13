@@ -122,13 +122,14 @@ sub load ( $class, %args )
 	}
 
 	my $self = bless {
-		root  => $root,
-		path  => $path,
-		file  => $file,
-		nav   => [],
-		page  => [],
-		group => [],
-		key   => [],
+		root    => $root,
+		path    => $path,
+		file    => $file,
+		nav     => [],
+		page    => [],
+		group   => [],
+		key     => [],
+		binding => [],
 	}, $class;
 
 	$self->_apply_settings;
@@ -239,6 +240,21 @@ sub keys_path ( $self, $name = undef )
 sub site_keys ($self)
 {
 	return @{ $self->{key} };
+}
+
+# $self->site_bindings:
+#	The binding files of the key directory, in name order. Each
+#	entry is a hash reference with name, target, signer and type.
+#	The target and the signer are key file names, and the type is
+#	the type of the signer.
+#
+#	A binding carries no block: its name holds every field, and
+#	Fugu::KeyDir parses it. The list holds a binding whose target
+#	and whose signer are both keys of the description, so the
+#	checks report every other name as a stray file.
+sub site_bindings ($self)
+{
+	return @{ $self->{binding} };
 }
 
 # $self->source_path($name):
@@ -794,6 +810,8 @@ sub _read_key_blocks ( $self, $reason )
 		push @{ $self->{key} }, $entry;
 	}
 
+	$self->_read_bindings($names);
+
 	# The rotation workflow writes the manifest pair, and the build
 	# copies it as it stands. A directory with no manifest
 	# publishes keys that a consumer cannot verify, which is the
@@ -805,6 +823,37 @@ sub _read_key_blocks ( $self, $reason )
 		return $self->_fail( $reason,
 			      "keys \"$self->{keys_dir}\" holds no $needed in"
 			    . " $self->{source_dir}/$self->{keys_dir}" );
+	}
+
+	return $self;
+}
+
+# $self->_read_bindings($names):
+#	Read each binding file of the key directory. A binding is the
+#	signature of one key file by another key, and its name holds
+#	the target, the signer and the type of the signer. The name
+#	carries every field, so a binding needs no block.
+#
+#	The method keeps a binding whose target and whose signer are
+#	both keys of the description. It drops every other name
+#	silently, and App::FuguWeb::Keys then reports that name as a
+#	stray file with the reason. A load that failed here would
+#	refuse a build over a directory that one bad name broke, and
+#	the checks are what report such a directory.
+sub _read_bindings ( $self, $names )
+{
+	my $keydir = $self->{keys_keydir};
+
+	my %key = map { $_->{name} => 1 } @{ $self->{key} };
+
+	for my $name ( sort @$names ) {
+		next if $key{$name};
+
+		my $parts = $keydir->parse_binding($name) or next;
+		next
+		    unless $key{ $parts->{target} } && $key{ $parts->{signer} };
+
+		push @{ $self->{binding} }, { %$parts, name => $name };
 	}
 
 	return $self;
@@ -852,10 +901,14 @@ sub _key_entry ( $self, $reason, $name, $parts, $settings )
 				    . ' a local part and a domain' );
 		}
 
-		my ( $hash, $why ) = Fugu::OpenPGP->wkd_hash($local);
+		# The reader of Fugu::OpenPGP needs no gpg(1), so the
+		# object serves a host that holds none.
+		my $pgp  = Fugu::OpenPGP->new;
+		my $hash = $pgp->wkd_hash($local);
 		unless ( defined $hash ) {
 			return $self->_fail( $reason,
-				"key \"$stem\" email is $email: $why" );
+				"key \"$stem\" email is $email: "
+				    . $pgp->error );
 		}
 		$wkd = $hash;
 	}
