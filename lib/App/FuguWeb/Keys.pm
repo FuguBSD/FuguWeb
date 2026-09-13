@@ -363,9 +363,12 @@ sub key_set ($self)
 #	The clock decides the expiry rules of WEB-OPENPGP-4, and no
 #	step of the rotation can make a key expire later. A caller
 #	that reads back the work of one step therefore leaves them
-#	out, and it reads the bytes that the step wrote alone. A step
-#	which failed for a key that ran towards its expiry would
-#	refuse the very rotation that answers it.
+#	out, and it reads the bytes that the step wrote alone. An
+#	expired current key is still current at that read, so a step
+#	of its purpose could never be made. The 30-day report reads
+#	the whole directory, so it would fail a step of another
+#	purpose, which writes no next key of the purpose that it
+#	names. App::FuguWeb::Rotate::_accept holds both reasons.
 sub problems ( $self, %args )
 {
 	my $config = $self->{config};

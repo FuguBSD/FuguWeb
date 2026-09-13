@@ -787,15 +787,32 @@ subtest 'a mint guards the options of its key type' => sub {
 	like( $error, qr/so it needs the email$/,
 		'and the reason names the option' );
 
-	for my $bad (qw(2028-1-1 2028-02-30 2028-13-01 tomorrow)) {
-		( $facts, $error ) = _mint(
-			$root,
-			type    => 'openpgp',
-			email   => $EMAIL,
-			expires => $bad,
-			secret  => "$root/contact1.sec",
-			signer  => "$root/root1.sec"
-		);
+	# WEB-OPENPGP-3. _epoch_of holds every field to its range
+	# itself, and _days_in gives the length of the month with the
+	# leap rule of the Gregorian calendar. 2027 is a common year,
+	# 2100 is a century that the rule leaves common, and April
+	# holds 30 days. A step that let one of these through would
+	# reach Time::Local, which dies, so each one must give a
+	# reason instead.
+	my @bad = qw(
+	    2028-1-1 2028-02-30 2028-13-01 2027-02-29 2100-02-29
+	    2028-04-31 tomorrow
+	);
+	for my $bad (@bad) {
+		( $facts, $error ) = ( undef, undef );
+		my $lived = eval {
+			( $facts, $error ) = _mint(
+				$root,
+				type    => 'openpgp',
+				email   => $EMAIL,
+				expires => $bad,
+				secret  => "$root/contact1.sec",
+				signer  => "$root/root1.sec"
+			);
+			1;
+		};
+		ok( $lived, "the expiry date $bad gives a reason and no die" )
+		    or diag($@);
 		ok( !$facts, "the expiry date $bad fails" );
 		like(
 			$error,
@@ -803,6 +820,84 @@ subtest 'a mint guards the options of its key type' => sub {
 			'and the reason names the form'
 		);
 	}
+
+	# WEB-OPENPGP-3. February holds 29 days in a leap year, so
+	# this date passes the guard. The step then fails on the
+	# secret path, which stands already, and it generates nothing.
+	( $facts, $error ) = _mint(
+		$root,
+		type    => 'openpgp',
+		email   => $EMAIL,
+		expires => '2060-02-29',
+		secret  => "$root/rel1.sec",
+		signer  => "$root/root1.sec"
+	);
+	ok( !$facts, 'the leap day of a leap year passes the date guard' );
+	like(
+		$error,
+		qr/^\Q$root\E\/rel1[.]sec stands already, and a mint writes/,
+		'and the step fails on the secret path instead'
+	);
+
+	# WEB-OPENPGP-3. A key that expired already signs nothing, so
+	# the step refuses the day of the run and each earlier date.
+	# The reason names the date that the caller gave, and never
+	# the epoch that Fugu::OpenPGP would name.
+	for my $days ( 0, -1, -400 ) {
+		my ($past) = _utc_day($days);
+		( $facts, $error ) = _mint(
+			$root,
+			type    => 'openpgp',
+			email   => $EMAIL,
+			expires => $past,
+			secret  => "$root/contact1.sec",
+			signer  => "$root/root1.sec"
+		);
+		ok( !$facts, "the expiry date $past fails" );
+		like(
+			$error,
+			qr/^the expiry \Q$past\E is not after the day of the run$/,
+			'and the reason names the date of the caller'
+		);
+	}
+
+	# WEB-TRUST-1. The root of trust is a signify key, and no
+	# later read of a step holds a root to that type. This key
+	# would take the status next, and the check reads the current
+	# root alone, so the step would publish an OpenPGP root.
+	( $facts, $error ) = _root(
+		$root,
+		type   => 'openpgp',
+		email  => $EMAIL,
+		secret => "$root/root2.sec",
+		signer => "$root/root1.sec"
+	);
+	ok( !$facts, 'an OpenPGP mint of the root purpose fails' );
+	like(
+		$error,
+		qr/^the root of trust is a signify key, so a mint of the root purpose takes no openpgp key$/,
+		'and the reason names the purpose and the type'
+	);
+
+	# The first root mint finds no root, and it signs its own
+	# manifest with the key that it makes. Fugu::Signify reads no
+	# OpenPGP secret half, so that step fails in the signer. The
+	# guard refuses it first, and with the reason of the rule.
+	my $bare = _site();
+	( $facts, $error ) = _root(
+		$bare,
+		type   => 'openpgp',
+		email  => $EMAIL,
+		secret => "$bare/root1.sec"
+	);
+	ok( !$facts, 'the first root mint of the OpenPGP type fails too' );
+	like(
+		$error,
+		qr/^the root of trust is a signify key, so a mint of the root purpose takes no openpgp key$/,
+		'and it gives the reason of the rule'
+	);
+	ok( !-e "$bare/web/keys", 'and it makes no key directory' );
+	ok( !-e "$bare/root1.sec", 'and it writes no private half' );
 
 	( $facts, $error ) = _mint(
 		$root,
@@ -827,6 +922,7 @@ subtest 'a mint guards the options of its key type' => sub {
 	is_deeply( [ _names($root) ], [@before],
 		'and no step writes one file' );
 	ok( !-e "$root/contact1.sec", 'and none of them makes an OpenPGP key' );
+	ok( !-e "$root/root2.sec",    'and none of them makes an OpenPGP root' );
 	ok( !-e "$root/rel2.sec",     'and none of them makes a signify pair' );
 };
 
@@ -841,7 +937,11 @@ subtest 'the check reports a current OpenPGP key that expires soon' => sub {
 	my ($first) = _root( $root, secret => "$root/root1.sec" );
 	ok( $first, 'the first root mint succeeds' ) or return;
 
-	my ($soon)  = _utc_day(10);
+	# The bar is 30 days, and these two dates bracket it. The
+	# start of the day 30 days out is never later than 30 days
+	# from now, and the start of the day 31 days out is always
+	# later, so neither date depends on the hour of the run.
+	my ($soon)  = _utc_day(30);
 	my $rotate  = _rotate($root);
 	my $current = $rotate->mint(
 		purpose => 'contact',
@@ -863,10 +963,36 @@ subtest 'the check reports a current OpenPGP key that expires soon' => sub {
 		'and it names the file, the date and the purpose'
 	);
 
+	# The other side of the bar. This key is current, its purpose
+	# holds no next key, and it stands one day outside the bar, so
+	# it adds no problem.
+	my ($edge) = _utc_day(31);
+	$rotate = _rotate($root);
+	my $outside = $rotate->mint(
+		purpose => 'notify',
+		type    => 'openpgp',
+		email   => $EMAIL,
+		expires => $edge,
+		secret  => "$root/notify1.sec",
+		signer  => "$root/root1.sec",
+	);
+	ok( $outside, 'the mint of a key outside the bar succeeds' )
+	    or diag( $rotate->error );
+	return unless $outside;
+
+	@problems = _problems($root);
+	is( scalar @problems, 1, 'the check reports the same one problem' );
+	like(
+		$problems[0],
+		qr{^keys/fugubsd-1-contact[.]asc: },
+		'and a key one day outside the bar adds none'
+	);
+
 	# A step reads its own work back, and it must not fail for
-	# this report: the clock decides it, and no step can make the
-	# key expire later. A step that failed for it would refuse the
-	# very rotation that answers it.
+	# this report. The mint of the successor clears the report by
+	# itself, because the purpose then holds a next key. This step
+	# names another purpose, so it writes no such key, and it
+	# would fail for a report that it cannot answer.
 	$rotate = _rotate($root);
 	my $release = $rotate->mint(
 		purpose => 'release',
@@ -898,12 +1024,91 @@ subtest 'the check reports a current OpenPGP key that expires soon' => sub {
 		'and a next key of the purpose takes the problem away' );
 };
 
-# WEB-OPENPGP-4. A current or next OpenPGP key whose expiry has passed
-# is a problem, whatever else its purpose holds. gpg(1) refuses to
-# sign with an expired key, so no step can mint one: the subtest plants
-# the fixture key and drives that one rule over a set which names it.
-# It reads no whole report, so the planted file stands beside the
-# directory of _keyed and takes no part in the answer.
+# WEB-OPENPGP-4. A current OpenPGP key whose expiry has passed is a
+# problem of App::FuguWeb::Keys->problems, which is the path of
+# fuguweb check. A step of the rotation must not fail for it: the
+# expired key is still current when the step reads its work back, so a
+# step that failed for the report could never mint the successor that
+# the promote needs.
+#
+# gpg(1) refuses to sign with an expired key, so no step can build
+# such a directory. The subtest mints a key that expires far away, and
+# it moves the reader of the clock instead. Fugu::OpenPGP::expiry
+# answers the epoch that the key carries, and this one answers a past
+# epoch for that one file. Every other read of the run is the real
+# one, and the local restores the real reader at the end.
+subtest 'a step succeeds over an expired current OpenPGP key' => sub {
+	plan skip_all => 'gpg(1) is not installed'
+	    unless Fugu::OpenPGP->new->is_available;
+
+	my $root = _site();
+	my ($first) = _root( $root, secret => "$root/root1.sec" );
+	ok( $first, 'the first root mint succeeds' ) or return;
+
+	my ($far)  = _utc_day(400);
+	my $rotate = _rotate($root);
+	my $facts  = $rotate->mint(
+		purpose => 'contact',
+		type    => 'openpgp',
+		email   => $EMAIL,
+		expires => $far,
+		secret  => "$root/contact1.sec",
+		signer  => "$root/root1.sec",
+	);
+	ok( $facts, 'the mint of the current key succeeds' )
+	    or diag( $rotate->error );
+	return unless $facts;
+
+	is_deeply( [ _problems($root) ], [],
+		'the check reports no problem while the key stands' );
+
+	my $name = 'fugubsd-1-contact.asc';
+	my $gone = time - 24 * 60 * 60;
+	my $date = POSIX::strftime( '%Y-%m-%d', gmtime $gone );
+	my $real = \&Fugu::OpenPGP::expiry;
+	local *Fugu::OpenPGP::expiry = sub ( $self, %args ) {
+		return $gone
+		    if ( $args{public} // '' ) =~ m{/\Q$name\E\z};
+
+		return $self->$real(%args);
+	};
+
+	my @problems = _problems($root);
+	is( scalar @problems, 1, 'the whole check reports one problem' );
+	like(
+		$problems[0],
+		qr{^keys/\Q$name\E: the current key expired on \Q$date\E$},
+		'and it names the file, the status and the date'
+	);
+
+	# The deadlock that expiry => 0 answers. A promote needs a
+	# next key, and this mint writes it. The expired key is still
+	# current when the mint reads its work back, so a step that
+	# failed for the report could never make that key.
+	$rotate = _rotate($root);
+	my $next = $rotate->mint(
+		purpose => 'contact',
+		type    => 'openpgp',
+		email   => $EMAIL,
+		expires => $far,
+		secret  => "$root/contact2.sec",
+		signer  => "$root/root1.sec",
+	);
+	ok( $next, 'the mint of the successor succeeds all the same' )
+	    or diag( $rotate->error );
+	return unless $next;
+
+	is( $next->{status}, 'next', 'and the successor takes that status' );
+	is( scalar( () = _problems($root) ),
+		1, 'and the check still reports the expired key' );
+};
+
+# WEB-OPENPGP-4. The rule reads the status of the key: a current key
+# and a next key are each a problem, and a retired key is none. gpg(1)
+# refuses to sign with an expired key, so no step can mint one. The
+# subtest plants the fixture key and drives that one rule over a set
+# which names it. It reads no whole report, so the planted file stands
+# beside the directory of _keyed and takes no part in the answer.
 subtest 'the check reports an OpenPGP key whose expiry has passed' => sub {
 	plan skip_all => 'gpg(1) is not installed'
 	    unless Fugu::OpenPGP->new->is_available;

@@ -50,8 +50,8 @@ use Time::Local ();
 # the directory, loads the description again, and asks
 # App::FuguWeb::Keys->problems. A step that leaves one problem fails,
 # so the writer can never publish a directory that the checks reject.
-# That read leaves out the expiry rules of WEB-OPENPGP-4 alone,
-# because the clock decides those and no step can answer them.
+# That read leaves out the expiry rules of WEB-OPENPGP-4 alone. The
+# clock decides those, and _accept states why each one stays out.
 #
 # The module runs no command of its own. Fugu::Signify holds every
 # call of signify(1), the class of each other key type holds every
@@ -313,6 +313,20 @@ sub _add ( $self, $verb, %args )
 	return $self->_fail("$verb-key reads no key of the type $type")
 	    unless $known;
 
+	# WEB-TRUST-1. The root of trust is a signify key, and no
+	# later read of a step holds a root to that type. A first
+	# root mint signs its own manifest, so it fails in
+	# Fugu::Signify, which reads no OpenPGP secret half. A root
+	# mint beside a current root takes the status next, and
+	# _root_problems of App::FuguWeb::Keys reads the current root
+	# alone, so that step publishes the key. This guard refuses
+	# both, and it refuses before the step generates one byte.
+	return $self->_fail( 'the root of trust is a signify key, so a '
+		    . "$verb of the "
+		    . ROOT
+		    . " purpose takes no $type key" )
+	    if $purpose eq ROOT && $type ne TYPE;
+
 	# WEB-ROTATE-21. The word names one directory below the source
 	# directory, as WEB-KEYS-29 holds it. A word that held a
 	# solidus or a dot would write the key outside the site.
@@ -560,9 +574,20 @@ sub _type_options ( $self, $verb, %args )
 
 	return 1 unless defined $args{expires} && length $args{expires};
 
+	my $epoch = _epoch_of( $args{expires} );
 	return $self->_fail( "the expiry $args{expires} is no date of the form"
 		    . ' YYYY-MM-DD' )
-	    unless defined _epoch_of( $args{expires} );
+	    unless defined $epoch;
+
+	# WEB-OPENPGP-3. A key that expired already signs nothing.
+	# The epoch is the start of the date in UTC, so it is above
+	# the current time for a later date and below it for the day
+	# of the run. Fugu::OpenPGP refuses such a date too, and its
+	# reason names the epoch: the caller typed a date, and the
+	# reason must name that date.
+	return $self->_fail( "the expiry $args{expires} is not after the day"
+		    . ' of the run' )
+	    if $epoch <= time;
 
 	return 1;
 }
@@ -1240,10 +1265,18 @@ sub _by_status ( $set, $purpose, $status )
 #
 #	The read leaves out the expiry rules of WEB-OPENPGP-4. The
 #	clock decides those, and no step can make a key expire later.
-#	A step that failed for a key which runs towards its expiry
-#	would refuse the very rotation that answers it, and a step
-#	that failed for a key which expired already could never be
-#	made. `fuguweb check` reports both.
+#	Each half stays out for a reason of its own.
+#
+#	An expired current key is still current when this method
+#	reads it back, so a step of its purpose could never be made:
+#	the mint that the promote needs would fail first.
+#
+#	The 30-day report reads the whole directory. The mint of the
+#	successor clears its own report, because the purpose then
+#	holds a next key. A step of another purpose writes no such
+#	key, so it would fail for a report that it cannot answer.
+#
+#	`fuguweb check` reports both.
 sub _accept ($self)
 {
 	my @problems =

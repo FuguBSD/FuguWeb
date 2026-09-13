@@ -149,8 +149,12 @@ depend on a build having run.
 
 C<expiry> C<0> leaves out the expiry rules of an OpenPGP key. The
 clock decides those, and no step of L<App::FuguWeb::Rotate> can make a
-key expire later. A step reads its own work back with this argument,
-so it never refuses the rotation that a key near its expiry needs.
+key expire later. A step reads its own work back with this argument.
+
+An expired C<current> key is still C<current> at that read, so a step
+of its purpose could never be made. The 30-day report reads the whole
+directory, so it would fail a step of another purpose, which writes no
+C<next> key of the purpose that the report names.
 
 =head2 shaped
 

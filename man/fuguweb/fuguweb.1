@@ -213,9 +213,25 @@ See
 .Xc
 Publish a key that another tool made, under the next name of the
 purpose.
-The command takes the options of a mint of that purpose, and
+The command takes
+.Fl Fl purpose ,
+.Fl Fl secret ,
+.Fl Fl signer
+and
+.Fl Fl bind
+as a mint of that purpose does, with
 .Fl Fl file
 beside them.
+It reads a
+.Cm signify
+key alone, and a
+.Fl Fl type
+of another type fails.
+It takes no
+.Fl Fl email
+and no
+.Fl Fl expires ,
+because it generates no key.
 A site with no
 .Ic keys
 block takes one from
@@ -674,6 +690,25 @@ key is a problem when its purpose holds no
 .Cm next
 key, because one rotation runs in two steps.
 A key with no expiry reaches neither rule.
+.Pp
+A key verb does not fail for either report, so
+.Cm mint-key ,
+.Cm import-key
+and
+.Cm promote-key
+each run on a directory that
+.Cm check
+rejects for an expiry.
+An expired
+.Cm current
+key is still
+.Cm current
+when the verb reads its work back, so a step of that purpose could
+never be made.
+The 30-day report reads the whole directory, so it would fail a step
+of another purpose, which writes no
+.Cm next
+key of the purpose that the report names.
 .Sh KEY ROTATION
 A consumer verifies a release against the copy of the public key that
 it holds.
@@ -686,6 +721,10 @@ word is
 .Cm root .
 The current root key signs the manifest, and every other key binds to
 it.
+A step of the
+.Cm root
+purpose refuses a key of another type, and it refuses before it
+generates one.
 Every step takes the private half of the current root as
 .Fl Fl signer ,
 with two exceptions below.
@@ -750,6 +789,9 @@ which the command reads from the key that it generated.
 is a date of the form
 .Ar YYYY-MM-DD ,
 and the key expires at the start of that date, in UTC.
+The date must be after the day of the run.
+The day of the run and each earlier date fail the mint, and the reason
+names the date that you gave.
 A mint with no
 .Fl Fl expires
 makes a key with no expiry.
