@@ -103,10 +103,18 @@ my %COMMANDS = (
 		summary => 'Mint the next key of a purpose',
 		usage   => '--purpose <word> [--type <type>] --secret <path>'
 		    . ' [--signer <path>] [--bind <stem>=<path>]'
+		    . ' [--email <address>] [--expires <date>]'
 		    . ' [--org <word> [--dir <name>] [--url <prefix>]]',
 		options => {
 			%KEY_OPTION, %BLOCK_OPTION,
 			'type=s' => 'the key type (default: signify)',
+
+			# WEB-OPENPGP-1 and WEB-OPENPGP-3. An OpenPGP
+			# mint needs the address of the user id, and it
+			# takes an optional expiry date.
+			'email=s'   => 'the user id of an OpenPGP key',
+			'expires=s' => 'the expiry of an OpenPGP key, '
+			    . 'as YYYY-MM-DD in UTC',
 		},
 		method => 'cmd_mint_key',
 	},
@@ -355,6 +363,8 @@ sub cmd_mint_key ( $self, $cli, @args )
 				secret  => $cli->option('secret'),
 				signer  => $cli->option('signer'),
 				bind    => $cli->option('bind'),
+				email   => $cli->option('email'),
+				expires => $cli->option('expires'),
 			);
 		} );
 }

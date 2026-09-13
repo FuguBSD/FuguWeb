@@ -29,7 +29,8 @@ use Fugu::KeyDir;
 use Fugu::OpenPGP;
 use Fugu::Signify;
 use Fugu::X509;
-use POSIX ();
+use POSIX       ();
+use Time::Local ();
 
 # App::FuguWeb::Rotate - write the key directory of a site, per
 # WEB-ROTATE and WEB-TRUST.
@@ -49,6 +50,8 @@ use POSIX ();
 # the directory, loads the description again, and asks
 # App::FuguWeb::Keys->problems. A step that leaves one problem fails,
 # so the writer can never publish a directory that the checks reject.
+# That read leaves out the expiry rules of WEB-OPENPGP-4 alone,
+# because the clock decides those and no step can answer them.
 #
 # The module runs no command of its own. Fugu::Signify holds every
 # call of signify(1), the class of each other key type holds every
@@ -63,13 +66,21 @@ use constant {
 	SIGNATURE => 'SHA256.sig',
 };
 
-# The purpose word of the root of trust, and the one key type that
-# these verbs make today. App::FuguWeb::Keys holds the root word, so
-# the reader and the writer can never disagree about it.
+# The purpose word of the root of trust, and the default key type of
+# every verb. App::FuguWeb::Keys holds the root word, so the reader
+# and the writer can never disagree about it.
 use constant {
 	ROOT => App::FuguWeb::Keys::ROOT_PURPOSE,
 	TYPE => 'signify',
 };
+
+# The key type that a mint generates, per WEB-ROTATE-2 and
+# WEB-OPENPGP-1. An import publishes a key that another tool made, and
+# it reads the default type alone: plan 005 opens it to the other two.
+my %MINT_TYPE = (
+	signify => 1,
+	openpgp => 1,
+);
 
 # The signer of each key type, per WEB-TRUST-8. A binding of a key
 # takes the private half of that key, so the type of the signer key
@@ -131,6 +142,12 @@ sub tool_missing ($self) { return $self->{tool_missing}; }
 #		secret  => $path	where the private half goes
 #		signer  => $path	the private half of the root
 #		bind    => \%path	one path for each bound stem
+#		email   => $address	the user id of an OpenPGP key
+#		expires => $date	the expiry of an OpenPGP key
+#
+#	An OpenPGP mint needs the email, and it takes the expiry as a
+#	date of the form YYYY-MM-DD, per WEB-OPENPGP-1 and
+#	WEB-OPENPGP-3. A signify mint takes neither.
 sub mint ( $self, %args )
 {
 	$self->{error} = undef;
@@ -289,11 +306,12 @@ sub _add ( $self, $verb, %args )
 	my $purpose = $args{purpose};
 	my $type    = $args{type} // TYPE;
 
-	# WEB-ROTATE-1 and WEB-X509-2. Plan 004 adds the OpenPGP mint,
-	# and plan 005 adds the certificate, so the verbs read one
-	# type today.
+	# WEB-ROTATE-1, WEB-ROTATE-2 and WEB-X509-2. A mint generates a
+	# signify pair or an OpenPGP key. An import reads one type
+	# today, and plan 005 opens it to the other two.
+	my $known = $verb eq 'mint' ? $MINT_TYPE{$type} : $type eq TYPE;
 	return $self->_fail("$verb-key reads no key of the type $type")
-	    unless $type eq TYPE;
+	    unless $known;
 
 	# WEB-ROTATE-21. The word names one directory below the source
 	# directory, as WEB-KEYS-29 holds it. A word that held a
@@ -343,9 +361,18 @@ sub _add ( $self, $verb, %args )
 
 	my ( $public, $private ) =
 	      $verb eq 'mint'
-	    ? $self->_generate( $stem, $name )
+	    ? $self->_generate( $stem, $name, $type, %args )
 	    : $self->_read_pair( $args{file}, $args{secret} );
 	return unless defined $public;
+
+	# WEB-OPENPGP-2. The key block of an OpenPGP key names the
+	# address and the fingerprint of the key that the step
+	# generated.
+	my $settings =
+	      $type eq 'openpgp'
+	    ? $self->_openpgp_settings( $public, $args{email} )
+	    : [];
+	return unless $settings;
 
 	my $keys = $self->_key_bytes($set) or return;
 	$keys->{$name} = $public;
@@ -395,7 +422,8 @@ sub _add ( $self, $verb, %args )
 		{ %$keys, %$bindings, %fresh } );
 	return unless defined $manifest;
 
-	my $description = $self->_with_block( $stem, $status ) or return;
+	my $description = $self->_with_block( $stem, $status, $settings )
+	    or return;
 
 	my %write = (
 		$self->{config}->path   => $description,
@@ -455,7 +483,8 @@ sub _anchor ( $self, $set, $purpose )
 
 # $self->_add_options($verb, $set, $first, $root, %args):
 #	Hold a mint and an import to the options that their purpose
-#	takes, and answer the private half of each bound key.
+#	and their key type take, and answer the private half of each
+#	bound key.
 #
 #	WEB-ROTATE-6, WEB-ROTATE-18 and WEB-TRUST-2. Every step but a
 #	first root mint signs with the current root. A mint writes the
@@ -463,6 +492,8 @@ sub _anchor ( $self, $set, $purpose )
 #	one thing a rotation cannot make again.
 sub _add_options ( $self, $verb, $set, $first, $root, %args )
 {
+	$self->_type_options( $verb, %args ) or return;
+
 	my $secret = $args{secret};
 	return $self->_fail("$verb-key needs the path of the private half")
 	    unless defined $secret && length $secret;
@@ -498,6 +529,42 @@ sub _add_options ( $self, $verb, $set, $first, $root, %args )
 	    unless -f $signer;
 
 	return $self->_free( $args{bind} );
+}
+
+# $self->_type_options($verb, %args):
+#	Hold a step to the options that its key type takes. The
+#	method answers 1, or undef with a reason in $self->error.
+#
+#	WEB-OPENPGP-1 and WEB-OPENPGP-3. An OpenPGP mint needs the
+#	email address of the user id, and it takes an optional expiry
+#	date. A key of another type carries neither, and
+#	App::FuguWeb::Config refuses a key block that names an email,
+#	so a step of another type must refuse both here.
+sub _type_options ( $self, $verb, %args )
+{
+	my $type = $args{type} // TYPE;
+
+	unless ( $verb eq 'mint' && $type eq 'openpgp' ) {
+		for my $only (qw(email expires)) {
+			next unless defined $args{$only} && length $args{$only};
+			return $self->_fail(
+				"a $verb of a $type key takes no $only");
+		}
+
+		return 1;
+	}
+
+	return $self->_fail( 'an OpenPGP mint writes the address into the user'
+		    . ' id of the key, so it needs the email' )
+	    unless defined $args{email} && length $args{email};
+
+	return 1 unless defined $args{expires} && length $args{expires};
+
+	return $self->_fail( "the expiry $args{expires} is no date of the form"
+		    . ' YYYY-MM-DD' )
+	    unless defined _epoch_of( $args{expires} );
+
+	return 1;
 }
 
 # $self->_promote_options($set, $is_root, $root, %args):
@@ -625,29 +692,24 @@ sub _of_target ( $self, $set, $target )
 	return @drop;
 }
 
-# $self->_generate($stem, $name):
-#	A new signify key pair, as the public bytes and the private
-#	bytes. The method answers the two, or an empty list with a
-#	reason in $self->error.
+# $self->_generate($stem, $name, $type, %args):
+#	A new key pair of the type, as the public bytes and the
+#	private bytes. The method answers the two, or an empty list
+#	with a reason in $self->error.
 #
-#	signify(1) holds a pair to one stem: <stem>.pub beside
-#	<stem>.sec. The pair is therefore made in a temporary
+#	Each generator writes a pair of files, and the two names of a
+#	pair are its own. The pair is therefore made in a temporary
 #	directory, and each half then goes where it belongs. The
 #	directory dies with the process, so no secret stays behind.
-#
-#	Fugu::Signify writes ' public key' after the comment word, so
-#	the published comment is '<stem> public key'. WEB-KEYS-31
-#	states that form.
-sub _generate ( $self, $stem, $name )
+sub _generate ( $self, $stem, $name, $type, %args )
 {
 	my $work = File::Temp->newdir;
-	my $sig  = Fugu::Signify->new;
 
-	$sig->generate(
-		comment => $stem,
-		public  => "$work/$name",
-		secret  => "$work/$stem.sec",
-	) or return $self->_tool_fail($sig);
+	my $made =
+	      $type eq 'openpgp'
+	    ? $self->_generate_openpgp( $work, $stem, $name, %args )
+	    : $self->_generate_signify( $work, $stem, $name );
+	return unless $made;
 
 	my $public = Fugu::File->read("$work/$name");
 	return $self->_fail('cannot read the generated public key')
@@ -657,6 +719,122 @@ sub _generate ( $self, $stem, $name )
 	    unless defined $private;
 
 	return ( $public, $private );
+}
+
+# $self->_generate_signify($work, $stem, $name):
+#	Write a signify pair into the work directory. The method
+#	answers 1, or undef with a reason in $self->error.
+#
+#	signify(1) holds a pair to one stem: <stem>.pub beside
+#	<stem>.sec.
+#
+#	Fugu::Signify writes ' public key' after the comment word, so
+#	the published comment is '<stem> public key'. WEB-KEYS-31
+#	states that form.
+sub _generate_signify ( $self, $work, $stem, $name )
+{
+	my $sig = Fugu::Signify->new;
+
+	$sig->generate(
+		comment => $stem,
+		public  => "$work/$name",
+		secret  => "$work/$stem.sec",
+	) or return $self->_tool_fail($sig);
+
+	return 1;
+}
+
+# $self->_generate_openpgp($work, $stem, $name, %args):
+#	Write an OpenPGP key into the work directory. The method
+#	answers 1, or undef with a reason in $self->error.
+#
+#	WEB-OPENPGP-1 and WEB-OPENPGP-3. Fugu::OpenPGP makes one
+#	Ed25519 primary key with one Curve25519 encryption subkey, and
+#	the email is the user id. Each half is armored text. gpg(1)
+#	takes the expiry as seconds since the epoch, and _epoch_of
+#	reads the date of the caller in UTC. A mint with no expiry
+#	date sets no expiry.
+sub _generate_openpgp ( $self, $work, $stem, $name, %args )
+{
+	my $expires = $args{expires};
+	my $pgp     = Fugu::OpenPGP->new;
+
+	$pgp->generate(
+		email   => $args{email},
+		expires => defined $expires && length $expires
+		? _epoch_of($expires)
+		: undef,
+		public => "$work/$name",
+		secret => "$work/$stem.sec",
+	) or return $self->_tool_fail($pgp);
+
+	return 1;
+}
+
+# $self->_openpgp_settings($public, $email):
+#	The two settings that the key block of an OpenPGP key takes,
+#	as a list of name and value pairs. The method answers an array
+#	reference, or undef with a reason in $self->error.
+#
+#	WEB-OPENPGP-2. The fingerprint comes from the key that the
+#	step generated, and never from an argument. WEB-KEYS-22 holds
+#	a declared fingerprint to the one that the body gives, so a
+#	step which copied an argument could publish a directory that
+#	its own reader rejects.
+#
+#	The reader of Fugu::OpenPGP needs no gpg(1). The generator ran
+#	already, so this read adds no command of its own.
+sub _openpgp_settings ( $self, $public, $email )
+{
+	my $pgp = Fugu::OpenPGP->new;
+
+	my $binary = $pgp->decode_armor($public)
+	    or return $self->_fail(
+		'cannot decode the generated public key: ' . $pgp->error );
+
+	my $fingerprint = $pgp->fingerprint($binary)
+	    or return $self->_fail(
+		'cannot read the fingerprint of the generated public key: '
+		    . $pgp->error );
+
+	return [ [ email => $email ], [ fingerprint => $fingerprint ] ];
+}
+
+# _epoch_of($date):
+#	A date of the form YYYY-MM-DD as seconds since the epoch, at
+#	the start of that date in UTC, or undef for a text of another
+#	form and for a day that the month does not hold.
+#
+#	The key directory writes each date in UTC, per WEB-ROTATE-16,
+#	and this date reads the same way.
+#
+#	Time::Local dies for a field out of range, and this module
+#	answers a caller mistake with a reason. The method therefore
+#	holds every field to its range itself, and it calls the
+#	library with a date that stands.
+sub _epoch_of ($date)
+{
+	my ( $year, $month, $day ) =
+	    $date =~ /\A([0-9]{4})-([0-9]{2})-([0-9]{2})\z/
+	    or return;
+
+	return unless $month >= 1 && $month <= 12;
+	return unless $day >= 1   && $day <= _days_in( $year, $month );
+
+	return Time::Local::timegm_modern( 0, 0, 0, $day, $month - 1, $year );
+}
+
+# _days_in($year, $month):
+#	The number of days of the month, with the leap year rule of
+#	the Gregorian calendar.
+sub _days_in ( $year, $month )
+{
+	my @length = ( 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 );
+	return $length[ $month - 1 ] unless $month == 2;
+
+	my $leap = $year % 4 == 0 && ( $year % 100 != 0 || $year % 400 == 0 );
+
+	return $leap ? 29 : 28;
 }
 
 # $self->_read_pair($file, $secret):
@@ -1059,10 +1237,18 @@ sub _by_status ( $set, $purpose, $status )
 
 # $self->_accept:
 #	The problems that App::FuguWeb::Keys reports, as a failure.
+#
+#	The read leaves out the expiry rules of WEB-OPENPGP-4. The
+#	clock decides those, and no step can make a key expire later.
+#	A step that failed for a key which runs towards its expiry
+#	would refuse the very rotation that answers it, and a step
+#	that failed for a key which expired already could never be
+#	made. `fuguweb check` reports both.
 sub _accept ($self)
 {
 	my @problems =
-	    App::FuguWeb::Keys->new( config => $self->{config} )->problems;
+	    App::FuguWeb::Keys->new( config => $self->{config} )
+	    ->problems( expiry => 0 );
 	return 1 unless @problems;
 
 	return $self->_fail( 'the key directory holds a problem: ' . join '; ',
@@ -1108,14 +1294,22 @@ sub _confirm ( $self, $want )
 	return 1;
 }
 
-# $self->_with_block($stem, $status):
+# $self->_with_block($stem, $status, $settings):
 #	The description with one key block added, as bytes. A new
 #	block goes at the end, so the file keeps every block that it
 #	held and the diff shows the addition alone.
 #
+#	$settings holds one name and value pair for each setting that
+#	joins the status and the date. An OpenPGP key takes the email
+#	and the fingerprint there, per WEB-OPENPGP-2, and a signify
+#	key takes an empty list.
+#
+#	The name of every setting of one block takes one width, so the
+#	values of the block line up.
+#
 #	A site that publishes its first key takes the keys block in
 #	the same bytes, per WEB-ROTATE-15.
-sub _with_block ( $self, $stem, $status )
+sub _with_block ( $self, $stem, $status, $settings = [] )
 {
 	my $path  = $self->{config}->path;
 	my $bytes = Fugu::File->read($path);
@@ -1137,8 +1331,17 @@ sub _with_block ( $self, $stem, $status )
 		$bytes .= "}\n";
 	}
 
-	$bytes .= "\nkey \"$stem\" {\n\tstatus = $status\n"
-	    . "\tsince  = $today\n}\n";
+	my @block = ( [ status => $status ], [ since => $today ], @$settings );
+
+	my $width = 0;
+	for my $setting (@block) {
+		my $length = length $setting->[0];
+		$width = $length if $length > $width;
+	}
+
+	$bytes .= "\nkey \"$stem\" {\n";
+	$bytes .= sprintf "\t%-*s = %s\n", $width, @$_ for @block;
+	$bytes .= "}\n";
 
 	return $bytes;
 }

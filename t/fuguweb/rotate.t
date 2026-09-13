@@ -9,10 +9,12 @@
 # file therefore skips without signify(1), and the skip stands before
 # the first assertion.
 #
-# Two subtests cover a signer of another type. One generates its key
-# with gpg(1), and it verifies its binding with gpg(1). The other does
-# both with openssl(1). Each of the two skips without its command, and
-# that skip stands before the first assertion of the subtest.
+# The OpenPGP mint of WEB-OPENPGP needs gpg(1). Each subtest of that
+# unit generates its key with gpg(1), and it reads the key and the
+# binding with gpg(1). One more subtest covers a signer of the X.509
+# type, and it does both with openssl(1). Each of those subtests skips
+# without its command, and that skip stands before the first assertion
+# of the subtest.
 #
 # Each subtest builds its own site in a File::Temp directory, and it
 # reads the repository at no point.
@@ -27,9 +29,11 @@ use File::Temp  qw(tempdir);
 use Fugu::File;
 use Fugu::KeyDir;
 use Fugu::OpenPGP;
+use Fugu::Process;
 use Fugu::Signify;
 use Fugu::X509;
-use POSIX ();
+use POSIX       ();
+use Time::Local ();
 
 # The command generates and signs, so no part of this file runs
 # without it. Fugu::Signify verifies in Perl, so is_available answers
@@ -60,8 +64,36 @@ LtLBaFuVI8Oc1PPnYVpof5lHHSJd9KR/4F/S7omdUAU=
 -----END PGP PUBLIC KEY BLOCK-----
 KEY
 
+# A real OpenPGP public key whose expiry has passed, so a subtest can
+# read the check of WEB-OPENPGP-4 without a wait. gpg(1) made it with
+# an expiry one second after the creation time, and it exported the
+# public half. The expiry is a fixed moment in the key, so this date
+# stays the answer.
+my $EXPIRED = <<'KEY';
+-----BEGIN PGP PUBLIC KEY BLOCK-----
+
+mDMEaqZ4fhYJKwYBBAHaRw8BAQdAa1GC/KfbfSf4DWb0ws3bcx65N9vF4synOLX0
+ElfwNw60FTxleHBpcmVkQGZ1Z3Vic2Qub3JnPoi1BBMWCgBdFiEE7Xxss1703FM1
+O8L8O6/C8EisWKsFAmqmeH4bFIAAAAAABAAObWFudTIsMi41KzEuMTIsMCwzAhsD
+BQkAAAABBQsJCAcCAiICBhUKCQgLAgQWAgMBAh4HAheAAAoJEDuvwvBIrFirlfMA
+/20kqMoeZmMMPd+ZORtU2rBw9cR0rEZtRKf5ZqvqXMiWAQCeblqcRCCGJmO84Em4
+5ed80wKo1vwmhlCGFEXCP0FeCrg4BGqmeH8SCisGAQQBl1UBBQEBB0Dido8Q/Get
+x7nSwhA2EoC8pLuc9RrO1g7hMRuJAVayEwMBCAeIlAQYFgoAPBYhBO18bLNe9NxT
+NTvC/DuvwvBIrFirBQJqpnh/GxSAAAAAAAQADm1hbnUyLDIuNSsxLjEyLDAsMwIb
+DAAKCRA7r8LwSKxYq6JHAP9nCrRTP2DAI96z0wAoEbf9V4BavEo3L0Zb875qf9/V
+bQD+ME+65MWd8YSlDXnvrVXdd3UJrqxeiMVynmJWdbdSuQY=
+=TuQT
+-----END PGP PUBLIC KEY BLOCK-----
+KEY
+
+# The date on which the key above stopped being valid, in UTC.
+my $EXPIRED_DATE = '2026-09-13';
+
 my $ORG = 'fugubsd';
 my $URL = 'https://www.fugubsd.org/keys';
+
+# The address of every OpenPGP key that a mint of this file makes.
+my $EMAIL = 'security@fugubsd.org';
 
 # _site():
 #	A project directory with the smallest description that loads,
@@ -266,6 +298,101 @@ sub _problems ($root)
 	    or return ("load: $reason");
 
 	return App::FuguWeb::Keys->new( config => $config )->problems;
+}
+
+# _keys($root):
+#	An App::FuguWeb::Keys over the description of the project, so
+#	a subtest can drive one rule of the check alone.
+sub _keys ($root)
+{
+	my $reason;
+	my $config = App::FuguWeb::Config->load( root => $root,
+		error => \$reason )
+	    or die "load $root: $reason\n";
+
+	return App::FuguWeb::Keys->new( config => $config );
+}
+
+# _block($root, $stem):
+#	The settings of one key block of the description, by name. A
+#	subtest reads what a step wrote, and the padding of the block
+#	takes no part in the answer.
+sub _block ( $root, $stem )
+{
+	my $bytes = Fugu::File->read("$root/.fuguwebrc") // '';
+	my ($body) = $bytes =~ /\nkey "\Q$stem\E" \{\n(.*?)\n\}\n/s;
+
+	my %setting;
+	return %setting unless defined $body;
+
+	for my $line ( split /\n/, $body ) {
+		next unless $line =~ /\A\s*(\S+)\s*=\s*(.*?)\s*\z/;
+		$setting{$1} = $2;
+	}
+
+	return %setting;
+}
+
+# _gpg_fields($path):
+#	Every colon line of an OpenPGP public key file, as gpg(1)
+#	shows it, by record name. The value is the field list of the
+#	line, so a subtest reads the expiry, the capabilities and the
+#	curve of the key and of its subkey.
+#
+#	The read is independent of the code under test: it runs the
+#	command itself, and it imports nothing. The home dies with the
+#	call, so the read touches no home of the user.
+sub _gpg_fields ($path)
+{
+	my $home = tempdir( CLEANUP => 1 );
+	chmod 0700, $home;
+
+	my $result = Fugu::Process->run(
+		cmd => [
+			Fugu::OpenPGP->new->command,
+			'--batch',
+			'--quiet',
+			'--homedir',
+			$home,
+			'--with-colons',
+			'--import-options',
+			'show-only',
+			'--import',
+			'--',
+			$path
+		],
+		timeout => 60,
+		env     => {
+			PATH      => $ENV{PATH} // '',
+			HOME      => $home,
+			GNUPGHOME => $home,
+			LC_ALL    => 'C',
+		},
+	);
+
+	my %record;
+	return %record unless $result->{success};
+
+	for my $line ( split /\n/, $result->{stdout} // '' ) {
+		my @field = split /:/, $line, -1;
+		$record{ $field[0] } //= \@field;
+	}
+
+	return %record;
+}
+
+# _utc_day($days):
+#	The date of a moment so many days from now, as YYYY-MM-DD in
+#	UTC, and the epoch of the start of that date.
+sub _utc_day ($days)
+{
+	my @when = gmtime( time + $days * 24 * 60 * 60 );
+	my $date = POSIX::strftime( '%Y-%m-%d', @when );
+	my $epoch =
+	    Time::Local::timegm_modern( 0, 0, 0, $when[3], $when[4],
+		$when[5] + 1900 );
+
+	return ( $date, $epoch );
 }
 
 subtest 'the first root mint bootstraps and signs its own manifest' => sub {
@@ -512,6 +639,314 @@ subtest 'a root step binds an OpenPGP key with the signer of its type' => sub {
 	is_deeply( [ _problems($root) ], [], 'the reader reports no problem' );
 };
 
+# WEB-OPENPGP-1, WEB-OPENPGP-2, WEB-OPENPGP-3 and WEB-OPENPGP-5. The
+# mint generates the key with gpg(1), publishes the armored public
+# half, writes the address and the fingerprint into the key block, and
+# binds the new key to the current root.
+subtest 'the OpenPGP mint writes the key, its block and its binding' => sub {
+	my $pgp = Fugu::OpenPGP->new;
+	plan skip_all => 'gpg(1) is not installed' unless $pgp->is_available;
+
+	my $root = _site();
+	my ($first) = _root( $root, secret => "$root/root1.sec" );
+	ok( $first, 'the first root mint succeeds' ) or return;
+
+	my ( $date, $epoch ) = _utc_day(400);
+
+	my $rotate = _rotate($root);
+	my $facts  = $rotate->mint(
+		purpose => 'contact',
+		type    => 'openpgp',
+		email   => $EMAIL,
+		expires => $date,
+		secret  => "$root/contact1.sec",
+		signer  => "$root/root1.sec",
+	);
+	ok( $facts, 'the OpenPGP mint succeeds' ) or diag( $rotate->error );
+	return unless $facts;
+
+	my $dir  = "$root/web/keys";
+	my $name = 'fugubsd-1-contact.asc';
+	is( $facts->{name}, $name, 'the key file takes the OpenPGP extension' );
+	is( $facts->{status}, 'current',
+		'and the first key of a purpose is current' );
+
+	# WEB-ROTATE-2. The public half goes into the key directory,
+	# and the private half goes to the named path with no group
+	# mode and no other mode.
+	like( Fugu::File->read("$dir/$name"),
+		qr/\A-----BEGIN PGP PUBLIC KEY BLOCK-----\n/,
+		'the published half is armored text' );
+	ok( -f "$root/contact1.sec",
+		'the private half lands at the secret path' );
+	is( ( stat "$root/contact1.sec" )[2] & 07777,
+		0600, 'and it takes no group mode and no other mode' );
+
+	# WEB-OPENPGP-1. One Ed25519 primary key, one Curve25519
+	# encryption subkey, and the address as the one user id.
+	my %field = _gpg_fields("$dir/$name");
+	is( $field{pub}[16], 'ed25519', 'the primary key is Ed25519' );
+	is( $field{sub}[16], 'cv25519', 'and the subkey is Curve25519' );
+	like( $field{sub}[11], qr/e/, 'and the subkey encrypts' );
+	is( $field{uid}[9], "<$EMAIL>",
+		'and the user id holds the address alone' );
+
+	# WEB-OPENPGP-3. The key expires at the start of the named
+	# date, in UTC.
+	is( $field{pub}[6], $epoch,
+		'the key expires at the start of the named date' );
+
+	# WEB-OPENPGP-2. The block names the address, and the
+	# fingerprint that the generated key gives.
+	my $binary = $pgp->decode_armor( Fugu::File->read("$dir/$name") );
+	my %setting = _block( $root, 'fugubsd-1-contact' );
+	is( $setting{email}, $EMAIL, 'the key block names the address' );
+	is( $setting{fingerprint},
+		$pgp->fingerprint($binary),
+		'and the fingerprint that the key itself gives' );
+
+	# WEB-ROTATE-16. A mint records the date of the run as since,
+	# whatever the type of the key.
+	is( $setting{since}, POSIX::strftime( '%Y-%m-%d', gmtime ),
+		'and the date of the run' );
+
+	# WEB-TRUST-3 and WEB-OPENPGP-5. The new key binds to the
+	# current root, and that binding is an armored detached
+	# signature which the published key verifies.
+	my $binding = 'fugubsd-1-root.pub.fugubsd-1-contact.asc';
+	ok( -f "$dir/$binding", 'the mint writes the binding over the root' );
+	like( Fugu::File->read("$dir/$binding"),
+		qr/\A-----BEGIN PGP SIGNATURE-----\n/,
+		'and it is an armored detached signature' );
+	ok(
+		$pgp->verify(
+			keys      => ["$dir/$name"],
+			file      => "$dir/fugubsd-1-root.pub",
+			signature => "$dir/$binding"
+		),
+		'and the published key verifies it'
+	);
+
+	ok( _verifies( $root, 'fugubsd-1-root' ),
+		'the current root still signs the manifest' );
+	is_deeply( [ _problems($root) ], [], 'the reader reports no problem' );
+};
+
+# WEB-OPENPGP-3. A mint with no date makes a key with no expiry. The
+# key directory retires a key with an until date, and the machine
+# rotates.
+subtest 'an OpenPGP mint with no date makes a key with no expiry' => sub {
+	my $pgp = Fugu::OpenPGP->new;
+	plan skip_all => 'gpg(1) is not installed' unless $pgp->is_available;
+
+	my $root = _site();
+	my ($first) = _root( $root, secret => "$root/root1.sec" );
+	ok( $first, 'the first root mint succeeds' ) or return;
+
+	my $rotate = _rotate($root);
+	my $facts  = $rotate->mint(
+		purpose => 'contact',
+		type    => 'openpgp',
+		email   => $EMAIL,
+		secret  => "$root/contact1.sec",
+		signer  => "$root/root1.sec",
+	);
+	ok( $facts, 'the mint succeeds with no expiry date' )
+	    or diag( $rotate->error );
+	return unless $facts;
+
+	my $key = "$root/web/keys/fugubsd-1-contact.asc";
+	my %field = _gpg_fields($key);
+	is( $field{pub}[6], '', 'the key holds no expiry' );
+	is( $field{sub}[6], '', 'and the subkey holds none' );
+	is( $pgp->expiry( public => $key ),
+		0, 'and the library reads no expiry' );
+
+	is_deeply( [ _problems($root) ], [],
+		'and the check reports no expiry problem' );
+};
+
+# WEB-OPENPGP-1 and WEB-OPENPGP-3. The address becomes the one user id
+# of the key, so an OpenPGP mint needs it. A key of another type
+# carries no address and no expiry of its own, and App::FuguWeb::Config
+# refuses a key block that names an email on such a key.
+#
+# Every step here fails before it generates, so the subtest needs no
+# gpg(1).
+subtest 'a mint guards the options of its key type' => sub {
+	my $root   = _keyed();
+	my @before = _names($root);
+
+	my ( $facts, $error ) = _mint(
+		$root,
+		type   => 'openpgp',
+		secret => "$root/contact1.sec",
+		signer => "$root/root1.sec"
+	);
+	ok( !$facts, 'an OpenPGP mint with no email fails' );
+	like( $error, qr/so it needs the email$/,
+		'and the reason names the option' );
+
+	for my $bad (qw(2028-1-1 2028-02-30 2028-13-01 tomorrow)) {
+		( $facts, $error ) = _mint(
+			$root,
+			type    => 'openpgp',
+			email   => $EMAIL,
+			expires => $bad,
+			secret  => "$root/contact1.sec",
+			signer  => "$root/root1.sec"
+		);
+		ok( !$facts, "the expiry date $bad fails" );
+		like(
+			$error,
+			qr/^the expiry \Q$bad\E is no date of the form YYYY-MM-DD$/,
+			'and the reason names the form'
+		);
+	}
+
+	( $facts, $error ) = _mint(
+		$root,
+		email  => $EMAIL,
+		secret => "$root/rel2.sec",
+		signer => "$root/root1.sec"
+	);
+	ok( !$facts, 'a signify mint with an email fails' );
+	like( $error, qr/^a mint of a signify key takes no email$/,
+		'and the reason names the type and the option' );
+
+	( $facts, $error ) = _mint(
+		$root,
+		expires => '2028-01-01',
+		secret  => "$root/rel2.sec",
+		signer  => "$root/root1.sec"
+	);
+	ok( !$facts, 'a signify mint with an expiry date fails' );
+	like( $error, qr/^a mint of a signify key takes no expires$/,
+		'and the reason names that option' );
+
+	is_deeply( [ _names($root) ], [@before],
+		'and no step writes one file' );
+	ok( !-e "$root/contact1.sec", 'and none of them makes an OpenPGP key' );
+	ok( !-e "$root/rel2.sec",     'and none of them makes a signify pair' );
+};
+
+# WEB-OPENPGP-4. The check reports a current OpenPGP key that expires
+# within 30 days, when its purpose holds no next key. One rotation
+# runs in two steps, and the consumers need the gap between them.
+subtest 'the check reports a current OpenPGP key that expires soon' => sub {
+	plan skip_all => 'gpg(1) is not installed'
+	    unless Fugu::OpenPGP->new->is_available;
+
+	my $root = _site();
+	my ($first) = _root( $root, secret => "$root/root1.sec" );
+	ok( $first, 'the first root mint succeeds' ) or return;
+
+	my ($soon)  = _utc_day(10);
+	my $rotate  = _rotate($root);
+	my $current = $rotate->mint(
+		purpose => 'contact',
+		type    => 'openpgp',
+		email   => $EMAIL,
+		expires => $soon,
+		secret  => "$root/contact1.sec",
+		signer  => "$root/root1.sec",
+	);
+	ok( $current, 'the mint of the current key succeeds' )
+	    or diag( $rotate->error );
+	return unless $current;
+
+	my @problems = _problems($root);
+	is( scalar @problems, 1, 'the check reports one problem' );
+	like(
+		$problems[0],
+		qr{^keys/fugubsd-1-contact[.]asc: the current key expires on \Q$soon\E, and the purpose contact holds no next key$},
+		'and it names the file, the date and the purpose'
+	);
+
+	# A step reads its own work back, and it must not fail for
+	# this report: the clock decides it, and no step can make the
+	# key expire later. A step that failed for it would refuse the
+	# very rotation that answers it.
+	$rotate = _rotate($root);
+	my $release = $rotate->mint(
+		purpose => 'release',
+		secret  => "$root/rel1.sec",
+		signer  => "$root/root1.sec",
+	);
+	ok( $release, 'a step of another purpose succeeds all the same' )
+	    or diag( $rotate->error );
+	is( scalar( () = _problems($root) ),
+		1, 'and the check still reports the one problem' );
+
+	# The next key of the purpose carries the gap of the rotation,
+	# so the current key that expires soon is no problem.
+	my ($far) = _utc_day(400);
+	$rotate = _rotate($root);
+	my $next = $rotate->mint(
+		purpose => 'contact',
+		type    => 'openpgp',
+		email   => $EMAIL,
+		expires => $far,
+		secret  => "$root/contact2.sec",
+		signer  => "$root/root1.sec",
+	);
+	ok( $next, 'the mint of the next key succeeds' )
+	    or diag( $rotate->error );
+	return unless $next;
+
+	is_deeply( [ _problems($root) ], [],
+		'and a next key of the purpose takes the problem away' );
+};
+
+# WEB-OPENPGP-4. A current or next OpenPGP key whose expiry has passed
+# is a problem, whatever else its purpose holds. gpg(1) refuses to
+# sign with an expired key, so no step can mint one: the subtest plants
+# the fixture key and drives that one rule over a set which names it.
+# It reads no whole report, so the planted file stands beside the
+# directory of _keyed and takes no part in the answer.
+subtest 'the check reports an OpenPGP key whose expiry has passed' => sub {
+	plan skip_all => 'gpg(1) is not installed'
+	    unless Fugu::OpenPGP->new->is_available;
+
+	my $root = _keyed();
+	Fugu::File->write( "$root/web/keys/fugubsd-1-contact.asc", $EXPIRED );
+
+	my $keys = _keys($root);
+
+	for my $status (qw(current next)) {
+		my @problems = $keys->_expiry_problems(
+			[ {
+				name    => 'fugubsd-1-contact.asc',
+				type    => 'openpgp',
+				purpose => 'contact',
+				status  => $status,
+			} ] );
+
+		is( scalar @problems, 1, "the check reports the $status key" );
+		like(
+			$problems[0],
+			qr{^keys/fugubsd-1-contact[.]asc: the $status key expired on \Q$EXPIRED_DATE\E$},
+			'and it names the file, the status and the date'
+		);
+	}
+
+	# A retired key stays published with an until date, and a
+	# release that it signed still verifies, so its expiry is no
+	# problem.
+	is_deeply(
+		[
+			$keys->_expiry_problems(
+				[ {
+					name    => 'fugubsd-1-contact.asc',
+					type    => 'openpgp',
+					purpose => 'contact',
+					status  => 'retired',
+				} ] ) ],
+		[],
+		'and a retired key of the same file is no problem'
+	);
+};
+
 # WEB-TRUST-8. A PEM private key names no certificate, so Fugu::X509
 # signs with the certificate beside it, and _bind must name that file.
 # _bound reads the status of a key and never its type, so a directory
@@ -589,37 +1024,41 @@ subtest 'a bound key that names no key in force fails the step' => sub {
 	ok( !-e "$root/root2.sec", 'and it generates no pair' );
 };
 
-# WEB-ROTATE-1. Each verb takes a --type, and the default is signify.
-# Plan 004 adds the OpenPGP mint, and plan 005 adds the certificate,
-# so a verb must refuse every other type before it writes.
-subtest 'the verbs make one key type today' => sub {
+# WEB-ROTATE-1 and WEB-ROTATE-2. Each verb takes a --type, and the
+# default is signify. A mint makes a signify pair or an OpenPGP key.
+# Plan 005 adds the certificate and opens the import to every type, so
+# each verb must refuse the type that it does not read, before it
+# writes.
+subtest 'each verb refuses the key type that it does not read' => sub {
 	my $root   = _keyed();
 	my @before = _names($root);
 
 	my ( $facts, $error ) = _mint(
 		$root,
-		type   => 'openpgp',
+		type   => 'x509',
 		secret => "$root/rel2.sec",
 		signer => "$root/root1.sec"
 	);
-	ok( !$facts, 'a mint of another type fails' );
-	like( $error, qr/^mint-key reads no key of the type openpgp$/,
+	ok( !$facts, 'a mint of a certificate fails' );
+	like( $error, qr/^mint-key reads no key of the type x509$/,
 		'and the reason names the verb and the type' );
 	ok( !-e "$root/rel2.sec", 'and it generates no pair' );
 
-	( $facts, $error ) = _import(
-		$root,
-		type   => 'x509',
-		file   => "$root/web/keys/fugubsd-1-release.pub",
-		secret => "$root/rel1.sec",
-		signer => "$root/root1.sec"
-	);
-	ok( !$facts, 'an import of another type fails' );
-	like( $error, qr/^import-key reads no key of the type x509$/,
-		'and the reason names that verb and its type' );
+	for my $type (qw(openpgp x509)) {
+		( $facts, $error ) = _import(
+			$root,
+			type   => $type,
+			file   => "$root/web/keys/fugubsd-1-release.pub",
+			secret => "$root/rel1.sec",
+			signer => "$root/root1.sec"
+		);
+		ok( !$facts, "an import of the type $type fails" );
+		like( $error, qr/^import-key reads no key of the type $type$/,
+			'and the reason names that verb and its type' );
+	}
 
 	is_deeply( [ _names($root) ], [@before],
-		'and neither step writes one file' );
+		'and no step writes one file' );
 };
 
 subtest 'a second mint waits for the promote' => sub {

@@ -28,6 +28,7 @@ use Fugu::OpenPGP;
 use Fugu::Signify;
 use Fugu::X509;
 use MIME::Base64 ();
+use POSIX        ();
 
 # App::FuguWeb::Keys - the key directory of a site.
 #
@@ -91,6 +92,11 @@ use constant WKD_NAME => qr{\A[ybndrfg8ejkmcpqxot1uwisza345h769]{32}\z};
 # Fugu::KeyDir holds no purpose, so the word lives here and the verbs
 # read it from this module.
 use constant ROOT_PURPOSE => 'root';
+
+# How long before its expiry a current key with no successor is a
+# problem, per WEB-OPENPGP-4. A rotation runs in two steps, and the
+# consumers need the gap between them, so 30 days is the warning.
+use constant EXPIRY_WARNING => 30 * 24 * 60 * 60;
 
 # The verifier of each binding type. Every class follows Fugu::Signer,
 # so one call shape reads all three. Fugu::Signify verifies in Perl,
@@ -337,10 +343,13 @@ sub key_set ($self)
 	return \@set;
 }
 
-# $self->problems:
+# $self->problems(%args):
 #	What the key directory of the checkout is not true of, each
 #	one a sentence that names the file. An empty list means the
 #	directory is good.
+#
+#	%args:
+#		expiry => 0	leave out the rules of WEB-OPENPGP-4
 #
 #	The checks read the source directory and not the output. A
 #	stray file and a stale digest are faults of the checkout, and
@@ -350,7 +359,14 @@ sub key_set ($self)
 #	no SHA256.sig, per WEB-KEYS-33. That one is the work of a
 #	consumer install: the site build cannot sign, so a site that
 #	verified its own manifest would prove nothing.
-sub problems ($self)
+#
+#	The clock decides the expiry rules of WEB-OPENPGP-4, and no
+#	step of the rotation can make a key expire later. A caller
+#	that reads back the work of one step therefore leaves them
+#	out, and it reads the bytes that the step wrote alone. A step
+#	which failed for a key that ran towards its expiry would
+#	refuse the very rotation that answers it.
+sub problems ( $self, %args )
 {
 	my $config = $self->{config};
 	my $dir    = $config->keys_dir;
@@ -372,6 +388,8 @@ sub problems ($self)
 	push @problems, $self->_manifest_problems( \@keys );
 	push @problems, $self->_signature_problems;
 	push @problems, $self->_fingerprint_problems($set);
+	push @problems, $self->_expiry_problems($set)
+	    if $args{expiry} // 1;
 
 	return @problems;
 }
@@ -679,6 +697,80 @@ sub _fingerprint_problems ( $self, $set )
 	}
 
 	return @problems;
+}
+
+# $self->_expiry_problems($set):
+#	The expiry rule of WEB-OPENPGP-4. A current or next OpenPGP
+#	key whose expiry has passed is a problem. A current key that
+#	expires within EXPIRY_WARNING is a problem when its purpose
+#	holds no next key, because one rotation runs in two steps and
+#	the consumers need the gap between them.
+#
+#	A key with no expiry never reaches either rule: the key
+#	directory retires a key with an until date, and the machine
+#	rotates, per WEB-OPENPGP-3.
+#
+#	The read runs gpg(1), which reports the expiry that the key
+#	itself carries. An absent command is a problem of the host,
+#	and the reason of the call names it: a key that nothing read
+#	must never pass.
+sub _expiry_problems ( $self, $set )
+{
+	my $dir = $self->{config}->keys_dir;
+	my $now = time;
+
+	my %successor;
+	for my $key (@$set) {
+		$successor{ $key->{purpose} } = 1 if $key->{status} eq 'next';
+	}
+
+	my @problems;
+	for my $key (@$set) {
+		next unless $key->{type} eq 'openpgp';
+		next
+		    unless $key->{status} eq 'current'
+		    || $key->{status} eq 'next';
+
+		my $expiry = $self->{openpgp}->expiry(
+			public => $self->{config}->keys_path( $key->{name} ) );
+		unless ( defined $expiry ) {
+			push @problems,
+			    "$dir/$key->{name}: " . $self->{openpgp}->error;
+			next;
+		}
+
+		# 0 is the answer for a key that holds no expiry, and
+		# an epoch is the answer for a key that holds one.
+		next unless $expiry;
+
+		if ( $expiry <= $now ) {
+			push @problems,
+			    "$dir/$key->{name}: the $key->{status} key expired"
+			    . ' on '
+			    . _utc_date($expiry);
+			next;
+		}
+
+		next unless $key->{status} eq 'current';
+		next if $successor{ $key->{purpose} };
+		next if $expiry > $now + EXPIRY_WARNING;
+
+		push @problems,
+		      "$dir/$key->{name}: the current key expires on "
+		    . _utc_date($expiry)
+		    . ", and the purpose $key->{purpose} holds no next key";
+	}
+
+	return @problems;
+}
+
+# _utc_date($epoch):
+#	One date of an expiry, in UTC. The key directory writes each
+#	date of a key block the same way, per WEB-ROTATE-16, so a
+#	reader compares the two without a conversion.
+sub _utc_date ($epoch)
+{
+	return POSIX::strftime( '%Y-%m-%d', gmtime $epoch );
 }
 
 # $self->_index_page($rows, $by_target):
