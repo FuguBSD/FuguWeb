@@ -416,7 +416,8 @@ input, so an organization keeps the names that it has.
 - **WEB-ACTIONS-5** — The workflow must install `fuguweb` with `make deps` of
   the caller, from the release tarballs that the deps manifest of the caller
   pins. It must install nothing of its own. Each install must run before the
-  step that mints a token.
+  step that mints a token. The workflow must name the install root. It must give
+  the module path and the command path of that root to each step that follows.
 - **WEB-ACTIONS-6** — The workflow must read the root slot, the purpose slot,
   and the retiring key. A root step that binds each subordinate key again must
   also read the slot of each subordinate purpose. Every other step must read

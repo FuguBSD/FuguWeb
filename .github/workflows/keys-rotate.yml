@@ -276,15 +276,35 @@ jobs:
       # caller, which pins each release, and this workflow installs
       # nothing of its own. It runs before the token step, so no
       # unpinned code runs beside a credential.
+      #
+      # The step names the install root. With no named root, cpanm
+      # installs into $HOME/perl5. The modules land outside @INC, and
+      # this workflow puts no $HOME/perl5/bin on PATH. The command is
+      # absent too, and the step after fails with "command not found".
+      # The two lines below give the module path and the command path
+      # of the named root to each step that follows.
+      #
+      # The shape of the root comes from the "Configure local::lib
+      # environment" step of Tooling/perl/actions/setup-perl. It
+      # names the same ${{ github.workspace }}/local root, the same
+      # lib/perl5 module path, and the same bin command path.
+      # WEB-ACTIONS-5 says this workflow must install nothing of its
+      # own. That action installs cpanminus and liblocal-lib-perl
+      # with apt-get, which is an install of its own.
+      # Tooling/org/sync/t/ci/workflows.t fails a job that runs make
+      # deps and uses that action. This step holds its own copy.
+      # scripts/deps of the caller reads PERL_LOCAL_LIB_ROOT, and that
+      # read makes the name work.
       - name: Install the dependencies
+        env:
+          PERL_LOCAL_LIB_ROOT: ${{ github.workspace }}/local
         run: |
           make deps
+          echo "PERL5LIB=$PERL_LOCAL_LIB_ROOT/lib/perl5" >> "$GITHUB_ENV"
+          echo "$PERL_LOCAL_LIB_ROOT/bin" >> "$GITHUB_PATH"
+          # make deps installs each "tool bin" entry here, for
+          # example the gitleaks of deps/Linux.txt of the caller.
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          # cpanm with no root writes to the default local library of
-          # the user, and PATH does not hold its bin directory. With
-          # root it writes to /usr/local/bin, which PATH holds
-          # already, so the extra entry is harmless.
-          echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
 
       # The install must leave fuguweb on PATH. A run that found no
       # command would fail many steps later, with a key already made.
