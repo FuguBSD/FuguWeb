@@ -281,6 +281,14 @@ jobs:
       # and no named root installs where @INC does not reach. The
       # two lines below give the module path and the command path of
       # that root to each step that follows.
+      #
+      # The shape of the root comes from the "Configure local::lib
+      # environment" step of Tooling/perl/actions/setup-perl. It
+      # names the same ${{ github.workspace }}/local root, the same
+      # lib/perl5 module path, and the same bin command path.
+      # WEB-ACTIONS-5 forbids that action in this job, so this step
+      # holds its own copy. scripts/deps of the caller reads
+      # PERL_LOCAL_LIB_ROOT, and that read makes the name work.
       - name: Install the dependencies
         env:
           PERL_LOCAL_LIB_ROOT: ${{ github.workspace }}/local
@@ -288,7 +296,8 @@ jobs:
           make deps
           echo "PERL5LIB=$PERL_LOCAL_LIB_ROOT/lib/perl5" >> "$GITHUB_ENV"
           echo "$PERL_LOCAL_LIB_ROOT/bin" >> "$GITHUB_PATH"
-          # make deps installs the tool environment here.
+          # make deps installs each "tool bin" entry here, for
+          # example the gitleaks of deps/Linux.txt.
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # The install must leave fuguweb on PATH. A run that found no
