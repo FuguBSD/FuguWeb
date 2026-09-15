@@ -1,8 +1,10 @@
-# The runtime dist entry takes the signify tier, and scripts/deps
-# needs signify(1) to check that signature. The tool environment
-# installs before every other one, so the command is there when the
-# runtime chain reaches the entry. t/fuguweb/rotate.t uses the same
-# command, and deps-test depends on deps.
+# t/fuguweb/rotate.t drives the rotation against signify(1), and it
+# skips the whole file without that command. The tool environment
+# installs before every other one, and deps-test depends on deps, so
+# the command is there when the test runs. The key verbs of fuguweb
+# need it too, per WEB-ROTATE-17. The runtime dist entry takes a
+# recorded digest of deps/SHA256.txt, so scripts/deps reads no
+# published key for it.
 tool pkg signify-openbsd
 
 # The secret gate of make check runs gitleaks, so the tool
