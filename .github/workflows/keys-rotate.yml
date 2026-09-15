@@ -276,15 +276,20 @@ jobs:
       # caller, which pins each release, and this workflow installs
       # nothing of its own. It runs before the token step, so no
       # unpinned code runs beside a credential.
+      #
+      # The step names the install root, because cpanm with no root
+      # and no named root installs where @INC does not reach. The
+      # two lines below give the module path and the command path of
+      # that root to each step that follows.
       - name: Install the dependencies
+        env:
+          PERL_LOCAL_LIB_ROOT: ${{ github.workspace }}/local
         run: |
           make deps
+          echo "PERL5LIB=$PERL_LOCAL_LIB_ROOT/lib/perl5" >> "$GITHUB_ENV"
+          echo "$PERL_LOCAL_LIB_ROOT/bin" >> "$GITHUB_PATH"
+          # make deps installs the tool environment here.
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          # cpanm with no root writes to the default local library of
-          # the user, and PATH does not hold its bin directory. With
-          # root it writes to /usr/local/bin, which PATH holds
-          # already, so the extra entry is harmless.
-          echo "$HOME/perl5/bin" >> "$GITHUB_PATH"
 
       # The install must leave fuguweb on PATH. A run that found no
       # command would fail many steps later, with a key already made.

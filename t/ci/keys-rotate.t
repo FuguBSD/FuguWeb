@@ -93,6 +93,35 @@ subtest 'the workflow holds the order of the steps' => sub {
 	    or diag( "the workflow names:\n" . join "\n", @steps );
 };
 
+# WEB-ACTIONS-5. The install step names the install root, and gives
+# the module path and the command path of that root to each step
+# that follows. cpanm with no root, and with no named root, installs
+# where @INC does not reach. A run without these three lines leaves
+# the fuguweb command on PATH and every module of it outside @INC,
+# and the step after it fails with "Can't locate App/FuguWeb/CLI.pm
+# in @INC".
+subtest 'the install step names the install root' => sub {
+	my ($step) = $text =~ m{
+		^\ {6}-\ name:\ Install\ the\ dependencies\n
+		(.+?)
+		(?=^\ {6}-\ name:\ )
+	}msx;
+	ok( $step, 'the workflow holds the install step' ) or return;
+
+	like( $step, qr/^\s+PERL_LOCAL_LIB_ROOT: \S/m,
+		'the step names the install root' );
+	like(
+		$step,
+		qr{^\s+echo "PERL5LIB=\$PERL_LOCAL_LIB_ROOT/lib/perl5"\s+>> "\$GITHUB_ENV"$}m,
+		'it gives the module path of that root to each later step'
+	);
+	like(
+		$step,
+		qr{^\s+echo "\$PERL_LOCAL_LIB_ROOT/bin" >> "\$GITHUB_PATH"$}m,
+		'it gives the command path of that root to each later step'
+	);
+};
+
 # WEB-ACTIONS-13. Each guard, as text. A guard that goes takes its
 # message with it, and a run then reaches a credential, a verb or a
 # secret write with an input that no step refused. The two actions
