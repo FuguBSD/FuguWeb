@@ -1219,8 +1219,9 @@ package App::FuguWeb::Config::Group;
 # itself: lib/App/FuguWeb.pod is the umbrella of lib/App/FuguWeb/.
 
 # The sections that a manuals group globs, in the order the index
-# shows them.
-my @SECTIONS = qw(1 3p 5 8);
+# shows them. The order follows the number of the section, and 3p
+# holds the place of section 3. Add a new section at its number.
+my @SECTIONS = qw(1 3p 5 7 8);
 
 # App::FuguWeb::Config::Group->new(%args):
 #	kind        => 'manuals'|'modules'
@@ -1261,7 +1262,7 @@ sub manuals ($self)
 
 # $self->_mdoc_manuals:
 #	Every mdoc source in the directory, by section in the order 1,
-#	3p, 5, 8, and then by file name. The sort compares bytes and
+#	3p, 5, 7, 8, and then by file name. The sort compares bytes and
 #	never reads the locale of the builder: a site must not depend
 #	on the machine that built it.
 #

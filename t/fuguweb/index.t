@@ -29,6 +29,7 @@ my %SOURCES = (
 	'man/all/every.1'        => 'section one',
 	'man/all/every.3p'       => 'section three p',
 	'man/all/every.5'        => 'section five',
+	'man/all/every.7'        => 'section seven',
 	'man/all/every.8'        => 'section eight',
 	'lib/Thing/Store.pod'    => 'the persistence contract',
 	'lib/Thing/Store/Memory.pod' => 'the memory store',
@@ -145,7 +146,7 @@ subtest 'a manuals group sorts by section and then by byte' => sub {
 			'tool.1.html', 'tool.conf.5.html',
 			'toolctl.8.html'
 		],
-		'the sections come in the order 1, 3p, 5, 8'
+		'the sections come in the order 1, 3p, 5, 7, 8'
 	);
 
 	my ($library) = grep { $_->heading eq 'Library' } $config->groups;
@@ -156,13 +157,14 @@ subtest 'a manuals group sorts by section and then by byte' => sub {
 	);
 
 	# One group that holds every section. Without it the 3p rung of
-	# the ladder is never compared against 5 or 8, and a wrong
-	# order there would pass.
+	# the ladder is never compared against 5, 7 or 8, and a wrong
+	# order there would pass. A group that drops a section adds
+	# nothing to the index, so no other test sees the loss.
 	my ($every) = grep { $_->heading eq 'Every section' } $config->groups;
 	is_deeply(
 		[ map { $_->section } $every->manuals ],
-		[qw(1 3p 5 8)],
-		'the whole section order, 3p included'
+		[qw(1 3p 5 7 8)],
+		'the whole section order, 3p and 7 included'
 	);
 };
 
@@ -176,7 +178,7 @@ subtest 'a directory is not a manual' => sub {
 
 	my ($every) = grep { $_->heading eq 'Every section' } $config->groups;
 	is_deeply( [ map { $_->section } $every->manuals ],
-		[qw(1 3p 5 8)], 'the directory is not among the manuals' );
+		[qw(1 3p 5 7 8)], 'the directory is not among the manuals' );
 };
 
 subtest 'a project path with a glob metacharacter still finds them' => sub {
