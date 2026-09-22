@@ -162,8 +162,7 @@ subtest 'a manuals group sorts by section and then by byte' => sub {
 
 	# One group that holds every section. Without it the 3p rung of
 	# the ladder is never compared against 5, 7 or 8, and a wrong
-	# order there would pass. No other group holds every section,
-	# so no other test compares those rungs.
+	# order there would pass.
 	my ($every) = grep { $_->heading eq 'Every section' } $config->groups;
 	is_deeply(
 		[ map { $_->section } $every->manuals ],
