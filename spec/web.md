@@ -14,8 +14,9 @@ the area that it changes. The conventions of [index.md](index.md) apply.
 ## The manuals group
 
 - **WEB-MANUALS-1** — A `manuals` group must take each plain file of its
-  directory whose name ends in `.1`, `.3p`, `.5`, `.7` or `.8`. It must take no
-  directory, and it must read the directory rather than glob it.
+  directory whose name ends in `.1`, `.3p`, `.5`, `.7` or `.8`. It must not take
+  a name that starts with a dot. It must take no directory, and it must read the
+  directory rather than glob it.
 - **WEB-MANUALS-2** — The group must order its manuals by section, in the order
   1, 3p, 5, 7, 8, and then by file name. A comparison must read bytes, and must
   not read the locale of the builder.
