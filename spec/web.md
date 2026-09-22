@@ -9,6 +9,27 @@ The code predates the specification, so this document holds the units of the
 areas that a plan has changed and no more. Each future plan adds the units of
 the area that it changes. The conventions of [index.md](index.md) apply.
 
+<a id="web-manuals"></a>
+
+## The manuals group
+
+- **WEB-MANUALS-1** — A `manuals` group must take each plain file of its
+  directory whose name ends in `.1`, `.3p`, `.5`, `.7` or `.8`. It must take no
+  directory, and it must read the directory rather than glob it.
+- **WEB-MANUALS-2** — The group must order its manuals by section, in the order
+  1, 3p, 5, 7, 8, and then by file name. A comparison must read bytes, and must
+  not read the locale of the builder.
+- **WEB-MANUALS-3** — The section order must follow the number of the manual
+  section, and `3p` must hold the place of section 3. A new section must enter
+  the order at its number.
+- **WEB-MANUALS-4** — The build must render each source with mandoc(1), and must
+  name the page `<name>.<section>.html`.
+- **WEB-MANUALS-5** — The `namespace` of a group must prefix the name of each
+  manual of that group.
+- **WEB-MANUALS-6** — The manual index must show one heading for each group,
+  with the `anchor` of the group. A group with no manual must add nothing to the
+  index.
+
 <a id="web-keys"></a>
 
 ## The key directory
