@@ -293,8 +293,8 @@ jobs:
       # with apt-get, which is an install of its own.
       # Tooling/org/sync/t/ci/workflows.t fails a job that runs make
       # deps and uses that action. This step holds its own copy.
-      # scripts/deps of the caller reads PERL_LOCAL_LIB_ROOT, and that
-      # read makes the name work.
+      # `fugubench deps` reads PERL_LOCAL_LIB_ROOT, and that read
+      # makes the name work.
       - name: Install the dependencies
         env:
           PERL_LOCAL_LIB_ROOT: ${{ github.workspace }}/local

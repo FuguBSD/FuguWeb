@@ -95,14 +95,14 @@ subtest 'the workflow holds the order of the steps' => sub {
 
 # WEB-ACTIONS-5. The three lines name the install root, and give
 # the module path and the command path of that root to each later
-# step. scripts/deps passes --local-lib to cpanm only when the
-# environment names PERL_LOCAL_LIB_ROOT. Without that name, cpanm
-# installs into $HOME/perl5, and this workflow puts no
-# $HOME/perl5/bin on PATH. A run without the three lines fails the
-# next step with "command not found". This subtest guards the
-# defect of run 34912193575 of FuguBSD/Website. That workflow put
-# $HOME/perl5/bin on PATH, so the command ran, and it failed with
-# "Can't locate App/FuguWeb/CLI.pm in @INC".
+# step. `fugubench deps` passes --local-lib to cpanm only when
+# the environment names PERL_LOCAL_LIB_ROOT. Without that name,
+# cpanm installs into $HOME/perl5, and this workflow puts no
+# $HOME/perl5/bin on PATH. A run without the three lines fails
+# the next step with "command not found". This subtest guards
+# the defect of run 34912193575 of FuguBSD/Website. That
+# workflow put $HOME/perl5/bin on PATH, so the command ran, and
+# it failed with "Can't locate App/FuguWeb/CLI.pm in @INC".
 subtest 'the install step names the install root' => sub {
 	my ($step) = $text =~ m{
 		^\ {6}-\ name:\ Install\ the\ dependencies\n
