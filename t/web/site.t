@@ -105,6 +105,12 @@ unlike( $sheet, qr/\@import/, 'and imports no sheet' );
 my @schemes = $sheet =~ /prefers-color-scheme/g;
 is( scalar @schemes, 1, 'one query selects the dark scheme' );
 
+# WEB-STYLE-3 puts each color in a custom property, so a literal lives
+# in a :root block alone. The light block goes, the dark one goes, and
+# a hex color in what remains sits outside every property.
+( my $rules = $sheet ) =~ s/:root\s*\{[^}]*\}//g;
+unlike( $rules, qr/#[0-9a-fA-F]{3,8}/, 'no color literal outside the :root blocks' );
+
 like( $sheet, qr/"Times New Roman"/, 'the body face is Times' );
 like( $sheet, qr/Courier/,           'and the code face is Courier' );
 
