@@ -114,6 +114,25 @@ unlike( $rules, qr/#[0-9a-fA-F]{3,8}/, 'no color literal outside the :root block
 like( $sheet, qr/"Times New Roman"/, 'the body face is Times' );
 like( $sheet, qr/Courier/,           'and the code face is Courier' );
 
+# WEB-STYLE-4 bounds the measure and the rhythm of the body rule. The
+# narrow query sets a max-width of its own, so each value comes from
+# the body rule alone, and not from the sheet at large.
+my ($body) = $sheet =~ /^body\s*\{([^}]*)\}/m;
+my ($measure) = ( $body // '' ) =~ /\bmax-width:\s*([\d.]+)em\b/;
+my ($rhythm)  = ( $body // '' ) =~ /\bline-height:\s*([\d.]+)\s*;/;
+ok( defined $measure && $measure <= 42, 'the measure stops at 42em' )
+    or diag 'max-width: ' . ( $measure // 'none' );
+ok( defined $rhythm && $rhythm >= 1.5 && $rhythm <= 1.6,
+    'and the line height sits between 1.5 and 1.6' )
+    or diag 'line-height: ' . ( $rhythm // 'none' );
+
+# WEB-STYLE-6 draws the underline one pixel thick. The chrome and the
+# permalink carry a link rule of their own, so the match reads the one
+# that starts the line.
+my ($link) = $sheet =~ /^a:link\b[^{]*\{([^}]*)\}/m;
+like( $link // '', qr/\btext-decoration-thickness:\s*1px\b/,
+    'the underline of a link is one pixel' );
+
 my $index = Fugu::File->read("$out/index.html") // '';
 like( $index, qr/<header>/, 'the chrome writes a bare header' );
 unlike( $index, qr/class="banner"/, 'and no banner class' );
