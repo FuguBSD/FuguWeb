@@ -465,6 +465,40 @@ input, so an organization keeps the names that it has.
   input. `permissions`, `concurrency`, and `secrets: inherit` must stay in the
   caller.
 
+<a id="web-style"></a>
+
+## The stylesheet
+
+The stylesheet gives every page the look of a plain document of the early web,
+set with care. The body face is a serif, the code face is a monospace, and the
+top two heading levels sit on a tinted band. A reader of openbsd.org knows the
+look at once. The sheet changes the rhythm of the page, not its vocabulary.
+
+A body fragment comes from a hand, from `lowdown`, or from `pod2man`. None of
+them writes a class, and the sheet asks for none. A manual page is the one
+exception: `mandoc` emits its own class names, and the sheet adopts them.
+
+- **WEB-STYLE-1** — The sheet must reach every element of the chrome and of a
+  body fragment by element name alone. It must not need a class there, and the
+  chrome must carry none. The classes that `mandoc` emits are the one exception.
+- **WEB-STYLE-2** — The sheet must name system fonts only, and must load no
+  resource. A page loads itself and the sheet, and nothing else.
+- **WEB-STYLE-3** — The sheet must give a light scheme and a dark scheme, and
+  the system preference must select one. Each color must appear once, in a
+  custom property.
+- **WEB-STYLE-4** — The body face must be Times, and the code face must be
+  Courier. The measure must not pass 42em, and the line height must sit between
+  1.5 and 1.6.
+- **WEB-STYLE-5** — A heading of the top two levels must sit on a tinted band
+  with a hairline rule, and must carry no other decoration. The band colors are
+  the ones of openbsd.org.
+- **WEB-STYLE-6** — A link must take one color, visited and unvisited alike, and
+  must stay underlined. The underline must be one pixel, below the baseline.
+- **WEB-STYLE-7** — A section heading of a manual page must sit flush with the
+  banner, in bold. The section body must sit at an indent. An inline code
+  element of the manual body must take no background. Bold alone marks what the
+  reader types, and italic marks what the reader substitutes.
+
 <a id="web-output"></a>
 
 ## The output directory
