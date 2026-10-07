@@ -36,6 +36,7 @@ use_ok('App::FuguWeb::Render');
 use_ok('App::FuguWeb::Site');
 use_ok('App::FuguWeb::Check');
 use_ok('Fugu::Log');
+use_ok('Fugu::File');
 
 my $root = "$RealBin/../..";
 
@@ -77,6 +78,39 @@ ok( -f "$out/style.css",   'and the stylesheet' );
 my @problems = App::FuguWeb::Check->new( config => $config, out => $out )->run;
 is_deeply( \@problems, [], 'the checks pass on the built site' )
     or diag join "\n", @problems;
+
+# The sheet of the built site is the one that ships, and WEB-STYLE
+# binds it. The tests below hold each rule that a byte of the sheet
+# can answer. A comment may name a host or a site, and that dot would
+# read as a class, so the comments go first.
+my $sheet = Fugu::File->read("$out/style.css") // '';
+$sheet =~ s{/\*.*?\*/}{}gs;
+
+# The chrome carries no class, and a body fragment carries none. The
+# class names that mandoc(1) emits are the one set the sheet may use.
+my %mandoc = map { $_ => 1 } qw(
+    head foot head-vol foot-date head-rtitle foot-os
+    Sh Ss permalink manual-text Nm Bd-indent Bl-tag
+    Cm Fl Ic Fn Dv Er Ev Ar Va Pa Em
+);
+my %seen;
+my @foreign = grep { !$mandoc{$_} && !$seen{$_}++ }
+    $sheet =~ /\.([A-Za-z_-][\w-]*)/g;
+is_deeply( \@foreign, [], 'no class selector outside the mandoc set' )
+    or diag join ' ', @foreign;
+
+unlike( $sheet, qr/url\(/,    'the sheet loads no resource' );
+unlike( $sheet, qr/\@import/, 'and imports no sheet' );
+
+my @schemes = $sheet =~ /prefers-color-scheme/g;
+is( scalar @schemes, 1, 'one query selects the dark scheme' );
+
+like( $sheet, qr/"Times New Roman"/, 'the body face is Times' );
+like( $sheet, qr/Courier/,           'and the code face is Courier' );
+
+my $index = Fugu::File->read("$out/index.html") // '';
+like( $index, qr/<header>/, 'the chrome writes a bare header' );
+unlike( $index, qr/class="banner"/, 'and no banner class' );
 
 ok( site()->build, 'a second build succeeds over the same tree' );
 
