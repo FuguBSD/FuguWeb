@@ -36,6 +36,7 @@ use_ok('App::FuguWeb::Render');
 use_ok('App::FuguWeb::Site');
 use_ok('App::FuguWeb::Check');
 use_ok('Fugu::Log');
+use_ok('Fugu::File');
 
 my $root = "$RealBin/../..";
 
@@ -77,6 +78,64 @@ ok( -f "$out/style.css",   'and the stylesheet' );
 my @problems = App::FuguWeb::Check->new( config => $config, out => $out )->run;
 is_deeply( \@problems, [], 'the checks pass on the built site' )
     or diag join "\n", @problems;
+
+# The sheet of the built site is the one that ships, and WEB-STYLE
+# binds it. The tests below hold each rule that a byte of the sheet
+# can answer. A comment may name a host or a site, and that dot would
+# read as a class, so the comments go first.
+my $sheet = Fugu::File->read("$out/style.css") // '';
+$sheet =~ s{/\*.*?\*/}{}gs;
+
+# The chrome carries no class, and a body fragment carries none. The
+# class names that mandoc(1) emits are the one set the sheet may use.
+my %mandoc = map { $_ => 1 } qw(
+    head foot head-vol foot-date head-rtitle foot-os
+    Sh Ss permalink manual-text Nm Bd-indent Bl-tag
+    Cm Fl Ic Fn Dv Er Ev Ar Va Pa Em
+);
+my %seen;
+my @foreign = grep { !$mandoc{$_} && !$seen{$_}++ }
+    $sheet =~ /\.([A-Za-z_-][\w-]*)/g;
+is_deeply( \@foreign, [], 'no class selector outside the mandoc set' )
+    or diag join ' ', @foreign;
+
+unlike( $sheet, qr/url\(/,    'the sheet loads no resource' );
+unlike( $sheet, qr/\@import/, 'and imports no sheet' );
+
+my @schemes = $sheet =~ /prefers-color-scheme/g;
+is( scalar @schemes, 1, 'one query selects the dark scheme' );
+
+# WEB-STYLE-3 puts each color in a custom property, so a literal lives
+# in a :root block alone. The light block goes, the dark one goes, and
+# a hex color in what remains sits outside every property.
+( my $rules = $sheet ) =~ s/:root\s*\{[^}]*\}//g;
+unlike( $rules, qr/#[0-9a-fA-F]{3,8}/, 'no color literal outside the :root blocks' );
+
+like( $sheet, qr/"Times New Roman"/, 'the body face is Times' );
+like( $sheet, qr/Courier/,           'and the code face is Courier' );
+
+# WEB-STYLE-4 bounds the measure and the rhythm of the body rule. The
+# narrow query sets a max-width of its own, so each value comes from
+# the body rule alone, and not from the sheet at large.
+my ($body) = $sheet =~ /^body\s*\{([^}]*)\}/m;
+my ($measure) = ( $body // '' ) =~ /\bmax-width:\s*([\d.]+)em\b/;
+my ($rhythm)  = ( $body // '' ) =~ /\bline-height:\s*([\d.]+)\s*;/;
+ok( defined $measure && $measure <= 42, 'the measure stops at 42em' )
+    or diag 'max-width: ' . ( $measure // 'none' );
+ok( defined $rhythm && $rhythm >= 1.5 && $rhythm <= 1.6,
+    'and the line height sits between 1.5 and 1.6' )
+    or diag 'line-height: ' . ( $rhythm // 'none' );
+
+# WEB-STYLE-6 draws the underline one pixel thick. The chrome and the
+# permalink carry a link rule of their own, so the match reads the one
+# that starts the line.
+my ($link) = $sheet =~ /^a:link\b[^{]*\{([^}]*)\}/m;
+like( $link // '', qr/\btext-decoration-thickness:\s*1px\b/,
+    'the underline of a link is one pixel' );
+
+my $index = Fugu::File->read("$out/index.html") // '';
+like( $index, qr/<header>/, 'the chrome writes a bare header' );
+unlike( $index, qr/class="banner"/, 'and no banner class' );
 
 ok( site()->build, 'a second build succeeds over the same tree' );
 

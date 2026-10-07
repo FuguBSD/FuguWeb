@@ -495,9 +495,11 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
 - **WEB-STYLE-6** — A link must take one color, visited and unvisited alike, and
   must stay underlined. The underline must be one pixel, below the baseline.
 - **WEB-STYLE-7** — A section heading of a manual page must sit flush with the
-  banner, in bold. The section body must sit at an indent. An inline code
-  element of the manual body must take no background. Bold alone marks what the
-  reader types, and italic marks what the reader substitutes.
+  banner, in bold. The section body must sit at an indent on a viewport wider
+  than 40em. A narrower viewport can drop both the indent and the heading
+  offset. An inline code element of the manual body must take no background.
+  Bold alone marks what the reader types, and italic marks what the reader
+  substitutes.
 
 <a id="web-output"></a>
 

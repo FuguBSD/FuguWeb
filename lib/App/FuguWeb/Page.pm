@@ -110,7 +110,7 @@ sub _head ( $self, $title )
 <link rel="stylesheet" href="$sheet">
 </head>
 <body>
-<header class="banner"><a href="$entry">$site</a></header>
+<header><a href="$entry">$site</a></header>
 HTML
 }
 
