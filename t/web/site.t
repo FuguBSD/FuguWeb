@@ -107,9 +107,26 @@ is( scalar @schemes, 1, 'one query selects the dark scheme' );
 
 # WEB-STYLE-3 puts each color in a custom property, so a literal lives
 # in a :root block alone. The light block goes, the dark one goes, and
-# a hex color in what remains sits outside every property.
+# a hex color or a color function in what remains sits outside every
+# property.
 ( my $rules = $sheet ) =~ s/:root\s*\{[^}]*\}//g;
-unlike( $rules, qr/#[0-9a-fA-F]{3,8}/, 'no color literal outside the :root blocks' );
+unlike( $rules, qr/#[0-9a-fA-F]{3,8}|\b(?:rgba?|hsla?|color-mix)\(/,
+    'no color literal outside the :root blocks' );
+
+# WEB-STYLE-3 gives each color once. A value that two properties of
+# one block share is one color under two names, so the check reads
+# each :root block on its own.
+my @twice;
+my $block = 0;
+for my $root ( $sheet =~ /:root\s*\{([^}]*)\}/g ) {
+	$block++;
+	my %count;
+	$count{ lc $_ }++ for $root =~ /#[0-9a-fA-F]{3,8}/g;
+	push @twice, map {"$_ in :root block $block"}
+	    sort grep { $count{$_} > 1 } keys %count;
+}
+is_deeply( \@twice, [], 'each color appears once within a :root block' )
+    or diag join "\n", @twice;
 
 like( $sheet, qr/"Times New Roman"/, 'the body face is Times' );
 like( $sheet, qr/Courier/,           'and the code face is Courier' );
@@ -126,12 +143,15 @@ ok( defined $rhythm && $rhythm >= 1.5 && $rhythm <= 1.6,
     'and the line height sits between 1.5 and 1.6' )
     or diag 'line-height: ' . ( $rhythm // 'none' );
 
-# WEB-STYLE-6 draws the underline one pixel thick. The chrome and the
-# permalink carry a link rule of their own, so the match reads the one
-# that starts the line.
+# WEB-STYLE-6 draws the underline one pixel thick, below the baseline.
+# The chrome and the permalink carry a link rule of their own, so the
+# match reads the one that starts the line.
 my ($link) = $sheet =~ /^a:link\b[^{]*\{([^}]*)\}/m;
 like( $link // '', qr/\btext-decoration-thickness:\s*1px\b/,
     'the underline of a link is one pixel' );
+my ($offset) = ( $link // '' ) =~ /\btext-underline-offset:\s*([\d.]+)/;
+ok( defined $offset && $offset > 0, 'and it sits below the baseline' )
+    or diag 'text-underline-offset: ' . ( $offset // 'none' );
 
 my $index = Fugu::File->read("$out/index.html") // '';
 like( $index, qr/<header>/, 'the chrome writes a bare header' );

@@ -490,10 +490,12 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   Courier. The measure must not pass 42em, and the line height must sit between
   1.5 and 1.6.
 - **WEB-STYLE-5** — A heading of the top two levels must sit on a tinted band
-  with a hairline rule, and must carry no other decoration. The band colors are
-  the ones of openbsd.org.
+  with a hairline rule below it. The page heading must carry one above it as
+  well. A heading must carry no other decoration. The band colors are the ones
+  of openbsd.org.
 - **WEB-STYLE-6** — A link must take one color, visited and unvisited alike, and
-  must stay underlined. The underline must be one pixel, below the baseline.
+  must stay underlined. The underline must be one pixel, below the baseline. It
+  can take a second color while active.
 - **WEB-STYLE-7** — A section heading of a manual page must sit flush with the
   banner, in bold. The section body must sit at an indent on a viewport wider
   than 40em. A narrower viewport can drop both the indent and the heading
