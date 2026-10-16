@@ -162,9 +162,9 @@ An empty directory is a leaf, so a caller sees it. A walk that answered
 with files alone would hide a stray directory from the checks, and the
 clean refuses one.
 
-A site is one flat directory of files, and the key directory is the
-one part below it. The output therefore needs a walk of the tree
-wherever a walk of one level served before.
+Each language tree and each key directory sits below the top level of a
+site. The output therefore needs a walk of the tree wherever a walk of
+one level would serve one directory.
 
 =head2 path_below
 
@@ -194,8 +194,27 @@ the build would remove the published keys with the staging.
 =head2 STYLESHEET
 
 The name of the stylesheet in the output directory, F<style.css>. The
-site is served from one flat directory, so every page links it under
-that name and the build writes it there.
+build writes it at the top level, outside every language tree. Each
+page but the forward F<index.html> links it with a relative path, and
+the forward loads nothing.
+
+=head2 DEFAULT_LANGUAGE
+
+The code of the default language, C<en>. Every page of the
+description renders in the tree of this language. The key page and
+the two pages of the top level are pages of it.
+
+=head2 LANGUAGE_CODE
+
+The shape of a language code, as a compiled pattern: two lowercase
+ASCII letters. A directory at the top level of the output whose name
+takes this shape holds a language tree.
+
+=head2 FORWARD_PAGE, NOT_FOUND_PAGE
+
+The two pages of the top level, F<index.html> and F<404.html>. The
+first forwards to the entry page of the default tree. The second is a
+copy of the 404 page of the default tree, for the host.
 
 =head1 SEE ALSO
 

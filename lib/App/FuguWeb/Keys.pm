@@ -1056,14 +1056,15 @@ sub _name_text ($name)
 
 # $self->_index_page($rows, $by_target):
 #	The human page of the directory, as a whole HTML document. The
-#	page carries the chrome of the site. It sits one directory
-#	below the root, so every link of the chrome takes the step
-#	back.
+#	page carries the chrome of the site, and it is a page of the
+#	default language, per WEB-LANG-11. It sits one directory below
+#	the root, so each link of the chrome takes the step into the
+#	default tree, and the stylesheet link takes the step back.
 sub _index_page ( $self, $rows, $by_target )
 {
 	my $page = App::FuguWeb::Page->new(
 		config => $self->{config},
-		base   => '../'
+		kind   => 'keys'
 	);
 
 	return $page->document( 'Keys', _index_body( $rows, $by_target ) );

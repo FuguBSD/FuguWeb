@@ -116,8 +116,9 @@ hold;
 =item *
 
 the C<keys> name is not one segment below the source directory, names a
-directory of the path, names the staging directory of the build, or
-names a file that the site already holds;
+directory of the path, names the staging directory of the build, takes
+the shape of a language code, or names a file that the site already
+holds;
 
 =item *
 
@@ -170,16 +171,16 @@ The project root, and the F<.fuguwebrc> that this object read.
 
 The source directory, or one file in it.
 
-=head2 site, lang, out_dir, source_dir, entry, module_root, mandoc_os, man_url, stylesheet
+=head2 site, out_dir, source_dir, entry, module_root, mandoc_os, man_url, stylesheet
 
 The settings. C<site> is the only one a project must give.
 
     site            (required)  the name in the title of every page,
                                 and the text of the header link
-    lang            en          the lang attribute of the document
     out_dir         web/build   where the build writes
     source_dir      web         the fragments and the assets
-    entry           index.html  the front page, and the header link
+    entry           index.html  the front page of each tree, and the
+                                header link
     module_root     lib         the prefix a module name drops
                                 (a trailing slash is dropped)
     mandoc_os       OpenBSD     the mandoc -I os=, which pins the footer
@@ -203,7 +204,7 @@ C<label>.
 
 The pages, in file order. Each entry is a hashref:
 
-    file        the name of the page in the output
+    file        the name of the page in each language tree
     title       the title, which defaults to the file name
     source      one of body, markdown or index
     value       what the source names, and undef for index
@@ -215,17 +216,37 @@ The manual groups, in file order. Each entry is an
 C<App::FuguWeb::Config::Group>, and the two block types interleave as
 the description wrote them.
 
+=head2 languages
+
+    my @codes = $config->languages;
+
+The code of each language of the site, the default first. Each one
+names a tree of the output. The list holds C<en> alone.
+
+=head2 page_names
+
+The name of each page of one language tree: the pages of the
+description, then one page for each manual of each group. Each tree
+holds the same names.
+
+=head2 top_pages
+
+The pages of the top level: F<index.html>, which forwards to the entry
+page of the default tree, and F<404.html> when the description holds
+that page.
+
 =head2 inventory
 
-Every path that the output directory must hold after a build: the
-pages of the description, one page for each manual of each group, the
+Every path that the output directory must hold after a build: each
+page of each language tree, the pages of the top level, the
 stylesheet, the assets, and each key directory. The build and the
 checks read the same list, so the two can never disagree about what
 the site holds.
 
-A site is one flat directory, so most of the list holds file names. A
-key directory is one part below the root, so its entries hold a
-solidus.
+A page of a tree is C<< <code>/<page> >>, for example
+F<en/manuals.html>. The pages of the top level, the stylesheet and the
+assets are file names. A key directory is one part below the root, so
+its entries hold a solidus.
 
 =head2 keys_dirs
 

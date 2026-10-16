@@ -45,7 +45,7 @@ subtest 'the defaults' => sub {
 	    or diag $reason;
 
 	is( $config->site,        'Example',   'site' );
-	is( $config->lang,        'en',        'lang' );
+	is_deeply( [ $config->languages ], ['en'], 'one language, en' );
 	is( $config->out_dir,     'web/build', 'out_dir' );
 	is( $config->source_dir,  'web',       'source_dir' );
 	is( $config->entry,       'index.html', 'entry' );
@@ -60,7 +60,6 @@ subtest 'the defaults' => sub {
 subtest 'every setting overrides its default' => sub {
 	my ( $config, $reason ) = load_rc( <<'RC' );
 site        = Example
-lang        = sv
 out_dir     = out
 source_dir  = site
 entry       = home.html
@@ -71,7 +70,6 @@ stylesheet  = site/base.css
 RC
 	ok( $config, 'the description loads' ) or diag $reason;
 
-	is( $config->lang,        'sv',                'lang' );
 	is( $config->out_dir,     'out',               'out_dir' );
 	is( $config->source_dir,  'site',              'source_dir' );
 	is( $config->entry,       'home.html',         'entry' );
@@ -130,14 +128,45 @@ RC
 	    App::FuguWeb::Config->load( root => $root, error => \my $reason );
 	ok( $config, 'the description loads' ) or diag $reason;
 
-	# The pages, one page per manual, the stylesheet, and the
-	# assets. The body fragment is a source and never an asset.
+	# Each page of the tree of en, the forward of the top level,
+	# the stylesheet, and the assets. The body fragment is a
+	# source and never an asset. The description holds no 404
+	# page, so the top level holds no copy of one.
 	is_deeply(
 		[ $config->inventory ],
-		[ qw(index.html manuals.html tool.1.html style.css
-		    robots.txt) ],
+		[ qw(en/index.html en/manuals.html en/tool.1.html index.html
+		    style.css robots.txt) ],
 		'every name the output must hold, and nothing else'
 	);
+	is_deeply( [ $config->page_names ],
+		[qw(index.html manuals.html tool.1.html)],
+		'one tree holds the pages and the manuals' );
+	is_deeply( [ $config->top_pages ], ['index.html'],
+		'and the top level holds the forward alone' );
+};
+
+subtest 'a 404 page adds a copy at the top level' => sub {
+	my ( $config, $reason ) = load_rc( <<'RC' );
+site = Example
+
+page "index.html" {
+	body = index.body.html
+}
+
+page "404.html" {
+	body     = 404.body.html
+	unlinked = yes
+}
+RC
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	is_deeply(
+		[ $config->inventory ],
+		[qw(en/index.html en/404.html index.html 404.html style.css)],
+		'the tree holds the page, and the top level its copy'
+	);
+	is_deeply( [ $config->top_pages ], [qw(index.html 404.html)],
+		'the top level holds the forward and the copy' );
 };
 
 subtest 'the navigation keeps its file order' => sub {
@@ -313,10 +342,10 @@ RC
 	is( $config, undef, 'an absolute page name fails the load' );
 	like( $reason, qr/is an absolute path/, 'and says why' );
 
-	# A site is one flat directory of pages, and the key directory
-	# tree below it. A name with a solidus writes into that tree,
-	# or into the staging directory, and the build would fail at
-	# the write with a reason that names neither.
+	# Each language tree is one flat directory of pages. A name
+	# with a solidus writes into a directory below the tree, and
+	# the build would fail at the write with a reason that names
+	# no page.
 	for my $name ( 'keys/index.html', '.man/tool.1.html', 'a/b.html' ) {
 		( $config, $reason ) = load_rc( <<"RC" );
 site = Example

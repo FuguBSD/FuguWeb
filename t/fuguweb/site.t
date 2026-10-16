@@ -1,8 +1,8 @@
 #!/usr/bin/env perl
 # ex:ts=8 sw=4:
-# App::FuguWeb::Site: a small site builds, holds what the description
-# names and nothing else, drops the staging directory, and builds a
-# second time to the same bytes.
+# App::FuguWeb::Site: a small site builds into the tree of its
+# language, holds what the description names and nothing else, drops
+# the staging directory, and builds a second time to the same bytes.
 #
 # The test builds its site in a File::Temp directory. It never reads
 # the repository; t/web/site.t covers the real site.
@@ -57,6 +57,12 @@ page "manuals.html" {
 	index = yes
 }
 
+page "404.html" {
+	title    = Not found
+	body     = 404.body.html
+	unlinked = yes
+}
+
 manuals "Manuals" {
 	dir    = man
 	anchor = manuals
@@ -78,6 +84,8 @@ sub project ()
 		'.fuguwebrc'          => $RC,
 		'README.md'           => "# Readme\n\nA paragraph.\n",
 		'web/index.body.html' => "<h1>Home</h1>\n",
+		'web/404.body.html'   =>
+		    qq{<h1>Not found</h1>\n<p><a href="index.html">Home</a></p>\n},
 		'web/footer.body.html' => "<p>ISC.</p>\n",
 		'web/robots.txt'      => "User-agent: *\n",
 
@@ -174,12 +182,13 @@ subtest 'the build makes the site and nothing else' => sub {
 		'and does not blame a manual for it' );
 	ok( !-e $absent, 'and writes nothing' );
 
-	# The pages of the description, one page per manual, the base
-	# stylesheet, and the assets.
+	# The pages of the description and one page per manual, in the
+	# tree of en. The forward, the copy of the 404 page, the base
+	# stylesheet, and the assets at the top level.
 	my @expected = qw(
-	    index.html readme.html manuals.html
-	    tool.1.html Thing::Depot.3p.html
-	    style.css robots.txt
+	    404.html en/404.html en/Thing::Depot.3p.html en/index.html
+	    en/manuals.html en/readme.html en/tool.1.html
+	    index.html robots.txt style.css
 	);
 	ok( -s "$OUT/$_", "$_ exists and is not empty" ) for @expected;
 
@@ -187,23 +196,64 @@ subtest 'the build makes the site and nothing else' => sub {
 	# tree.
 	ok( !-e "$OUT/.man", 'the staging directory is gone' );
 
-	opendir my $dh, $OUT or die "Cannot read $OUT: $!";
-	my @entries = grep { $_ ne '.' && $_ ne '..' } readdir $dh;
-	closedir $dh;
+	is_deeply( App::FuguWeb::list_tree($OUT), \@expected,
+		'the output holds the site only' );
+};
 
-	my %expected = map { $_ => 1 } @expected;
-	my @extra = grep { !$expected{$_} } sort @entries;
-	is( scalar @extra, 0, 'the output holds the site only' )
-	    or diag "unexpected: @extra";
+subtest 'the top level holds the forward and the 404 page' => sub {
+	open my $fh, '<', "$OUT/index.html" or die "Cannot read: $!";
+	my $forward = do { local $/; <$fh> };
+	close $fh;
+
+	# WEB-LANG-8. One meta refresh, one link, and nothing loaded.
+	is( $forward, <<'HTML', 'the forward is byte for byte its shape' );
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=en/index.html">
+<title>Example</title>
+</head>
+<body>
+<p><a href="en/index.html">Example</a></p>
+</body>
+</html>
+HTML
+
+	# WEB-LANG-9. The copy is the page of the default language,
+	# with its base, and its chrome links the default tree.
+	open $fh, '<', "$OUT/404.html" or die "Cannot read: $!";
+	my $copy = do { local $/; <$fh> };
+	close $fh;
+
+	like( $copy, qr{<html lang="en">}, 'the copy is a page of en' );
+	like( $copy, qr{<base href="/">\n<title>Not found },
+		'with its base before the title' );
+	like( $copy, qr{<link rel="stylesheet" href="style\.css">},
+		'the stylesheet beside it' );
+	like( $copy, qr{<header><a href="en/index\.html">Example</a>},
+		'the header link into the default tree' );
+	like( $copy, qr{<nav>\n<a href="en/index\.html">Home</a>\n</nav>},
+		'and the nav link' );
+	like( $copy, qr{<p><a href="index\.html">Home</a></p>},
+		'the body fragment as it stands' );
+	unlike( $copy, qr/<footer>/, 'and no footer' );
+
+	open $fh, '<', "$OUT/en/404.html" or die "Cannot read: $!";
+	my $tree = do { local $/; <$fh> };
+	close $fh;
+
+	like( $tree, qr{<footer>}, 'the 404 page of the tree takes the footer' );
+	unlike( $tree, qr{<base}, 'and no base' );
 };
 
 subtest 'each source reaches its page' => sub {
-	open my $fh, '<', "$OUT/readme.html" or die "Cannot read: $!";
+	open my $fh, '<', "$OUT/en/readme.html" or die "Cannot read: $!";
 	my $readme = do { local $/; <$fh> };
 	close $fh;
 	like( $readme, qr/A paragraph\./, 'lowdown rendered the Markdown' );
 
-	open $fh, '<', "$OUT/manuals.html" or die "Cannot read: $!";
+	open $fh, '<', "$OUT/en/manuals.html" or die "Cannot read: $!";
 	my $index = do { local $/; <$fh> };
 	close $fh;
 	like( $index, qr{href="\./tool\.1\.html"}, 'the index lists the page' );
@@ -211,13 +261,20 @@ subtest 'each source reaches its page' => sub {
 	like( $index, qr{href="\./Thing::Depot\.3p\.html"},
 		'and the sidecar' );
 
-	open $fh, '<', "$OUT/Thing::Depot.3p.html" or die "Cannot read: $!";
+	open $fh, '<', "$OUT/en/Thing::Depot.3p.html" or die "Cannot read: $!";
 	my $module = do { local $/; <$fh> };
 	close $fh;
 	like( $module, qr/the persistence contract/,
 		'pod2man and mandoc rendered the sidecar' );
 	like( $module, qr{<title>Thing::Depot\(3p\) },
 		'and the chrome carries the title' );
+	like( $module, qr{<html lang="en">}, 'the page is a page of en' );
+	like( $module, qr{<link rel="stylesheet" href="\.\./style\.css">},
+		'it links the stylesheet one step up' );
+	like( $module, qr{<header><a href="index\.html">Example</a>},
+		'and the entry page of its tree by name' );
+	like( $module, qr{<footer>\n<p>ISC\.</p>\n</footer>},
+		'and it carries the footer' );
 };
 
 subtest 'the site is a pure function of the project' => sub {
@@ -301,8 +358,8 @@ subtest 'a stale staging directory does not reach the next build' => sub {
 	print {$fh} ".Sh SEE ALSO\n.Xr ghost 1\n";
 	close $fh;
 
-	make_path("$out/.man");
-	open my $ghost, '>', "$out/.man/ghost.1"
+	make_path("$out/.man/en");
+	open my $ghost, '>', "$out/.man/en/ghost.1"
 	    or die "Cannot write the stale source: $!";
 	print {$ghost} ".Dd \$Mdocdate: July 27 2026 \$\n.Dt GHOST 1\n.Os\n"
 	    . ".Sh NAME\n.Nm ghost\n.Nd a source no group names\n";
@@ -310,9 +367,9 @@ subtest 'a stale staging directory does not reach the next build' => sub {
 
 	ok( site( $root, $out )->build, 'the build succeeds' );
 	ok( !-e "$out/.man",         'and the staging directory is gone' );
-	ok( !-e "$out/ghost.1.html", 'the stale source rendered nothing' );
+	ok( !-e "$out/en/ghost.1.html", 'the stale source rendered nothing' );
 
-	open my $page, '<', "$out/tool.1.html" or die "Cannot read: $!";
+	open my $page, '<', "$out/en/tool.1.html" or die "Cannot read: $!";
 	my $html = do { local $/; <$page> };
 	close $page;
 
@@ -325,14 +382,50 @@ subtest 'a page the site no longer holds is removed' => sub {
 	my $out  = tempdir( CLEANUP => 1 ) . '/out';
 
 	ok( site( $root, $out )->build, 'the first build succeeds' );
-	ok( -e "$out/tool.1.html", 'the manual has a page' );
+	ok( -e "$out/en/tool.1.html", 'the manual has a page' );
 
 	rename "$root/man/tool.1", "$root/man/renamed.1"
 	    or die "Cannot rename the source: $!";
 
 	ok( site( $root, $out )->build, 'the second build succeeds' );
-	ok( -e "$out/renamed.1.html", 'the new page is there' );
-	ok( !-e "$out/tool.1.html",   'and the old one is gone' );
+	ok( -e "$out/en/renamed.1.html", 'the new page is there' );
+	ok( !-e "$out/en/tool.1.html",   'and the old one is gone' );
+};
+
+subtest 'the build removes the old flat layout and a stale tree' => sub {
+	my $root = project();
+	my $out  = tempdir( CLEANUP => 1 ) . '/out';
+
+	ok( site( $root, $out )->build, 'the first build succeeds' );
+
+	# A page of the flat layout at the top level, and the tree of
+	# a language that the description no longer holds.
+	make_path("$out/de");
+	for my $stale (qw(manuals.html tool.1.html de/index.html de/404.html))
+	{
+		open my $fh, '>', "$out/$stale" or die "Cannot write: $!";
+		print {$fh} "<h1>Stale</h1>\n";
+		close $fh;
+	}
+
+	ok( site( $root, $out )->build, 'the second build succeeds' );
+	ok( !-e "$out/$_", "$_ is gone" )
+	    for qw(manuals.html tool.1.html de/index.html de/404.html);
+	ok( !-e "$out/de",           'and so is the stale tree' );
+	ok( -e "$out/en/index.html", 'the tree of en stays' );
+	ok( -e "$out/index.html",    'and so does the forward' );
+
+	# A tree is one flat directory of pages. A deeper directory of
+	# a tree belongs to whoever made it, and the build keeps it.
+	make_path("$out/de/deep");
+	open my $fh, '>', "$out/de/deep/keep.txt" or die "Cannot write: $!";
+	print {$fh} "important\n";
+	close $fh;
+
+	ok( site( $root, $out )->build, 'a third build succeeds' );
+	ok( -e "$out/de/deep/keep.txt", 'and keeps the deeper file' );
+	ok( !site( $root, $out )->clean, 'which the clean refuses' );
+	ok( -e "$out/en/index.html", 'and removes nothing' );
 };
 
 subtest 'the build refuses an output directory it must not own' => sub {
@@ -377,6 +470,45 @@ subtest 'the build refuses an output directory it must not own' => sub {
 
 	# t/web/site.t builds the description of this repository, which
 	# names neither setting and therefore takes web/build.
+};
+
+subtest 'clean takes the trees and the staging of a build' => sub {
+	my $root = project();
+	my $out  = tempdir( CLEANUP => 1 ) . '/out';
+	ok( site( $root, $out )->build, 'the build succeeds' );
+
+	# A tree of another language and the staging of an interrupted
+	# build are both shapes that a build writes, per WEB-OUTPUT-5.
+	make_path( "$out/de", "$out/.man/en" );
+	for my $made (qw(de/index.html .man/en/tool.1)) {
+		open my $fh, '>', "$out/$made" or die "Cannot write: $!";
+		print {$fh} "made\n";
+		close $fh;
+	}
+
+	ok( site( $root, $out )->clean, 'the clean succeeds' );
+	ok( !-e $out,                    'and the directory is gone' );
+};
+
+subtest 'the build refuses a staging directory of another shape' => sub {
+	my $root = project();
+
+	# WEB-OUTPUT-14. A build stages one flat directory of plain
+	# files for each language. A plain file at the top of the
+	# staging directory, and a directory of another name, are
+	# each somebody else's.
+	for my $stray ( '.man/tool.1', '.man/mine/notes.txt', '.man/en/deep/x.1' )
+	{
+		my $out = tempdir( CLEANUP => 1 ) . '/out';
+		make_path( "$out/" . ( $stray =~ s{/[^/]+\z}{}r ) );
+		open my $fh, '>', "$out/$stray" or die "Cannot write: $!";
+		print {$fh} "theirs\n";
+		close $fh;
+
+		ok( !site( $root, $out )->build, "the build refuses $stray" );
+		ok( -e "$out/$stray",            'and removes nothing' );
+		ok( !site( $root, $out )->clean, 'and the clean refuses it too' );
+	}
 };
 
 subtest 'clean refuses a directory that no build made' => sub {
