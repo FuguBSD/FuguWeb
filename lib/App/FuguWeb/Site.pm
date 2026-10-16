@@ -532,8 +532,9 @@ sub _prune_output ($self)
 #	The clean reads the same three tests, so the build can never
 #	remove a directory that the clean refuses. An operator
 #	directory therefore stays, empty or not, and the checks report
-#	it. A directory in the shape of a language code is a language
-#	tree, so the build removes it once it is empty.
+#	it. Only a directory of the top level in the shape of a
+#	language code is a language tree, so the build removes it once
+#	it is empty. An operator directory such as img/de stays.
 #
 #	rmdir refuses a directory that still holds a name, so the walk
 #	needs no second test: a directory that the site still uses
@@ -555,8 +556,8 @@ sub _prune_dirs ($self)
 	# A directory that the site holds a name below, a directory of
 	# the key tree, or a language tree. The clean reads the same
 	# three tests. A directory of the operator therefore stays here
-	# and the checks report it, unless its name has the shape of a
-	# language code.
+	# and the checks report it, unless it sits at the top level and
+	# its name has the shape of a language code.
 	#
 	# rmdir refuses a directory that still holds a name, so the
 	# walk needs no second test. The output directory itself

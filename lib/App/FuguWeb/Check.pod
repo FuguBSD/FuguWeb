@@ -87,9 +87,9 @@ copy of F<404.html> is the one exception, and that page must carry it;
 
 =item *
 
-the top-level F<index.html> holds one meta refresh to the entry page
-of the default tree, and one link to it. It holds no other reference,
-so it loads nothing, and it carries no navigation;
+the top-level F<index.html> holds a meta refresh to the entry page of
+the default tree. Its one reference is a link to that page, so it
+loads nothing, and it carries no navigation;
 
 =item *
 

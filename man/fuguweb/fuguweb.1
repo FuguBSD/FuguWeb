@@ -181,10 +181,9 @@ Every tree page carries the code of its tree as
 .It
 The forward
 .Pa index.html
-holds one meta refresh to the entry page of
-.Pa en/ ,
-and one link to that page.
-It holds no other reference and no navigation.
+holds a meta refresh to the entry page of
+.Pa en/ .
+Its one reference is a link to that page, and it holds no navigation.
 .It
 Every local link, manual cross-reference, and fragment resolves.
 .It
@@ -610,9 +609,23 @@ maintainers are not published.
 The build copies each asset to the top level of the output, outside
 every language tree.
 A tree page sits one directory below the top level.
-A body fragment, a Markdown page and the footer therefore link an
-asset as
+A body fragment, a Markdown page and the footer of a tree page
+therefore link an asset as
 .Pa ../<asset> .
+.Pp
+The body of
+.Pa 404.html
+is the one exception.
+The build writes it into each tree, and into the copy at the top level.
+The check resolves each link of that copy against the top level, so
+there it refuses
+.Pa ../<asset> .
+Each relative link of an asset fails in one of the two copies, and a
+link that starts with a solidus fails in both.
+The body fragment or Markdown page of
+.Pa 404.html
+must therefore link an asset with an absolute URL, such as
+.Ql https://example.org/logo.png .
 .Pp
 The build rejects a symlink in the source directory.
 A copy would publish the bytes of the target, from anywhere on the
@@ -628,7 +641,7 @@ The build writes plain files only.
 It refuses a symlink on any path that it writes, before it writes one
 file.
 It owns a plain file at the top level, and a plain file directly in a
-directory whose name has the shape of a language code.
+directory of the top level whose name has the shape of a language code.
 It also owns a file that the site names, and a file that has a shape of
 the key directory.
 A page of an older flat layout, and the tree of a language that the

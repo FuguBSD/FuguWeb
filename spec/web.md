@@ -638,8 +638,8 @@ build keeps it and the clean refuses the tree.
   below. Each shape but the first needs a key directory that the description
   declares:
 
-  - a plain file one level below a directory whose name is a language code, per
-    WEB-LANG-1;
+  - a plain file one level below a directory of the top level whose name is a
+    language code, per WEB-LANG-1;
   - a generated name of a key directory: `SHA256`, `SHA256.sig`, `KEYS` or
     `index.html`;
   - a key file of a key directory, whose name matches rule WEB-KEYS-19. A

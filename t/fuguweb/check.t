@@ -322,7 +322,7 @@ HTML
 };
 
 subtest 'the forward takes one shape' => sub {
-	# WEB-LANG-8. One meta refresh, one link, and nothing loaded.
+	# WEB-LANG-8. A meta refresh, one link, and nothing loaded.
 	my @problems = built( 'index.html' => <<'HTML' )->run;
 <html lang="en">
 <title>Example</title>

@@ -114,16 +114,18 @@ that carried both would fail its own check. The build owns the output
 directory, so it owns the removal too.
 
 The build owns a plain file at the top level of the output, and a plain
-file directly in a directory whose name has the shape of a language
-code. A page of an older flat layout, and the tree of a language that
-the description dropped, are therefore removed. Below the root the
-build also owns a file that the site names, and one that takes a shape
-of the key directory. It keeps every other entry and reports it. An
-operator directory in the output therefore survives a build, empty or
-not, unless its name has the shape of a language code. The build takes
-such a directory for a language tree: it removes each plain file
-directly in it that the site does not name, and then the directory
-itself once it is empty.
+file directly in a directory of the top level whose name has the shape
+of a language code. A page of an older flat layout, and the tree of a
+language that the description dropped, are therefore removed. Below the
+root the build also owns a file that the site names, and one that takes
+a shape of the key directory. It keeps every other entry and reports
+it. An operator directory in the output therefore survives a build,
+empty or not, unless it sits at the top level and its name has the
+shape of a language code. The build takes such a directory for a
+language tree: it removes each plain file directly in it that the site
+does not name, and then the directory itself once it is empty. An
+operator directory of that name below the top level, such as
+F<img/de>, is no language tree, so it survives.
 
 A description with no C<keys> block owns no shape of the key directory
 and no directory of the key tree. A site of another maker holds

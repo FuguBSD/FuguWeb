@@ -236,9 +236,10 @@ sub _check_page ( $self, $page, $kind )
 }
 
 # $self->_check_forward:
-#	Hold the top-level index.html to the shape of WEB-LANG-8: one
+#	Hold the top-level index.html to the shape of WEB-LANG-8: a
 #	meta refresh to the entry page of the default tree, and one
-#	link to that page. The page loads nothing and carries no nav.
+#	link to that page as its one reference. The page loads nothing
+#	and carries no nav.
 sub _check_forward ($self)
 {
 	my $page = App::FuguWeb::FORWARD_PAGE;
