@@ -9,6 +9,87 @@ The code predates the specification, so this document holds the units of the
 areas that a plan has changed and no more. Each future plan adds the units of
 the area that it changes. The conventions of [index.md](index.md) apply.
 
+<a id="web-lang"></a>
+
+## The languages
+
+Every page of the description renders in each language tree. The path of a tree
+starts with the language code, so the front page of the English tree is `/en/`.
+English is the default language, and the description holds no switch for this,
+per D-05. A translation is a block of the description with the language code in
+front of the block name. A page without a translation takes the source of the
+default language. The top level holds two files for the host, and the key
+directory and the well-known tree for a machine. Those sit outside every tree,
+because each one answers one fixed URL.
+
+- **WEB-LANG-1** — A language code must be two lowercase ASCII letters, per ISO
+  639-1. The code of the default language is `en`. The renderer must reject a
+  code of another shape, and must reject `en` on a translation block.
+- **WEB-LANG-2** — A translation block must take two arguments: the code, then
+  the name of the block that it translates. A block of one argument is the
+  default. A `page`, a `nav`, a `manuals` and a `modules` block can take a
+  translation. A `keys` block and a `key` block must not take one. The renderer
+  must reject a translation whose name no default block of its type holds. It
+  must reject a second translation of one name in one language.
+- **WEB-LANG-3** — The languages of a site are `en` and each code that a
+  translation block names. The build must write one tree for each language,
+  below `<code>/` of the output. Each tree must hold the same page names, and a
+  page name must not change with the language.
+- **WEB-LANG-4** — A translation of a `page` block can take `title`, `body` and
+  `markdown`. A translation of a `nav` block can take `label`. A translation of
+  a group block can take `heading` and `dir`. The renderer must reject any other
+  setting on a translation.
+- **WEB-LANG-5** — A page of a language must take each value from its
+  translation, and from the default block when the translation holds none. A
+  manual of a language must come from the `dir` of the translation. It must come
+  from the default `dir` when the translation holds no file of that name. A
+  translation `dir` must mirror the default `dir`, so the namesake of a file is
+  the file of the same relative path. A file of a translation `dir` with no
+  namesake is an error.
+- **WEB-LANG-6** — The `html` element of a page must carry the code of its tree
+  as `lang`. A page of another tree whose body comes from the default source
+  must carry `lang="en"` on the element that holds the body.
+- **WEB-LANG-7** — The chrome of a tree page must link the same page in each
+  other language of the site. Each link must carry the code as its text and as
+  its `hreflang`. A site of one language must carry no such link.
+- **WEB-LANG-8** — The build must write `index.html` at the top level. That page
+  must forward to the entry page of the default tree with a meta refresh, and
+  must hold one link to that page. It must load nothing, per D-01.
+- **WEB-LANG-9** — When the description holds the page `404.html`, the build
+  must write one more copy of it at the top level. The copy is the page of the
+  default language, and it carries `<base href="/">`. A host serves that path
+  for each path that no file answers. A relative link of the page would resolve
+  against the missing path. The `base` href makes each relative link of the page
+  resolve from the root of the origin. Each relative link of the chrome of the
+  copy must start with `en/`, and its stylesheet link must be `style.css`. The
+  page serves a site at the root of its origin.
+- **WEB-LANG-10** — The stylesheet, each asset, each key directory and the
+  well-known tree must sit at the top level, outside every tree. A tree page
+  must link the stylesheet with a relative path.
+- **WEB-LANG-11** — The human page of a key directory must be a page of the
+  default language. Its chrome must link the default tree. Each relative link of
+  the chrome must start with `../en/`, and its stylesheet link must be
+  `../style.css`. The page must carry no language link.
+- **WEB-LANG-12** — The footer fragment of a language is
+  `<code>/footer.body.html` below the source directory. A language without one
+  takes the default fragment. Every tree page must carry the footer, and the key
+  page and the top-level pages must carry none.
+- **WEB-LANG-13** — The renderer must write no prose of its own into a tree
+  page. Each word that a reader sees must come from the description, from a
+  source or from a fragment. The header line of a manual page is the one
+  exception: it names the manual set as man(1) prints it.
+- **WEB-LANG-14** — The check must hold each tree page to the language of its
+  tree. It must walk the reachability of each tree from its own entry page. The
+  top-level pages must take no reachability check, and the key page takes none
+  per WEB-KEYS-27.
+- **WEB-LANG-15** — The check must hold each relative link of the chrome to one
+  form for each kind of page. The header link and each nav link take this form,
+  and a language link follows WEB-LANG-7. An absolute URL and a fragment pass
+  unchanged. A tree page takes `<page>`. The key page takes `../en/<page>`. The
+  top-level `404.html` takes `en/<page>`. The check must accept the `base` href
+  of the top-level `404.html` as the one root-absolute href of the site. It must
+  hold the forward page to the shape of WEB-LANG-8, and to no nav.
+
 <a id="web-manuals"></a>
 
 ## The manuals group
