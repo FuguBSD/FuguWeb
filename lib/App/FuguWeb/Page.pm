@@ -49,22 +49,45 @@ use constant {
 # source directory and not a setting.
 use constant FOOTER_FRAGMENT => 'footer.body.html';
 
+# The kinds of page. The up value is the step from the page to the top
+# level of the site, where the stylesheet sits. A page in a tree links
+# each page of its own tree by name, and carries the footer. Another
+# page takes the up step and the code of its language in front of each
+# link, and carries no footer, per WEB-LANG-12.
+#
+#	tree	a page of a language tree, <code>/<page>
+#	keys	the human page of a key directory, <dir>/index.html
+#	top	the copy of the 404 page at the top level
+my %KIND = (
+	tree => { up => '../', in_tree => 1 },
+	keys => { up => '../', in_tree => 0 },
+	top  => { up => '',    in_tree => 0 },
+);
+
 # App::FuguWeb::Page->new(%args):
 #	config => $config	the site description (required)
-#	base   => $prefix	the step back to the site root
+#	lang   => $code		the language of the page (default: en)
+#	kind   => $kind		tree, keys or top (default: tree)
 #
-#	A site is one flat directory, so the base is the empty string
-#	and every link of the chrome is a file name. The key directory
-#	is the one part that sits below the root. A page there passes
-#	'../', so the stylesheet, the banner and the navigation all
-#	name a file of the root.
+#	A tree page links each page of its own tree by its name, and
+#	the stylesheet one level up. The key page and the top-level
+#	copy of the 404 page link the default tree, per WEB-LANG-9 and
+#	WEB-LANG-11. Each one is a page of the default language.
 sub new ( $class, %args )
 {
 	my $config = $args{config};
 	die 'config parameter required'
 	    unless defined $config;
 
-	return bless { config => $config, base => $args{base} // '' }, $class;
+	my $kind = $args{kind} // 'tree';
+	die "unknown kind of page: $kind"
+	    unless $KIND{$kind};
+
+	return bless {
+		config => $config,
+		lang   => $args{lang} // App::FuguWeb::DEFAULT_LANGUAGE,
+		kind   => $kind,
+	}, $class;
 }
 
 # $self->write($path, $title, $fragment):
@@ -95,10 +118,16 @@ sub _head ( $self, $title )
 	my $config = $self->{config};
 
 	my $site  = App::FuguWeb::escape_html( $config->site );
-	my $lang  = App::FuguWeb::escape_attr( $config->lang );
+	my $lang  = App::FuguWeb::escape_attr( $self->{lang} );
 	my $entry = $self->_link( $config->entry );
 	my $full = App::FuguWeb::escape_html($title) . ' ' . EM_DASH . " $site";
-	my $sheet = $self->_link(App::FuguWeb::STYLESHEET);
+	my $sheet = $KIND{ $self->{kind} }{up} . App::FuguWeb::STYLESHEET;
+
+	# A host serves the top-level copy of the 404 page at each path
+	# that no file answers. The base makes each relative link of
+	# the page resolve from the root of the origin, and not from
+	# the missing path, per WEB-LANG-9.
+	my $base = $self->{kind} eq 'top' ? qq{<base href="/">\n} : '';
 
 	return <<"HTML" . $self->_nav . "<hr>\n<main>\n";
 <!DOCTYPE html>
@@ -106,7 +135,7 @@ sub _head ( $self, $title )
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>$full</title>
+$base<title>$full</title>
 <link rel="stylesheet" href="$sheet">
 </head>
 <body>
@@ -135,20 +164,27 @@ sub _nav ($self)
 }
 
 # $self->_link($href):
-#	One href of the chrome, escaped, with the step back to the
-#	site root in front of it.
+#	One href of the chrome, escaped, with the step to the default
+#	tree in front of it. A tree page takes no step, the key page
+#	takes ../en/, and the top-level copy of the 404 page takes en/.
 #
 #	The step goes in front of a relative name only. An absolute
 #	URL, a root-absolute path and a fragment each name a place of
-#	their own. A step in front of one would name a page that the
-#	site does not hold.
+#	their own, per WEB-LANG-15. A step in front of one would name a
+#	page that the site does not hold.
 sub _link ( $self, $href )
 {
 	my $written = App::FuguWeb::escape_attr($href);
 
 	return $written if $href =~ m{\A(?:[A-Za-z][A-Za-z0-9.+-]*:|/|\#)};
 
-	return $self->{base} . $written;
+	my $kind = $KIND{ $self->{kind} };
+	return $written if $kind->{in_tree};
+
+	return
+	      $kind->{up}
+	    . App::FuguWeb::escape_attr( $self->{lang} )
+	    . "/$written";
 }
 
 # $self->_foot:
@@ -159,14 +195,15 @@ sub _foot ($self)
 {
 	my $html = "</main>\n";
 
-	# A page below the site root carries no footer. The fragment
-	# is the prose of the project, and this class copies it in
-	# unchanged. A relative link of it would resolve against the
-	# directory of the page. The link would then name a file of
-	# the key directory, or no file at all, and the writer of the
-	# fragment named neither.
+	# A tree page carries the footer, and no other page does. The
+	# fragment is the prose of the project, and this class copies
+	# it in unchanged. A relative link of it resolves against the
+	# directory of the page. Inside a tree that link names a page
+	# of the tree. On the key page it would name a file of the key
+	# directory, and on the top-level copy of the 404 page a file
+	# of the root. The writer of the fragment named neither.
 	my $path = $self->{config}->source_path(FOOTER_FRAGMENT);
-	if ( -f $path && !length $self->{base} ) {
+	if ( -f $path && $KIND{ $self->{kind} }{in_tree} ) {
 		my $prose = Fugu::File->read($path) // '';
 		$html .= "<hr>\n<footer>\n$prose</footer>\n";
 	}

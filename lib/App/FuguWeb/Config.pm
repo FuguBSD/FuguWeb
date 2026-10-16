@@ -41,7 +41,6 @@ use Fugu::OpenPGP;
 # it does. 'site' has no default: a site with no name is a mistake,
 # not a default.
 use constant {
-	DEFAULT_LANG        => 'en',
 	DEFAULT_OUT_DIR     => 'web/build',
 	DEFAULT_SOURCE_DIR  => 'web',
 	DEFAULT_ENTRY       => 'index.html',
@@ -173,9 +172,10 @@ sub load ( $class, %args )
 sub anonymous ( $class, $root )
 {
 	# The object holds no page, no manual and no key block, so the
-	# inventory is empty and the clean accepts one flat directory
-	# of files and no more. A default of a content setting here
-	# would make a clean believe that a description named a tree.
+	# inventory is empty. The clean then accepts the files of the
+	# top level and the language trees, which it reads by shape,
+	# and no more. A default of a content setting here would make a
+	# clean believe that a description named a directory.
 	#
 	# It does read the names of the file that did not load: the
 	# source directory, the output directory, and the name and org
@@ -227,7 +227,6 @@ sub path ($self) { return $self->{path}; }
 # The settings. Each one is a plain accessor over the merged value, so
 # a caller never repeats a default.
 sub site        ($self) { return $self->{site}; }
-sub lang        ($self) { return $self->{lang}; }
 sub out_dir     ($self) { return $self->{out_dir}; }
 sub source_dir  ($self) { return $self->{source_dir}; }
 sub entry       ($self) { return $self->{entry}; }
@@ -376,21 +375,59 @@ sub assets ($self)
 	    @$names;
 }
 
+# $self->languages:
+#	The code of each language of the site, the default first. Each
+#	one names a tree of the output, per WEB-LANG-3.
+sub languages ($self)
+{
+	return App::FuguWeb::DEFAULT_LANGUAGE;
+}
+
+# $self->page_names:
+#	The name of each page of one tree: the pages of the
+#	description, then one page for each manual of each group. Each
+#	tree holds the same names, so the list takes no language.
+sub page_names ($self)
+{
+	return ( map { $_->{file} } $self->pages ),
+	    ( map { $_->page } map { $_->manuals } $self->groups );
+}
+
+# $self->top_pages:
+#	The pages of the top level, which a host serves: the forward
+#	to the default tree, and the copy of the 404 page when the
+#	description holds that page.
+sub top_pages ($self)
+{
+	my $not_found = App::FuguWeb::NOT_FOUND_PAGE;
+
+	return App::FuguWeb::FORWARD_PAGE,
+	    grep { $_ eq $not_found } map { $_->{file} } $self->pages;
+}
+
 # $self->inventory:
 #	Every name that the output directory must hold after a build:
-#	the pages of the description, one page for each manual of each
-#	group, the stylesheet, the assets, and every path of the key
-#	directory. The build and the checks read the same list, so the
-#	two can never disagree about what the site holds.
+#	each page of each tree, the pages of the top level, the
+#	stylesheet, the assets, and every path of the key directory.
+#	The build and the checks read the same list, so the two can
+#	never disagree about what the site holds.
 #
-#	Every name but the key paths is one segment. Each key
+#	A page of a tree is <code>/<page>. The pages of the top level,
+#	the stylesheet and the assets are one segment. Each key
 #	directory is one part below the root, so its entries hold a
 #	solidus.
 sub inventory ($self)
 {
-	return ( map { $_->{file} } $self->pages ),
-	    ( map { $_->page } map { $_->manuals } $self->groups ),
-	    App::FuguWeb::STYLESHEET, $self->assets, $self->key_paths;
+	my @names = $self->page_names;
+
+	return (
+		map {
+			my $code = $_;
+			map { "$code/$_" } @names
+		} $self->languages
+	    ),
+	    $self->top_pages, App::FuguWeb::STYLESHEET, $self->assets,
+	    $self->key_paths;
 }
 
 # $self->key_paths:
@@ -427,7 +464,6 @@ sub _apply_settings ($self)
 	my $file = $self->{file};
 
 	$self->{site}        = $file->get('site');
-	$self->{lang}        = $file->get( 'lang',        DEFAULT_LANG );
 	$self->{out_dir}     = $file->get( 'out_dir',     DEFAULT_OUT_DIR );
 	$self->{source_dir}  = $file->get( 'source_dir',  DEFAULT_SOURCE_DIR );
 	$self->{entry}       = $file->get( 'entry',       DEFAULT_ENTRY );
@@ -489,15 +525,14 @@ sub _read_pages ( $self, $reason )
 			return $self->_fail( $reason, "page \"$name\" $why" );
 		}
 
-		# A site is one flat directory of pages, and the key
-		# directory tree below it. A name with a solidus would
-		# write into that tree, or into the staging directory,
-		# and the build would fail at the write with a reason
-		# that names neither.
+		# Each language tree is one flat directory of pages. A
+		# name with a solidus would write into a directory below
+		# the tree, and the build would fail at the write with
+		# a reason that names no page.
 		if ( $name =~ m{/} ) {
 			return $self->_fail( $reason,
 				      "page \"$name\" holds a solidus, and a"
-				    . ' site is one flat directory of pages' );
+				    . ' tree is one flat directory of pages' );
 		}
 		if ( $seen{$name}++ ) {
 			return $self->_fail( $reason,
@@ -706,6 +741,16 @@ sub _read_keys_block ( $self, $reason, $block )
 		return $self->_fail( $reason,
 			      "keys \"$name\" is the staging directory of"
 			    . ' the build, which the build removes' );
+	}
+
+	# WEB-KEYS-34. A language tree takes a name of the shape of a
+	# language code in the output. A key directory of that name
+	# would take the place of a tree, and the prune of the build
+	# would read its files as stale pages.
+	if ( $name =~ App::FuguWeb::LANGUAGE_CODE ) {
+		return $self->_fail( $reason,
+			      "keys \"$name\" has the shape of a language"
+			    . ' code, and a language tree takes that name' );
 	}
 
 	# WEB-KEYS-1. Two blocks that name one directory would become

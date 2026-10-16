@@ -178,8 +178,10 @@ See
 With
 .Fl Fl out
 the command runs without a loadable description.
-It then knows one flat directory of files, and it refuses a target that
-holds no stylesheet, because every build writes one.
+It then knows the files of the top level and the language trees, by
+their shape.
+It refuses a target that holds no stylesheet, because every build
+writes one.
 .It Xo Cm mint-key
 .Fl Fl purpose Ar word
 .Op Fl Fl type Ar type
@@ -313,12 +315,6 @@ The settings are as follows:
 The name of the site.
 It ends the title of every page, and it is the text of the banner link.
 This is the one required setting.
-.It Ic lang
-The
-.Ql lang
-attribute of every page.
-The default is
-.Ql en .
 .It Ic out_dir
 The output directory.
 The default is
@@ -328,7 +324,8 @@ The source directory.
 The default is
 .Pa web .
 .It Ic entry
-The front page, and the target of the banner link.
+The front page of each language tree, and the target of the banner
+link.
 The default is
 .Pa index.html .
 .It Ic module_root
@@ -357,7 +354,7 @@ One navigation entry, on every page, in file order.
 The block must set a
 .Ic label .
 .It Ic page Qq Ar file
-One page of the site, named by its file in the output directory.
+One page of each language tree, named by its file in the tree.
 The name must be one path segment.
 The block sets a
 .Ic title ,
@@ -418,8 +415,35 @@ Every message names the file and the block at fault.
 Every source becomes one HTML body fragment, and the build wraps each
 fragment in one fixed layout: the head, a banner, the navigation, the
 fragment, and a footer.
-A project decides the site name, the language, the navigation, and the
-footer prose.
+A project decides the site name, the navigation, and the footer prose.
+.Pp
+Every page sits in the tree of its language, below
+.Pa <code>/
+of the output.
+English is the default language, and its tree
+.Pa en/
+holds every page of the description.
+The
+.Ql html
+element of a page carries the code of its tree as
+.Ql lang .
+The banner and the navigation of a tree page name each page of the
+tree by its file name.
+An absolute URL stays as it stands.
+.Pp
+The top level holds two pages for the host.
+.Pa index.html
+forwards to the entry page of
+.Pa en/
+with a meta refresh, and holds one link to it.
+When the description holds the page
+.Pa 404.html ,
+the top level holds one more copy of it, with
+.Ql <base href="/"> .
+A host serves that copy at each path that no file answers, and each
+relative link of the page resolves from the root of the origin.
+Its banner and its navigation therefore link
+.Pa en/<page> .
 .Pp
 The title of a page is its own title, an em dash, and the site name.
 The banner links the site name to the entry page.
@@ -429,14 +453,19 @@ block, in file order.
 .Pp
 A
 .Pa footer.body.html
-in the source directory becomes the footer prose.
+in the source directory becomes the footer prose of each tree page.
+The key page and the pages of the top level carry no footer.
 A project without one gets no footer element.
 .Pp
 The base stylesheet ships with the tool as
 .Pa share/fuguweb/style.css .
 The build copies it to
 .Pa style.css
-in the output directory, and every page links it under that name.
+at the top level of the output, outside every tree.
+A tree page and the key page link it as
+.Pa ../style.css ,
+and the copy of the 404 page links it as
+.Pa style.css .
 The
 .Ic stylesheet
 setting names another sheet.
@@ -526,19 +555,25 @@ The build rejects a symlink in the source directory.
 A copy would publish the bytes of the target, from anywhere on the
 machine.
 .Sh THE OUTPUT DIRECTORY
-The output is one flat directory of files.
-The key directory and the well-known tree are the only parts below the
+The top level of the output holds the two pages for the host, the
+stylesheet and the assets.
+Each language tree is one flat directory of pages below it.
+The key directory and the well-known tree are the other parts below the
 top level.
 .Pp
 The build writes plain files only.
 It refuses a symlink on any path that it writes, before it writes one
 file.
-It owns a plain file at the top level, a file that the site names, and
-a file that has a shape of the key directory.
-It keeps every other entry, reports it, and never removes it.
+It owns a plain file at the top level, and a plain file directly in a
+directory whose name has the shape of a language code.
+It also owns a file that the site names, and a file that has a shape of
+the key directory.
+A page of an older flat layout, and the tree of a language that the
+description dropped, are therefore removed.
+The build keeps every other entry, reports it, and never removes it.
 .Cm clean
-removes what the build owns, and a directory of the site or of the key
-tree.
+removes what the build owns, and a directory of the site, of a language
+tree, or of the key tree.
 It refuses every other entry, and names it, so it never removes a file
 that the build keeps.
 .Pp
@@ -554,8 +589,8 @@ The output directory of the description is the one exception, because
 the default output directory sits inside the default source directory.
 .Pp
 The build stages every manual source in
-.Pa .man
-inside the output directory, so that
+.Pa .man/<code>
+inside the output directory, one directory for each language, so that
 .Xr mandoc 1
 resolves a cross-reference against the manuals of the site.
 The build removes the staging directory when it ends.
@@ -594,6 +629,8 @@ key "fugubsd-1-release" {
 .Pp
 The block name is the directory, one path segment below the source
 directory.
+A name of two lowercase letters is refused, because a language tree
+takes a name of that shape in the output.
 The settings are as follows:
 .Bl -tag -width "contact" -offset indent
 .It Ic org
@@ -698,6 +735,10 @@ The human page, with the serial, purpose, type, status, fingerprint,
 dates and bindings of each key.
 The row of a certificate names its subject and its validity dates
 beside the fingerprint.
+The page is a page of the default language: its banner and its
+navigation link
+.Pa ../en/<page> ,
+and it carries no footer.
 .It Pa .well-known/openpgpkey/hu/<hash>
 The Web Key Directory file of each email address.
 The file holds the keys of that address of every directory, in

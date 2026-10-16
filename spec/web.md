@@ -171,6 +171,9 @@ manifest parser. The renderer holds the wiring only.
 - **WEB-KEYS-30** — The renderer must reject a `keys` name that the inventory
   already holds, and one that a second `keys` block holds. Two such names would
   become one name in the output.
+- **WEB-KEYS-34** — The renderer must reject a `keys` name of two lowercase
+  ASCII letters. Such a name would take the place of a language tree, per
+  WEB-LANG-3.
 - **WEB-KEYS-31** — A signify key file must hold an untrusted comment line and a
   key body of 56 base64 characters. The body must decode to 42 bytes that start
   with `Ed`.
@@ -592,28 +595,32 @@ A build owns its output directory. It writes the site there, and it removes what
 the site dropped. A second build over one directory therefore gives the same
 tree as the first.
 
-The output is one flat directory of files. A key directory is one part below it,
-and the well-known tree is the other. A file there takes one of a bounded set of
-shapes, and rule WEB-OUTPUT-10 states each one. A path of another shape belongs
-to whoever made it, so the build keeps it and the clean refuses the tree.
+The top level of the output holds the pages for the host, the stylesheet and the
+assets. Each language tree is one flat directory of pages below it. Each key
+directory is another part below it, and the well-known tree is the last. A file
+below the top level takes one of a bounded set of shapes, and rule WEB-OUTPUT-10
+states each one. A path of another shape belongs to whoever made it, so the
+build keeps it and the clean refuses the tree.
 
 - **WEB-OUTPUT-1** — The build must write a plain file. The file must sit at the
-  top level of the output, or must take a shape of the key directory. Rule
-  WEB-OUTPUT-10 states each shape, and rule WEB-OUTPUT-14 states the one
+  top level or in a language tree, or must take a shape of the key directory.
+  Rule WEB-OUTPUT-10 states each shape, and rule WEB-OUTPUT-14 states the one
   exception.
 - **WEB-OUTPUT-2** — The build must remove each file that the inventory does not
   name. Rule WEB-OUTPUT-1 states which file the build can remove.
 - **WEB-OUTPUT-3** — The build must remove each empty directory that it owns. It
-  owns a directory that the site holds a name below, and a directory of the key
-  tree. It must keep the output directory itself.
+  owns a directory that the site holds a name below, a directory of the key
+  tree, and a language tree. It must keep the output directory itself.
 - **WEB-OUTPUT-4** — The build must keep an entry that rule WEB-OUTPUT-1 does
   not let it write, and must report it. A directory that the description does
-  not name holds the files of whoever made it.
+  not name, and that is no language tree, holds the files of whoever made it.
 - **WEB-OUTPUT-5** — The clean must remove a plain file of the top level. It
-  must remove a file that the inventory names, and one that takes a shape of the
-  key directory. It must remove a directory that holds a name of the site, and a
-  directory of the key tree. Rule WEB-OUTPUT-14 states what it takes in the
-  staging directory. It must refuse every other entry, and must name it.
+  must remove a file that the inventory names, and one that takes a shape of
+  rule WEB-OUTPUT-10. It must remove a directory that holds a name of the site,
+  and a directory of the key tree. It must remove a directory of the top level
+  whose name has the shape of a language code. Rule WEB-OUTPUT-14 states what it
+  takes in the staging directory. It must refuse every other entry, and must
+  name it.
 - **WEB-OUTPUT-6** — The build and the clean must read one predicate. The build
   must never remove an entry that the clean refuses. The rule holds for a
   directory as it holds for a file.
@@ -625,9 +632,12 @@ to whoever made it, so the build keeps it and the clean refuses the tree.
   site outside its own directory.
 - **WEB-OUTPUT-9** — The output path must take no trailing solidus. Each walk of
   the output cuts a relative path out of an absolute one.
-- **WEB-OUTPUT-10** — A file below the top level must take a shape of a key
-  directory that the description declares. The shapes are these:
+- **WEB-OUTPUT-10** — A file below the top level must take one of the shapes
+  below. Each shape but the first needs a key directory that the description
+  declares:
 
+  - a plain file one level below a directory whose name is a language code, per
+    WEB-LANG-1;
   - a generated name of a key directory: `SHA256`, `SHA256.sig`, `KEYS` or
     `index.html`;
   - a key file of a key directory, whose name matches rule WEB-KEYS-19. A
@@ -639,17 +649,18 @@ to whoever made it, so the build keeps it and the clean refuses the tree.
   - `.well-known/openpgpkey/hu/<hash>`, where the hash holds 32 characters of
     the z-base-32 alphabet.
 
-  A stale key file needs this shape set. The inventory names what the site holds
-  today, so it cannot answer for a key that the description dropped.
+  A stale page and a stale key file need this shape set. The inventory names
+  what the site holds today, so it cannot answer for a page, a language or a key
+  that the description dropped.
 
-- **WEB-OUTPUT-11** — A `page` block name must be one path segment. A name with
-  a solidus writes into the key directory tree, or into the staging directory,
-  and the build would fail at the write.
-- **WEB-OUTPUT-12** — A description with no `keys` block must own no shape of
-  rule WEB-OUTPUT-10, and no directory of the key tree. A site of another maker
-  holds `security.txt` too, and the clean must not delete that site. A directory
-  that the description dropped is the same: the build must keep its files, and
-  the check must report them, per WEB-OUTPUT-4.
+- **WEB-OUTPUT-11** — A `page` block name must be one path segment. Each
+  language tree is one flat directory of pages. A name with a solidus writes
+  into a directory below the tree, and the build would fail at the write.
+- **WEB-OUTPUT-12** — A description with no `keys` block must own no key
+  directory shape of rule WEB-OUTPUT-10, and no directory of the key tree. A
+  site of another maker holds `security.txt` too, and the clean must not delete
+  that site. A key directory that the description dropped is the same: the build
+  must keep its files, and the check must report them, per WEB-OUTPUT-4.
 - **WEB-OUTPUT-13** — The build and the clean must refuse an output directory
   that no build may own. They must refuse these targets: the root of the
   filesystem, the home directory, the project root, and any directory that holds
@@ -659,9 +670,9 @@ to whoever made it, so the build keeps it and the clean refuses the tree.
   description that names neither directory takes the two defaults.
 - **WEB-OUTPUT-14** — The staging directory is the one part of the output that
   rule WEB-OUTPUT-1 does not reach. The build writes one flat directory of plain
-  files there, and removes the whole directory at the end. The build must refuse
-  a staging directory of another shape, and must not remove it. The clean must
-  refuse the same one.
+  files there for each language, under the code of the language. It removes the
+  whole staging directory at the end. The build must refuse a staging directory
+  of another shape, and must not remove it. The clean must refuse the same one.
 - **WEB-OUTPUT-15** — The clean must refuse a target that holds no stylesheet,
   when the description does not load. Every build writes the stylesheet, so a
   target without it is the output of no build. The rule is a second guard, and

@@ -72,8 +72,14 @@ sub site ()
 }
 
 ok( site()->build, 'the build succeeds into the default output' );
-ok( -f "$out/index.html",  'and it writes the entry page' );
-ok( -f "$out/style.css",   'and the stylesheet' );
+ok( -f "$out/en/index.html", 'and it writes the entry page of en' );
+ok( -f "$out/style.css",     'and the stylesheet at the top level' );
+
+# WEB-LANG-8. The top level forwards a visitor of the root into the
+# tree of en.
+my $forward = Fugu::File->read("$out/index.html") // '';
+like( $forward, qr{<meta http-equiv="refresh" content="0; url=en/index\.html">},
+	'the forward sends the root to the tree of en' );
 
 my @problems = App::FuguWeb::Check->new( config => $config, out => $out )->run;
 is_deeply( \@problems, [], 'the checks pass on the built site' )
@@ -153,7 +159,7 @@ my ($offset) = ( $link // '' ) =~ /\btext-underline-offset:\s*([\d.]+)/;
 ok( defined $offset && $offset > 0, 'and it sits below the baseline' )
     or diag 'text-underline-offset: ' . ( $offset // 'none' );
 
-my $index = Fugu::File->read("$out/index.html") // '';
+my $index = Fugu::File->read("$out/en/index.html") // '';
 like( $index, qr/<header>/, 'the chrome writes a bare header' );
 unlike( $index, qr/class="banner"/, 'and no banner class' );
 
