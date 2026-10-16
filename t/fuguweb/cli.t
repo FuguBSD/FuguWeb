@@ -245,9 +245,9 @@ SKIP: {
 		my $root = project(
 			'.fuguwebrc' => $RC . <<'RC',
 
-manuals "Manuals" {
-	dir    = man
-	anchor = manuals
+manuals manuals {
+	heading = Manuals
+	dir     = man
 }
 RC
 			'man/bad.1' => ".Sh NAME\n.Nm bad\n",

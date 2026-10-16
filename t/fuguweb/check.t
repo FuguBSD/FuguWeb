@@ -288,6 +288,27 @@ qr{^404\.html: does not carry the navigation entry https://example\.org/}m,
 	);
 };
 
+subtest 'a language link that the site does not hold' => sub {
+	# WEB-LANG-7. A site of one language carries no language link.
+	# The site of two languages is in site.t, which builds it.
+	my @problems = built( 'en/other.html' => $GOOD{'en/other.html'}
+		    . qq{<a href="../de/other.html" hreflang="de">de</a>\n} )->run;
+	like(
+		join( "\n", @problems ),
+qr{^en/other\.html: carries 1 language links, and the page takes 0$}m,
+		'a tree page with a link to a language the site does not hold'
+	);
+
+	# The chrome ends where the main element starts. A link of the
+	# body is the writer's own.
+	@problems = built( 'en/other.html' => $GOOD{'en/other.html'}
+		    . "<main>\n"
+		    . qq{<a href="https://example.org/de/" hreflang="de">de</a>\n} )
+	    ->run;
+	is( scalar @problems, 0, 'a link of the body is no language link' )
+	    or diag join "\n", @problems;
+};
+
 subtest 'the base href is the one root-absolute href' => sub {
 	# WEB-LANG-15. The top-level copy of the 404 page carries the
 	# base, and no other page and no other href may be rooted.

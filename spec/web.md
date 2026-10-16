@@ -108,9 +108,18 @@ because each one answers one fixed URL.
   name the page `<name>.<section>.html`.
 - **WEB-MANUALS-5** — The `namespace` of a group must prefix the name of each
   manual of that group.
-- **WEB-MANUALS-6** — The manual index must show one heading for each group,
-  with the `anchor` of the group. A group with no manual must add nothing to the
-  index.
+- **WEB-MANUALS-6** — The manual index must show one heading for each group. The
+  heading must take its text from the `heading` of the group, and its anchor
+  from the group name. A group with no manual must add nothing to the index.
+- **WEB-MANUALS-7** — The block name of a group is the group name. A block name
+  is an identifier, and the prose of each language goes in `heading`. A group
+  name must be one word of lowercase letters, digits and hyphens. Two groups
+  must not share one, and each default group block must take a `heading`. The
+  renderer must reject an `anchor` setting, and the message must name the block
+  to write in its place.
+- **WEB-MANUALS-8** — An `index` page can take a `body`, which opens the page
+  below its heading. The heading of the index page is its title. The index must
+  write no opening of its own, per WEB-LANG-13.
 
 <a id="web-keys"></a>
 

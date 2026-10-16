@@ -3,6 +3,8 @@
 # App::FuguWeb::Site: a small site builds into the tree of its
 # language, holds what the description names and nothing else, drops
 # the staging directory, and builds a second time to the same bytes.
+# A site of two languages builds one tree for each, from the sources
+# of each language.
 #
 # The test builds its site in a File::Temp directory. It never reads
 # the repository; t/web/site.t covers the real site.
@@ -28,6 +30,7 @@ plan skip_all => 'mandoc not found'  unless have('mandoc');
 plan skip_all => 'lowdown not found' unless have('lowdown');
 plan skip_all => 'pod2man not found' unless have('pod2man');
 
+use_ok('App::FuguWeb::Check');
 use_ok('App::FuguWeb::Config');
 use_ok('App::FuguWeb::Render');
 use_ok('App::FuguWeb::Site');
@@ -63,20 +66,21 @@ page "404.html" {
 	unlinked = yes
 }
 
-manuals "Manuals" {
-	dir    = man
-	anchor = manuals
+manuals manuals {
+	heading = Manuals
+	dir     = man
 }
 
-modules "Modules" {
-	dir    = lib/Thing
-	anchor = modules
+modules modules {
+	heading = Modules
+	dir     = lib/Thing
 }
 RC
 
-# project():
-#	Write a whole small project and return its root.
-sub project ()
+# project(%more):
+#	Write a whole small project, and each more file, and return its
+#	root. A more file of the description is added to its end.
+sub project (%more)
 {
 	my $root = tempdir( CLEANUP => 1 );
 
@@ -112,6 +116,12 @@ Thing::Depot - the persistence contract
 Words.
 POD
 	);
+	for my $relative ( sort keys %more ) {
+		$file{$relative} =
+		    $relative eq '.fuguwebrc'
+		    ? $file{$relative} . $more{$relative}
+		    : $more{$relative};
+	}
 
 	for my $relative ( sort keys %file ) {
 		my $path = "$root/$relative";
@@ -198,6 +208,14 @@ subtest 'the build makes the site and nothing else' => sub {
 
 	is_deeply( App::FuguWeb::list_tree($OUT), \@expected,
 		'the output holds the site only' );
+
+	# WEB-LANG-7. A site of one language links no other.
+	for my $name ( grep { /\.html\z/ } @expected ) {
+		open my $fh, '<', "$OUT/$name" or die "Cannot read: $!";
+		my $html = do { local $/; <$fh> };
+		close $fh;
+		unlike( $html, qr/hreflang/, "$name carries no language link" );
+	}
 };
 
 subtest 'the top level holds the forward and the 404 page' => sub {
@@ -275,6 +293,223 @@ subtest 'each source reaches its page' => sub {
 		'and the entry page of its tree by name' );
 	like( $module, qr{<footer>\n<p>ISC\.</p>\n</footer>},
 		'and it carries the footer' );
+};
+
+# The translation of the small project into de. The index page and
+# the readme take no translation of their own, so their bodies come
+# from the default sources. Two more nav entries make each page
+# reachable, so the whole check runs over the site.
+my %DE = (
+	'.fuguwebrc' => <<'RC',
+
+nav "readme.html" {
+	label = Readme
+}
+
+nav "manuals.html" {
+	label = Manuals
+}
+
+page de "index.html" {
+	title = Start
+	body  = de/index.body.html
+}
+
+nav de "index.html" {
+	label = Start
+}
+
+manuals de manuals {
+	heading = Handbuch
+	dir     = man/de
+}
+
+modules de modules {
+	heading = Module
+	dir     = lib/de/Thing
+}
+RC
+	'web/de/index.body.html'   => "<h1>Start</h1>\n",
+	'web/de/footer.body.html'  => "<p>ISC-Lizenz.</p>\n",
+	'man/de/tool.1'            => <<'MDOC',
+.Dd $Mdocdate: July 27 2026 $
+.Dt TOOL 1
+.Os
+.Sh NAME
+.Nm tool
+.Nd ein Werkzeug
+.Sh DESCRIPTION
+Worte.
+MDOC
+	'lib/Thing.pod'    => "=head1 NAME\n\nThing - the umbrella\n",
+	'lib/de/Thing.pod' => "=head1 NAME\n\nThing - der Schirm\n",
+	'lib/de/Thing/Depot.pod' => <<'POD',
+=head1 NAME
+
+Thing::Depot - der Vertrag
+
+=head1 DESCRIPTION
+
+Worte.
+POD
+);
+
+# read_page($path):
+#	The bytes of one page of the output.
+sub read_page ($path)
+{
+	open my $fh, '<', $path or die "Cannot read $path: $!";
+	my $html = do { local $/; <$fh> };
+	close $fh;
+
+	return $html;
+}
+
+subtest 'a site of two languages builds one tree for each' => sub {
+	my $root = project(%DE);
+	my $out  = tempdir( CLEANUP => 1 ) . '/out';
+	my $site = site( $root, $out );
+	ok( $site->build, 'the build succeeds' );
+
+	my $check    = App::FuguWeb::Check->new( config => $site->config, out => $out );
+	my @problems = $check->run;
+	is( scalar @problems, 0, 'and the check finds no problem' )
+	    or diag join "\n", @problems;
+
+	# WEB-LANG-3. Each tree holds the same page names.
+	my @tree = @{ App::FuguWeb::list_tree($out) };
+	my %in;
+	for my $path (@tree) {
+		my ( $code, $name ) = split m{/}, $path, 2;
+		push @{ $in{$code} }, $name if defined $name;
+	}
+	is_deeply( $in{de}, $in{en}, 'de and en hold the same pages' );
+	ok( grep( { $_ eq 'Thing.3p.html' } @{ $in{de} } ),
+		'and each holds the umbrella' );
+
+	# WEB-LANG-5 and WEB-LANG-6. A translated page takes its own
+	# body, and a page with no translation the default body with
+	# lang="en" on the element that holds it.
+	my $index = read_page("$out/de/index.html");
+	like( $index, qr{<html lang="de">}, 'the front page of de is a page of de' );
+	like( $index, qr{<title>Start \xe2\x80\x94 Example</title>},
+		'with the title of de' );
+	like( $index, qr{<main>\n<h1>Start</h1>}, 'and the body of de' );
+	like( $index, qr{<a href="index\.html">Start</a>}, 'and the nav of de' );
+
+	my $readme = read_page("$out/de/readme.html");
+	like( $readme, qr{<html lang="de">}, 'the readme of de is a page of de' );
+	like( $readme, qr{<main lang="en">\n.*A paragraph\.}s,
+		'with the body of en, which carries lang="en"' );
+
+	my $manuals = read_page("$out/de/manuals.html");
+	like( $manuals, qr{<main lang="en">\n<h1>Manuals</h1>},
+		'the index of de has no page translation, so its body is of en' );
+	like( $manuals, qr{<h2 id="manuals">Handbuch</h2>},
+		'and it takes the heading of de, with the same anchor' );
+	like( $manuals, qr{<dd>ein Werkzeug</dd>},
+		'and the description of the source of de' );
+	like( $manuals, qr{<h2 id="modules">Module</h2>.*<dd>der Vertrag</dd>}s,
+		'and the same for the modules' );
+
+	# A manual of de comes from its namesake, and keeps the page
+	# name of the default source.
+	my $tool = read_page("$out/de/tool.1.html");
+	like( $tool,   qr{<main>\n},  'the manual of de carries no marker' );
+	like( $tool,   qr{Worte\.},   'and comes from the source of de' );
+	unlike( $tool, qr{Words\.},   'and not from the default source' );
+	like( read_page("$out/de/Thing::Depot.3p.html"),
+		qr{<main>\n.*der Vertrag}s, 'a sidecar of de' );
+	like( read_page("$out/de/Thing.3p.html"),
+		qr{der Schirm}, 'and the umbrella of de' );
+	like( read_page("$out/en/tool.1.html"),
+		qr{<main>\n.*Words\.}s, 'the manual of en stays' );
+
+	# WEB-LANG-7. Each tree page links the same page in the other
+	# language, and a page of the top level links none.
+	like( read_page("$out/en/tool.1.html"),
+		qr{<a href="\.\./de/tool\.1\.html" hreflang="de">de</a>},
+		'a page of en links its page of de' );
+	like( read_page("$out/de/Thing::Depot.3p.html"),
+		qr{<a href="\.\./en/Thing::Depot\.3p\.html" hreflang="en">en</a>},
+		'a page of de links its page of en' );
+	unlike( read_page("$out/$_"), qr/hreflang/,
+		"the top-level $_ carries no language link" )
+	    for qw(index.html 404.html);
+
+	# WEB-LANG-12. A tree takes the footer of its language.
+	like( $index, qr{<footer>\n<p>ISC-Lizenz\.</p>\n</footer>},
+		'a page of de carries the footer of de' );
+	like( read_page("$out/en/index.html"),
+		qr{<footer>\n<p>ISC\.</p>\n</footer>},
+		'and a page of en the default footer' );
+	unlike( read_page("$out/404.html"), qr{<footer>},
+		'and the top-level copy of the 404 page none' );
+
+	# A source of a translation is no asset.
+	ok( !-e "$out/de/index.body.html" && !-e "$out/index.body.html",
+		'the body of de is not published' );
+
+	# WEB-LANG-15. The check holds each language link.
+	my $broken = $readme =~ s{<a href="\.\./en/readme\.html" hreflang="en">en</a>}{}r;
+	open my $fh, '>', "$out/de/readme.html" or die "Cannot write: $!";
+	print {$fh} $broken;
+	close $fh;
+
+	my $top = read_page("$out/404.html")
+	    =~ s{</nav>}{<a href="de/404.html" hreflang="de">de</a>\n</nav>}r;
+	open $fh, '>', "$out/404.html" or die "Cannot write: $!";
+	print {$fh} $top;
+	close $fh;
+
+	my $joined = join "\n", $check->run;
+	like( $joined, qr{^de/readme\.html: does not link the page in en$}m,
+		'the check reports a missing language link' );
+	like( $joined,
+		qr{^404\.html: carries 1 language links, and the page takes 0$}m,
+		'and a language link on a page of the top level' );
+};
+
+subtest 'a translation dir mirrors the default dir' => sub {
+	# WEB-LANG-5. A source of a translation dir with no namesake is
+	# a page that no other tree holds.
+	my %case = (
+		'man/de/extra.1' => qr{manuals de "manuals" holds man/de/extra\.1, which has no namesake in man; a translation dir mirrors the default dir},
+		'lib/de/Thing/Extra.pod' => qr{modules de "modules" holds lib/de/Thing/Extra\.pod, which has no namesake in lib/Thing},
+	);
+	for my $orphan ( sort keys %case ) {
+		my $root = project( %DE, $orphan => $DE{'man/de/tool.1'} );
+
+		my $config = App::FuguWeb::Config->load(
+			root  => $root,
+			error => \my $reason
+		);
+		is( $config, undef, "$orphan fails the load" );
+		like( $reason, $case{$orphan}, 'and the message names it' );
+	}
+
+	# The umbrella of a translation dir mirrors the umbrella of the
+	# default dir, and a default dir with none takes none.
+	my %files = %DE;
+	delete $files{'lib/Thing.pod'};
+	my $root = project(%files);
+	my $config =
+	    App::FuguWeb::Config->load( root => $root, error => \my $reason );
+	is( $config, undef, 'an umbrella with no namesake fails the load' );
+	like( $reason, qr{holds lib/de/Thing\.pod, which has no namesake in lib/Thing},
+		'and the message names it' );
+
+	# The lint reads the source of each language. A malformed
+	# source of de must fail the build, as one of en does.
+	$root = project( %DE, 'man/de/tool.1' => ".Sh NAME\n.Nm tool\n" );
+	ok( !site( $root, tempdir( CLEANUP => 1 ) . '/out' )->build,
+		'a malformed source of de fails the build' );
+
+	# A file that the group does not take is no source, in either
+	# directory.
+	$root   = project( %DE, 'man/de/CLAUDE.md' => "# man/de\n" );
+	$config = App::FuguWeb::Config->load( root => $root, error => \$reason );
+	ok( $config, 'a file that is no manual is no orphan' ) or diag $reason;
 };
 
 subtest 'the site is a pure function of the project' => sub {

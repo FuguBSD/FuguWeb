@@ -350,8 +350,12 @@ at the project root.
 A setting is one
 .Ar name No = Ar value
 line.
-A block opens with its type, a quoted name, and a brace, and closes
-with a brace on a line of its own.
+A block opens with its type, a name, and a brace, and closes with a
+brace on a line of its own.
+A name that holds a space or a solidus takes double quotes.
+A block with a language code in front of its name is a translation, and
+.Sx LANGUAGES
+states its rules.
 A
 .Ql #
 starts a comment, and no value can hold one.
@@ -416,21 +420,27 @@ An HTML body fragment in the source directory.
 A Markdown file, relative to the project root.
 .It Ic index No = Cm yes
 The generated manual index.
+The page can also set a
+.Ic body ,
+which opens the index below its heading.
 .El
 .Pp
 .Ic unlinked No = Cm yes
 marks a page that no other page links to, such as
 .Pa 404.html ,
 and the reachability check skips it.
-.It Ic manuals Qq Ar heading
+.It Ic manuals Ar name
 One group of
 .Xr mdoc 7
 manuals.
-The block must set
-.Ic dir ,
-the directory of the sources, and
-.Ic anchor ,
+The name is one word of lowercase letters, digits and hyphens, and it is
 the fragment identifier of the group on the index page.
+Two groups must not share a name.
+The block must set
+.Ic heading ,
+the text of the heading of the group, and
+.Ic dir ,
+the directory of the sources.
 An optional
 .Ic namespace
 prefixes each manual name, so
@@ -439,12 +449,15 @@ with the namespace
 .Ql Fugu:\&:
 becomes
 .Ql Fugu::Daemon(3p) .
-.It Ic modules Qq Ar heading
+.It Ic modules Ar name
 One group of POD sidecars.
+The name follows the rules of a
+.Ic manuals
+name.
 The block must set
-.Ic dir
+.Ic heading
 and
-.Ic anchor ,
+.Ic dir ,
 and
 .Ic dir
 must lie below
@@ -460,7 +473,101 @@ See
 The load fails when a block names no source or two sources, when two
 blocks name one page, when a group directory does not exist, or when
 the source directory holds a symlink.
+A group block that sets
+.Ic anchor ,
+or whose name is a heading text, fails the load.
+The message names the block to write in its place, such as
+.Ql write manuals commands with heading = Commands, and no anchor .
 Every message names the file and the block at fault.
+.Sh LANGUAGES
+English is the default language, and its code is
+.Ql en .
+A translation is a block with a language code in front of its name.
+The code is two lowercase letters, per ISO 639-1.
+The block translates the block of one argument of the same type and
+name:
+.Bd -literal -offset indent
+page "index.html" {
+	title = Home
+	body  = index.body.html
+}
+
+page de "index.html" {
+	title = Start
+	body  = de/index.body.html
+}
+
+manuals commands {
+	heading = Commands
+	dir     = man/fuguweb
+}
+
+manuals de commands {
+	heading = Befehle
+	dir     = man/de/fuguweb
+}
+.Ed
+.Pp
+The languages of a site are
+.Ql en
+and each code that a translation names.
+The build writes one tree for each language, and each tree holds the
+same pages.
+A
+.Ic page ,
+a
+.Ic nav ,
+a
+.Ic manuals
+and a
+.Ic modules
+block can take a translation:
+.Bl -tag -width "manuals, modules" -offset indent
+.It Ic page
+.Ic title ,
+.Ic body
+and
+.Ic markdown .
+.It Ic nav
+.Ic label .
+.It Ic manuals , modules
+.Ic heading
+and
+.Ic dir .
+.El
+.Pp
+A page of a language takes each value of its translation, and the value
+of the default block where the translation holds none.
+A page whose body comes from the default source carries
+.Ql lang="en"
+on the element that holds the body.
+.Pp
+The
+.Ic dir
+of a group translation mirrors the default
+.Ic dir .
+A manual of a language comes from the file of the same relative path in
+that directory, and from the default source when the directory holds no
+such file.
+A
+.Ic modules
+translation mirrors the umbrella sidecar as well.
+A manual keeps the page name of its default source in every language.
+.Pp
+The load fails when a code has another shape, or is
+.Ql en .
+It fails when a translation names no default block of its type, when it
+comes twice for one name and one language, or when it sets a setting
+outside its list.
+It fails when a manual source of a translation
+.Ic dir
+has no source of the same path in the default
+.Ic dir .
+A
+.Ic keys
+block and a
+.Ic key
+block take no translation.
 .Sh THE PAGE LAYOUT
 Every source becomes one HTML body fragment, and the build wraps each
 fragment in one fixed layout: the head, a banner, the navigation, the
@@ -480,6 +587,13 @@ element of a page carries the code of its tree as
 The banner and the navigation of a tree page name each page of the
 tree by its file name.
 An absolute URL stays as it stands.
+After the navigation entries, a tree page links the same page in each
+other language of the site, as
+.Pa ../<code>/<page> .
+The code is the text and the
+.Ql hreflang
+of each link.
+A site of one language carries no such link.
 .Pp
 The top level holds two pages for the host.
 The forward
@@ -509,6 +623,9 @@ block, in file order.
 A
 .Pa footer.body.html
 in the source directory becomes the footer prose of each tree page.
+A language takes its own footer from
+.Pa <code>/footer.body.html
+in the source directory, and the default one when it has none.
 The key page and the pages of the top level carry no footer.
 A project without one gets no footer element.
 .Pp
@@ -576,13 +693,14 @@ The index page is the
 .Ic page
 block with
 .Ic index No = Cm yes .
-It opens with a paragraph that names the manual host.
-A
-.Pa manuals.body.html
-in the source directory replaces that paragraph.
-Each group then adds one heading with its
-.Ic anchor ,
-and one list of its manuals.
+Its heading is the title of the page, and its
+.Ic body ,
+when it sets one, follows the heading.
+The index writes no prose of its own.
+Each group then adds one heading, with the group name as its fragment
+identifier and the
+.Ic heading
+of the language as its text, and one list of its manuals.
 Each entry links the page and shows the one-line description, from the
 first
 .Ic \&Nd
@@ -1119,8 +1237,8 @@ The site description, at the project root.
 The base stylesheet, which ships with the tool.
 .It Pa web/footer.body.html
 The footer prose, in the default source directory.
-.It Pa web/manuals.body.html
-The opening of the manual index, in the default source directory.
+.It Pa web/<code>/footer.body.html
+The footer prose of one language.
 .It Pa web/build/.man
 The staging directory of the build, in the default output directory.
 .El

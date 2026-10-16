@@ -20,7 +20,6 @@ use v5.36;
 package App::FuguWeb::Index;
 
 use App::FuguWeb;
-use Fugu::File;
 
 # App::FuguWeb::Index - the body of the manual index.
 #
@@ -29,71 +28,38 @@ use Fugu::File;
 # added: no list here names one.
 #
 # The index never retypes a description either. It asks each
-# App::FuguWeb::Manual, and that reads the source.
-
-# The fragment that replaces the generated opening, when a project
-# writes one.
-use constant OPENING_FRAGMENT => 'manuals.body.html';
+# App::FuguWeb::Manual, and that reads the source. The index writes no
+# prose of its own, per WEB-LANG-13: the title, the opening and each
+# heading come from the description.
 
 # App::FuguWeb::Index->new(%args):
 #	config => $config	the site description (required)
+#	lang   => $code		the language of the page (default: en)
 sub new ( $class, %args )
 {
 	my $config = $args{config};
 	die 'config parameter required'
 	    unless defined $config;
 
-	return bless { config => $config }, $class;
+	return bless {
+		config => $config,
+		lang   => $args{lang} // App::FuguWeb::DEFAULT_LANGUAGE,
+	}, $class;
 }
 
-# $self->title:
-#	The title of the index page. It comes from the page block that
-#	names the index as its source, so the heading and the browser
-#	tab always agree. The build renders the index for such a block
-#	only, so the block is always there.
-sub title ($self)
+# $self->body($title, $opening):
+#	The body fragment of the index page: the title as its heading,
+#	then the opening, then each group, per WEB-MANUALS-8. The
+#	caller passes the title and the opening of the page block in
+#	the language of the page, so the heading and the browser tab
+#	always agree. A page with no opening passes undef.
+sub body ( $self, $title, $opening = undef )
 {
-	for my $page ( $self->{config}->pages ) {
-		return $page->{title} if $page->{source} eq 'index';
-	}
-
-	return;
-}
-
-# $self->body:
-#	The body fragment of the index page.
-sub body ($self)
-{
-	my $html = $self->_opening;
+	my $html = '<h1>' . App::FuguWeb::escape_html($title) . "</h1>\n\n";
+	$html .= "$opening\n" if defined $opening && length $opening;
 	$html .= $self->_group($_) for $self->{config}->groups;
 
 	return $html;
-}
-
-# $self->_opening:
-#	The heading and the paragraph above the groups. A project
-#	fragment in the source directory replaces both: the prose is
-#	the project's, and only the project knows what its manuals are.
-sub _opening ($self)
-{
-	my $path = $self->{config}->source_path(OPENING_FRAGMENT);
-	return Fugu::File->read($path) // '' if -f $path;
-
-	my $url  = $self->{config}->man_url;
-	my $host = $url;
-	$host =~ s{^[a-z]+://}{};
-	$host =~ s{/$}{};
-
-	return
-	      '<h1>'
-	    . App::FuguWeb::escape_html( $self->title )
-	    . "</h1>\n" . "\n"
-	    . '<p>These pages come from the same sources that'
-	    . " <code>man</code> reads on an\n"
-	    . 'installed system.  Cross-references between these pages'
-	    . " are links; all\n"
-	    . "other cross-references go to\n"
-	    . qq{<a href="$url">$host</a>.</p>\n} . "\n";
 }
 
 # $self->_group($group):
@@ -101,13 +67,13 @@ sub _opening ($self)
 #	emits nothing, so an empty group leaves no heading behind.
 sub _group ( $self, $group )
 {
-	my @manuals = $group->manuals;
+	my @manuals = $group->manuals( $self->{lang} );
 	return '' unless @manuals;
 
 	my $html =
 	      '<h2 id="'
-	    . App::FuguWeb::escape_attr( $group->anchor ) . '">'
-	    . App::FuguWeb::escape_html( $group->heading )
+	    . App::FuguWeb::escape_attr( $group->name ) . '">'
+	    . App::FuguWeb::escape_html( $group->heading( $self->{lang} ) )
 	    . "</h2>\n<dl>\n";
 	$html .= _entry($_) for @manuals;
 	$html .= "</dl>\n\n";
