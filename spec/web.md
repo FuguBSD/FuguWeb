@@ -48,7 +48,12 @@ because each one answers one fixed URL.
   namesake is an error.
 - **WEB-LANG-6** — The `html` element of a page must carry the code of its tree
   as `lang`. A page of another tree whose body comes from the default source
-  must carry `lang="en"` on the element that holds the body.
+  must carry `lang="en"` on the element that holds the body. An index page is
+  the exception, because its parts come from more than one source. The parts are
+  its title, the `body` that opens it, each group heading and each manual
+  description. On an index page of another tree, each part of the default
+  language must carry `lang="en"` on its own element. The element that holds the
+  body must carry no `lang`.
 - **WEB-LANG-7** — The chrome of a tree page must link the same page in each
   other language of the site. Each link must carry the code as its text and as
   its `hreflang`. A site of one language must carry no such link.

@@ -352,7 +352,7 @@ A setting is one
 line.
 A block opens with its type, a name, and a brace, and closes with a
 brace on a line of its own.
-A name that holds a space or a solidus takes double quotes.
+A name that holds whitespace takes double quotes.
 A block with a language code in front of its name is a translation, and
 .Sx LANGUAGES
 states its rules.
@@ -472,7 +472,8 @@ See
 .Pp
 The load fails when a block names no source or two sources, when two
 blocks name one page, when a group directory does not exist, or when
-the source directory holds a symlink.
+the source directory holds a symlink at any depth outside the output
+directory.
 A group block that sets
 .Ic anchor ,
 or whose name is a heading text, fails the load.
@@ -541,6 +542,12 @@ of the default block where the translation holds none.
 A page whose body comes from the default source carries
 .Ql lang="en"
 on the element that holds the body.
+The index page marks each part on its own element instead: the title,
+the
+.Ic body ,
+each group heading and each manual description.
+On another tree, each part of the default language carries
+.Ql lang="en" .
 .Pp
 The
 .Ic dir
@@ -745,9 +752,12 @@ The body fragment or Markdown page of
 must therefore link an asset with an absolute URL, such as
 .Ql https://example.org/logo.png .
 .Pp
-The build rejects a symlink in the source directory.
-A copy would publish the bytes of the target, from anywhere on the
-machine.
+The build rejects a symlink at any depth of the source directory, such
+as a footer of a language.
+An asset or a fragment would publish the bytes of the target, from
+anywhere on the machine.
+A symlink below the output directory passes, because the build reads no
+source there.
 .Sh THE OUTPUT DIRECTORY
 The top level of the output holds the two pages for the host, the
 stylesheet and the assets.

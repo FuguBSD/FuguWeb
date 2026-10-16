@@ -111,9 +111,9 @@ such as F<404.html>.
 
 The block name of a group is its anchor on the index page, and
 C<heading> holds the text. A block with a language code in front of its
-name is a translation into that language. Each translation adds a tree
-of the output, and L<App::FuguWeb::Config/Translations> states the
-rules.
+name is a translation into that language. Each language of the site
+takes one tree of the output, and L<App::FuguWeb::Config/Translations>
+states the rules.
 
 Three rules keep a list out of the file. A C<manuals> block reads its
 directory. A C<modules> block finds every F<.pod> file below its

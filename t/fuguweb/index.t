@@ -389,7 +389,11 @@ qr/manuals "Commands" sets anchor, and a group takes its anchor from the block n
 		],
 		'an anchor beside a heading' => [
 			qq{modules things {\n\theading = Thing modules\n\tdir = lib/Thing\n\tanchor = thing\n}\n},
-qr/modules "things" sets anchor, and a group takes its anchor from the block name: write modules thing with heading = Thing modules, and no anchor/
+qr/modules "things" sets anchor, and a group takes its anchor from the block name: write modules thing with heading = Thing modules, and no anchor\z/
+		],
+		'an anchor outside the shape of a group name' => [
+			qq{manuals library {\n\theading = Library\n\tdir = man/lib\n\tanchor = Lib_X\n}\n},
+qr/manuals "library" sets anchor, and a group takes its anchor from the block name: write manuals lib-x with heading = Library, and no anchor; a group name is one word of lowercase letters, digits and hyphens\z/
 		],
 		'a heading as the name' => [
 			qq{manuals "Every section" {\n\tdir = man/all\n}\n},
@@ -417,6 +421,12 @@ qr/manuals "tool" and modules "tool" share one name, and a group name is the anc
 	    load( qq{site = Example\n\nmanuals tool-2 {\n\theading = Tool\n}\n} );
 	unlike( $reason // '', qr/group name/,
 		'a name of letters, digits and a hyphen is a group name' );
+
+	( $config, $reason ) = load(
+		qq{site = Example\n\nmanuals lib-x {\n\theading = Library\n\tdir = man/lib\n}\n}
+	);
+	ok( $config, 'the block that the message names for Lib_X loads' )
+	    or diag $reason;
 };
 
 # The description of the shared sources in two languages. The tool
@@ -459,22 +469,35 @@ subtest 'a group takes the heading and the sources of a language' => sub {
 		'and the language of each source' );
 	is( $de[0]->path, "$root/man/de/tool/tool.1", 'the source of de' );
 
+	# WEB-LANG-6. A part of the default source carries lang="en"
+	# on its own element, and a part of de carries no marker.
 	my $body = App::FuguWeb::Index->new( config => $config, lang => 'de' )
 	    ->body('Handbuch');
+	like( $body, qr{^<h1>Handbuch</h1>\n}, 'the title of de' );
 	like( $body, qr{<h2 id="tool">Werkzeug</h2>},
 		'the index of de takes the heading of de, and the same anchor' );
 	like( $body, qr{<dd>das Werkzeug</dd>},
 		'and the description of the source of de' );
-	like( $body, qr{<dd>the configuration</dd>},
+	like( $body, qr{<dd lang="en">the configuration</dd>},
 		'and the default description of a manual with no namesake' );
 	like( $body, qr{<h2 id="library">Bibliothek</h2>},
 		'a translation with no dir changes the heading alone' );
-	like( $body, qr{<h2 id="thing">Thing modules</h2>},
+	like( $body, qr{<h2 id="thing" lang="en">Thing modules</h2>},
 		'and a group with no translation keeps its own' );
+
+	# A title and an opening of the default source carry the marker
+	# as well. The caller names the language of each.
+	$body = App::FuguWeb::Index->new( config => $config, lang => 'de' )
+	    ->body( 'Manuals', "<p>Read them.</p>\n",
+		title_lang => 'en', body_lang => 'en' );
+	like( $body,
+		qr{^<h1 lang="en">Manuals</h1>\n\n<div lang="en">\n<p>Read them\.</p>\n</div>\n\n<h2 id="tool">},
+		'a title and an opening of en, each in its own element' );
 
 	$body = App::FuguWeb::Index->new( config => $config )->body('Manuals');
 	like( $body, qr{<h2 id="tool">Tool</h2>}, 'the index of en stays' );
 	like( $body, qr{<dd>the tool</dd>}, 'with its own description' );
+	unlike( $body, qr/ lang=/, 'and carries no marker' );
 };
 
 subtest 'a translation of a group keeps the rules of a group' => sub {

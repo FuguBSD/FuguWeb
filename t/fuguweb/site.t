@@ -365,6 +365,15 @@ sub read_page ($path)
 	return $html;
 }
 
+# main_of($html):
+#	The part of a page from the <main> element to its end tag.
+sub main_of ($html)
+{
+	my ($main) = $html =~ m{(<main[ >].*</main>)}s;
+
+	return $main // '';
+}
+
 subtest 'a site of two languages builds one tree for each' => sub {
 	my $root = project(%DE);
 	my $out  = tempdir( CLEANUP => 1 ) . '/out';
@@ -402,9 +411,13 @@ subtest 'a site of two languages builds one tree for each' => sub {
 	like( $readme, qr{<main lang="en">\n.*A paragraph\.}s,
 		'with the body of en, which carries lang="en"' );
 
+	# An index page marks each part of the default source, and the
+	# element that holds its body takes the language of the tree.
 	my $manuals = read_page("$out/de/manuals.html");
-	like( $manuals, qr{<main lang="en">\n<h1>Manuals</h1>},
-		'the index of de has no page translation, so its body is of en' );
+	like( $manuals, qr{<main>\n<h1 lang="en">Manuals</h1>},
+		'the index of de has no page translation, so its title is of en' );
+	my $marks = () = main_of($manuals) =~ / lang=/g;
+	is( $marks, 1, 'and no other part is' );
 	like( $manuals, qr{<h2 id="manuals">Handbuch</h2>},
 		'and it takes the heading of de, with the same anchor' );
 	like( $manuals, qr{<dd>ein Werkzeug</dd>},
@@ -468,6 +481,82 @@ subtest 'a site of two languages builds one tree for each' => sub {
 	like( $joined,
 		qr{^404\.html: carries 1 language links, and the page takes 0$}m,
 		'and a language link on a page of the top level' );
+};
+
+subtest 'an index page marks each part of the default source' => sub {
+	# WEB-LANG-6. The parts of an index page come from the sources
+	# of more than one language. Each part from the default source
+	# carries lang="en" on its own element, and <main> carries no
+	# marker. The page of de translates each part, and the page of
+	# fr translates the title and the manual of one group alone.
+	my $root = project(
+		%DE,
+		'.fuguwebrc' => $DE{'.fuguwebrc'} . <<'RC',
+
+nav "handbook.html" {
+	label = Handbook
+}
+
+page "handbook.html" {
+	title = Handbook
+	index = yes
+	body  = handbook.body.html
+}
+
+page de "handbook.html" {
+	title = Handbuch
+	body  = de/handbook.body.html
+}
+
+page fr "handbook.html" {
+	title = Manuel
+}
+
+manuals fr manuals {
+	dir = man/fr
+}
+RC
+		'web/handbook.body.html'    => "<p>Read them.</p>\n",
+		'web/de/handbook.body.html' => "<p>Lies sie.</p>\n",
+		'man/fr/tool.1' => $DE{'man/de/tool.1'} =~ s/ein Werkzeug/un outil/r,
+	);
+	my $out  = tempdir( CLEANUP => 1 ) . '/out';
+	my $site = site( $root, $out );
+	ok( $site->build, 'the build succeeds' );
+
+	# WEB-LANG-14. The check holds each tree page to its language.
+	my @problems =
+	    App::FuguWeb::Check->new( config => $site->config, out => $out )->run;
+	is( scalar @problems, 0, 'and the check finds no problem' )
+	    or diag join "\n", @problems;
+
+	my $en = read_page("$out/en/handbook.html");
+	like( $en, qr{<main>\n<h1>Handbook</h1>\n\n<p>Read them\.</p>\n},
+		'the index of en takes its own parts' );
+	unlike( main_of($en), qr/ lang=/, 'and carries no marker' );
+
+	my $de = read_page("$out/de/handbook.html");
+	like( $de, qr{<main>\n<h1>Handbuch</h1>\n\n<p>Lies sie\.</p>\n},
+		'the index of de takes its own title and opening' );
+	like( $de, qr{<h2 id="manuals">Handbuch</h2>.*<dd>ein Werkzeug</dd>}s,
+		'and the heading and the description of de' );
+	unlike( main_of($de), qr/ lang=/,
+		'and with each part translated, no part carries a marker' );
+
+	my $fr = read_page("$out/fr/handbook.html");
+	like( $fr, qr{<html lang="fr">}, 'the index of fr is a page of fr' );
+	like( $fr, qr{<main>\n<h1>Manuel</h1>\n},
+		'its title is of fr, and <main> carries no marker' );
+	like( $fr, qr{\n<div lang="en">\n<p>Read them\.</p>\n</div>\n},
+		'the opening of the default source carries lang="en"' );
+	like( $fr, qr{<h2 id="manuals" lang="en">Manuals</h2>},
+		'and so does a heading that the translation does not name' );
+	like( $fr, qr{<dd>un outil</dd>},
+		'a description from the dir of fr carries no marker' );
+	like( $fr, qr{<h2 id="modules" lang="en">Modules</h2>},
+		'a group with no translation takes the default heading' );
+	like( $fr, qr{<dd lang="en">the persistence contract</dd>},
+		'and a description of the default source carries lang="en"' );
 };
 
 subtest 'a translation dir mirrors the default dir' => sub {

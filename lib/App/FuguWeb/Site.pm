@@ -983,11 +983,16 @@ sub _render_pages ($self)
 			my $fragment = $self->_fragment( $entry, $code )
 			    // return;
 
+			# WEB-LANG-6. The index marks each part of its own,
+			# so the element that holds it takes the language of
+			# the tree.
 			$page->write(
 				$self->{out} . "/$code/$entry->{file}",
 				$entry->{title}, $fragment,
 				name      => $entry->{file},
-				body_lang => $entry->{lang},
+				body_lang => $entry->{source} eq 'index'
+				? $code
+				: $entry->{lang},
 			) or return;
 		}
 	}
@@ -1025,7 +1030,11 @@ sub _fragment ( $self, $entry, $code )
 	return $body if $entry->{source} eq 'body';
 
 	return App::FuguWeb::Index->new( config => $config, lang => $code )
-	    ->body( $entry->{title}, $body );
+	    ->body(
+		$entry->{title}, $body,
+		title_lang => $entry->{title_lang},
+		body_lang  => $entry->{lang},
+	    );
 }
 
 # $self->_write_not_found:

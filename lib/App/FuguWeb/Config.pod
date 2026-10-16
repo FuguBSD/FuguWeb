@@ -149,9 +149,12 @@ a yes/no setting holds something that is neither;
 
 =item *
 
-the source directory holds a symlink. Every file there that the build
-does not render is copied into the site, so a symlink would publish
-whatever it points at, from anywhere on the machine.
+the source directory holds a symlink at any depth. Every file at its
+top that the build does not render is copied into the site, and the
+build reads each fragment below it, such as the footer of a language.
+A symlink would publish whatever it points at, from anywhere on the
+machine. A symlink below the output directory passes, because the build
+reads no source there.
 
 =back
 
@@ -275,6 +278,7 @@ Each entry is a hashref:
     lang        the language of the value: the code of the
                 page when its translation names the value,
                 and en otherwise
+    title_lang  the language of the title, by the same rule
 
 =head2 groups
 
@@ -431,13 +435,23 @@ becomes the C<id> of the C<< <h2> >>. Every language shares it.
 The text of the C<< <h2> >> in one language: the heading of the
 translation, or the default heading. The code defaults to C<en>.
 
+=head2 heading_lang
+
+    my $code = $group->heading_lang('de');
+
+The language of that text: the code when the translation names a
+heading, and C<en> when the group takes the default heading. The code
+defaults to C<en>. The index marks a heading of another language than
+the page, per L<App::FuguWeb::Index/body>.
+
 =head2 translate
 
     $group->translate( 'de', heading => $text, dir => $path );
 
 Give the group the heading and the directory of one language. A
-C<dir> of C<undef> keeps the default sources for that language. The
-description calls it once for each translation of the block.
+C<heading> of C<undef> keeps the default heading, and a C<dir> of
+C<undef> keeps the default sources for that language. The description
+calls it once for each translation of the block.
 
 =head2 manuals
 
@@ -454,14 +468,6 @@ manual of a language comes from its namesake when the translation
 C<dir> holds one, and from the default source otherwise. It keeps the
 name and the page of the default source, so each language holds the
 same pages.
-
-=head2 orphan
-
-    my $path = $group->orphan('de');
-
-The first source of the translation C<dir> of one language that has no
-namesake in the default C<dir>, or C<undef>. The description refuses a
-group with an orphan.
 
 A C<manuals> group reads its directory for F<*.1>, F<*.3p>, F<*.5>,
 F<*.7> and F<*.8>, and takes a plain file only. It does not glob:
@@ -483,6 +489,14 @@ site must not depend on the machine that built it.
 Never name a directory that holds more than one namespace. In this
 repository F<lib/App> is such a directory, and one group there would
 swallow three namespaces.
+
+=head2 orphan
+
+    my $path = $group->orphan('de');
+
+The first source of the translation C<dir> of one language that has no
+namesake in the default C<dir>, or C<undef>. The description refuses a
+group with an orphan.
 
 =head1 SEE ALSO
 

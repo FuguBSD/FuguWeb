@@ -91,7 +91,10 @@ C<body_lang> is the language of the fragment, and it defaults to the
 language of the page. A fragment of another language carries its code
 as the C<lang> of the C<< <main> >> element. A page of another tree
 whose body comes from the default source therefore carries
-C<< <main lang="en"> >>.
+C<< <main lang="en"> >>. The parts of an index page come from more
+than one language, so L<App::FuguWeb::Site> passes the language of the
+tree for it. L<App::FuguWeb::Index/body> marks each part of another
+language.
 
 =head1 THE LANGUAGE LINKS
 

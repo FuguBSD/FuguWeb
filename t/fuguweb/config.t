@@ -10,6 +10,7 @@ use v5.36;
 use Test::More;
 use FindBin qw($RealBin);
 use lib "$RealBin/../../lib";
+use File::Path qw(make_path);
 use File::Temp qw(tempdir);
 
 use_ok('App::FuguWeb::Config');
@@ -398,6 +399,37 @@ subtest 'a symlink in the source directory fails the load' => sub {
 	like( $reason, qr{web/notes\.txt is a symlink}, 'and names the file' );
 };
 
+subtest 'a symlink at any depth of the source directory fails the load' => sub {
+	my $root = write_rc("site = Example\n");
+	make_path("$root/web/de");
+
+	open my $fh, '>', "$root/secret.txt" or die "Cannot write: $!";
+	print {$fh} "TOPSECRET\n";
+	close $fh;
+
+	# The build reads the footer of a language below the source
+	# directory, and copies it into each page of the tree.
+	symlink "$root/secret.txt", "$root/web/de/footer.body.html"
+	    or plan skip_all => 'this filesystem has no symlinks';
+
+	my $config =
+	    App::FuguWeb::Config->load( root => $root, error => \my $reason );
+	is( $config, undef, 'a symlinked fragment of de fails the load' );
+	like( $reason, qr{web/de/footer\.body\.html is a symlink},
+		'and the message names it' );
+
+	# The output directory sits inside the source directory by
+	# default. The build writes there and reads no source from it,
+	# so the walk takes nothing below it.
+	unlink "$root/web/de/footer.body.html" or die "Cannot remove: $!";
+	make_path("$root/web/build/en");
+	symlink "$root/secret.txt", "$root/web/build/en/stray.html"
+	    or die "Cannot make the symlink: $!";
+	$config = App::FuguWeb::Config->load( root => $root, error => \$reason );
+	ok( $config, 'a symlink below the output directory is no source' )
+	    or diag $reason;
+};
+
 subtest 'a namespace is a name and not a path' => sub {
 	my $root = write_rc( <<'RC' );
 site = Example
@@ -618,6 +650,14 @@ subtest 'a translation takes each value it names' => sub {
 		[qw(en en en)], 'a page of fr with no body of its own' );
 	is( ( $config->pages('fr') )[0]{title}, 'Accueil',
 		'takes its title all the same' );
+
+	# The title_lang follows the same rule for the title.
+	is_deeply( [ map { $_->{title_lang} } @de ], [qw(de en de)],
+		'a title of de, the default title, and a title of de' );
+	is_deeply( [ map { $_->{title_lang} } $config->pages('fr') ],
+		[qw(fr en en)], 'and the titles of fr' );
+	is_deeply( [ map { $_->{title_lang} } $config->pages ],
+		[qw(en en en)], 'and each title of en' );
 
 	is_deeply( [ map { $_->{title} } $config->pages ],
 		[qw(Home Install Manuals)], 'the default pages stay' );

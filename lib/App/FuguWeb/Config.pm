@@ -23,6 +23,7 @@ use App::FuguWeb;
 use App::FuguWeb::Manual;
 use App::FuguWeb::Keys;
 use File::Find ();
+use File::Spec ();
 use Fugu::Config;
 use Fugu::KeyDir;
 use Fugu::OpenPGP;
@@ -74,6 +75,8 @@ my %TRANSLATION = (
 # of the heading of the group on the index page, so it is one word
 # that every language shares.
 my $GROUP_NAME = qr/\A[a-z0-9-]+\z/;
+my $GROUP_RULE =
+    'a group name is one word of lowercase letters, digits and hyphens';
 
 # The settings that each block of the key directory takes. A setting
 # that neither list names is a typo, and a typo that the parser
@@ -362,13 +365,14 @@ sub nav ( $self, $code = App::FuguWeb::DEFAULT_LANGUAGE )
 
 # $self->pages($code):
 #	The pages of one language, in file order. Each entry is a
-#	hashref with file, title, source, value, unlinked and lang. The
-#	source is one of body, markdown or index. The value is what
-#	that source names, and the body that opens an index page. The
-#	lang is the language of that value: the code of the page when
-#	its translation names the value, and en when the page takes it
-#	from the default block. The code defaults to that of the
-#	default language.
+#	hashref with file, title, source, value, unlinked, lang and
+#	title_lang. The source is one of body, markdown or index. The
+#	value is what that source names, and the body that opens an
+#	index page. The lang is the language of that value: the code of
+#	the page when its translation names the value, and en when the
+#	page takes it from the default block. The title_lang is the
+#	language of the title, by the same rule. The code defaults to
+#	that of the default language.
 sub pages ( $self, $code = App::FuguWeb::DEFAULT_LANGUAGE )
 {
 	return @{ $self->{page}{$code} // [] };
@@ -694,10 +698,14 @@ sub _read_pages ( $self, $reason )
 			    $self->_page( $reason, $label, $name, $settings )
 			    or return;
 
-			# WEB-LANG-6. A body that the translation does not
-			# name comes from the default source.
+			# WEB-LANG-6. A body or a title that the translation
+			# does not name comes from the default block.
 			$entry->{lang} =
 			    ( grep { defined $own->{$_} } qw(body markdown) )
+			    ? $code
+			    : App::FuguWeb::DEFAULT_LANGUAGE;
+			$entry->{title_lang} =
+			    defined $own->{title}
 			    ? $code
 			    : App::FuguWeb::DEFAULT_LANGUAGE;
 
@@ -858,28 +866,45 @@ sub _group_name ( $self, $reason, $block )
 	my $settings = $block->{settings};
 	my $text     = $settings->{heading} // $name;
 
+	# An anchor of the shape of a group name is the name to write.
+	# Any other anchor gives the word that _group_word makes of it,
+	# and the message states the shape. A message that proposed the
+	# anchor as it stands would name a block that fails again.
 	my $anchor = $settings->{anchor};
 	if ( defined $anchor ) {
+		my $fits = $anchor =~ $GROUP_NAME;
+		my $word = $fits ? $anchor : _group_word($anchor);
+
 		return $self->_fail( $reason,
 			      _label($block)
 			    . ' sets anchor, and a group takes its anchor from'
-			    . " the block name: write $block->{type} $anchor"
-			    . " with heading = $text, and no anchor" );
+			    . " the block name: write $block->{type} $word"
+			    . " with heading = $text, and no anchor"
+			    . ( $fits ? '' : "; $GROUP_RULE" ) );
 	}
 
 	return $self if $name =~ $GROUP_NAME;
 
-	my $word = lc $name;
-	$word =~ s/[^a-z0-9]+/-/g;
-	$word =~ s/\A-+|-+\z//g;
-	$word = '<name>' unless length $word;
-
 	return $self->_fail( $reason,
 		      _label($block)
-		    . ' has no group name: a group name is one word of'
-		    . ' lowercase letters, digits and hyphens, and it is the'
+		    . " has no group name: $GROUP_RULE, and it is the"
 		    . ' anchor of the heading; write'
-		    . " $block->{type} $word with heading = $text" );
+		    . " $block->{type} "
+		    . _group_word($name)
+		    . " with heading = $text" );
+}
+
+# _group_word($text):
+#	The group name that a message proposes for a text: the text in
+#	lowercase, with each run of other characters as one hyphen.
+#	A text that holds no letter and no digit gives <name>.
+sub _group_word ($text)
+{
+	my $word = lc $text;
+	$word =~ s/[^a-z0-9]+/-/g;
+	$word =~ s/\A-+|-+\z//g;
+
+	return length $word ? $word : '<name>';
 }
 
 # $self->_group_dir($reason, $label, $dir):
@@ -925,7 +950,7 @@ sub _translate_group ( $self, $reason, $block, $group )
 
 		$group->translate(
 			$code,
-			heading => $settings->{heading},
+			heading => $own->{heading},
 			dir     => defined $dir ? "$self->{root}/$dir" : undef,
 		);
 
@@ -1189,9 +1214,11 @@ sub _read_key_blocks ( $self, $reason )
 		# A symlink in a key directory publishes whatever it
 		# points at, from anywhere on the machine. The
 		# manifest would then record the digest of that
-		# target. The source directory gets the same rule one
-		# level up. A key directory needs it more, because its
-		# bytes are the trust anchor of every release.
+		# target. The walk of the source directory refuses a
+		# symlink at any depth first, and this loop holds the
+		# rule beside the read of the key directory. That
+		# directory needs it most, because its bytes are the
+		# trust anchor of every release.
 		for my $name (@$names) {
 			next unless -l "$path/$name";
 			return $self->_fail( $reason,
@@ -1477,22 +1504,32 @@ sub _check_paths ( $self, $reason )
 }
 
 # $self->_check_source_dir($reason):
-#	Refuse a symlink in the source directory. Every file there
-#	that the build does not render is copied into the site, and a
-#	symlink would publish whatever it points at, from anywhere on
-#	the machine. A content directory holds content.
+#	Refuse a symlink at any depth of the source directory. Every
+#	file at its top that the build does not render is copied into
+#	the site, and the build reads each fragment below it, such as
+#	the footer of a language. A symlink would publish whatever it
+#	points at, from anywhere on the machine. A content directory
+#	holds content.
+#
+#	The walk takes no entry below the output directory, which sits
+#	inside the source directory by default. The build writes there,
+#	and reads no source from it.
 sub _check_source_dir ( $self, $reason )
 {
 	my $dir = $self->source_path;
 	return $self unless -d $dir;
 
-	my $names = App::FuguWeb::list_dir($dir)
+	my $paths = App::FuguWeb::list_tree($dir)
 	    or return $self->_fail( $reason, "cannot read $dir: $!" );
 
-	for my $name (@$names) {
-		next unless -l "$dir/$name";
+	my $out = File::Spec->canonpath("$self->{root}/$self->{out_dir}");
+	for my $relative (@$paths) {
+		my $path = "$dir/$relative";
+		next unless -l $path;
+		next if index( File::Spec->canonpath($path), "$out/" ) == 0;
+
 		return $self->_fail( $reason,
-			      "$self->{source_dir}/$name is a symlink;"
+			      "$self->{source_dir}/$relative is a symlink;"
 			    . ' the build would publish what it points at' );
 	}
 
@@ -1596,9 +1633,22 @@ sub heading ( $self, $code = App::FuguWeb::DEFAULT_LANGUAGE )
 	return $self->{translation}{$code}{heading} // $self->{heading};
 }
 
+# $self->heading_lang($code):
+#	The language of the h2 of the group in one language: the code
+#	when its translation names a heading, and en when the group
+#	takes the default heading, per WEB-LANG-6. The code defaults to
+#	that of the default language.
+sub heading_lang ( $self, $code = App::FuguWeb::DEFAULT_LANGUAGE )
+{
+	return defined $self->{translation}{$code}{heading}
+	    ? $code
+	    : App::FuguWeb::DEFAULT_LANGUAGE;
+}
+
 # $self->translate($code, heading => $string, dir => $path):
-#	Give the group the heading and the dir of one language. A dir
-#	of undef keeps the default sources for that language.
+#	Give the group the heading and the dir of one language. A
+#	heading of undef keeps the default heading, and a dir of undef
+#	keeps the default sources for that language.
 sub translate ( $self, $code, %args )
 {
 	$self->{translation}{$code} = {
