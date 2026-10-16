@@ -471,9 +471,10 @@ See
 .El
 .Pp
 The load fails when a block names no source or two sources, when two
-blocks name one page, when a group directory does not exist, or when
-the source directory holds a symlink at any depth outside the output
-directory.
+blocks name one page, or when a group directory does not exist.
+A symlink at the top level of the source directory fails the load.
+A symlink below the source directory on the path of a fragment that the
+build reads fails it too.
 A group block that sets
 .Ic anchor ,
 or whose name is a heading text, fails the load.
@@ -752,12 +753,14 @@ The body fragment or Markdown page of
 must therefore link an asset with an absolute URL, such as
 .Ql https://example.org/logo.png .
 .Pp
-The build rejects a symlink at any depth of the source directory, such
-as a footer of a language.
+The build rejects a symlink at the top level of the source directory.
+It also rejects a symlink on the path of each fragment that it reads.
+The rule holds for the file, and for each directory between the source
+directory and the file.
+These fragments are the body fragment of each page in each language,
+the footer, and the footer of each language.
 An asset or a fragment would publish the bytes of the target, from
 anywhere on the machine.
-A symlink below the output directory passes, because the build reads no
-source there.
 .Sh THE OUTPUT DIRECTORY
 The top level of the output holds the two pages for the host, the
 stylesheet and the assets.

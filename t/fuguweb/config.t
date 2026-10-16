@@ -399,35 +399,93 @@ subtest 'a symlink in the source directory fails the load' => sub {
 	like( $reason, qr{web/notes\.txt is a symlink}, 'and names the file' );
 };
 
-subtest 'a symlink at any depth of the source directory fails the load' => sub {
-	my $root = write_rc("site = Example\n");
-	make_path("$root/web/de");
+subtest 'a symlink on the path of a fragment fails the load' => sub {
+	my $rc = <<'RC';
+site = Example
 
-	open my $fh, '>', "$root/secret.txt" or die "Cannot write: $!";
-	print {$fh} "TOPSECRET\n";
-	close $fh;
+page "index.html" {
+	body = index.body.html
+}
+
+page de "index.html" {
+	body = de/parts/index.body.html
+}
+RC
+
+	# Each case takes a new project: the description, the source
+	# directory, and a secret directory outside of it.
+	my $project = sub ($text) {
+		my $root = write_rc($text);
+		make_path( "$root/web", "$root/secret" );
+
+		open my $fh, '>', "$root/secret/secret.txt"
+		    or die "Cannot write: $!";
+		print {$fh} "TOPSECRET\n";
+		close $fh;
+
+		return $root;
+	};
+	my $load = sub ($root) {
+		my $config = App::FuguWeb::Config->load(
+			root  => $root,
+			error => \my $reason
+		);
+		return ( $config, $reason );
+	};
 
 	# The build reads the footer of a language below the source
 	# directory, and copies it into each page of the tree.
-	symlink "$root/secret.txt", "$root/web/de/footer.body.html"
+	my $root = $project->($rc);
+	make_path("$root/web/de");
+	symlink "$root/secret/secret.txt", "$root/web/de/footer.body.html"
 	    or plan skip_all => 'this filesystem has no symlinks';
 
-	my $config =
-	    App::FuguWeb::Config->load( root => $root, error => \my $reason );
+	my ( $config, $reason ) = $load->($root);
 	is( $config, undef, 'a symlinked fragment of de fails the load' );
 	like( $reason, qr{web/de/footer\.body\.html is a symlink},
 		'and the message names it' );
 
-	# The output directory sits inside the source directory by
-	# default. The build writes there and reads no source from it,
-	# so the walk takes nothing below it.
-	unlink "$root/web/de/footer.body.html" or die "Cannot remove: $!";
-	make_path("$root/web/build/en");
-	symlink "$root/secret.txt", "$root/web/build/en/stray.html"
+	# The build reads each fragment of de through the directory.
+	$root = $project->($rc);
+	symlink "$root/secret", "$root/web/de"
 	    or die "Cannot make the symlink: $!";
-	$config = App::FuguWeb::Config->load( root => $root, error => \$reason );
-	ok( $config, 'a symlink below the output directory is no source' )
-	    or diag $reason;
+
+	( $config, $reason ) = $load->($root);
+	is( $config, undef, 'a symlinked directory of de fails the load' );
+	like( $reason, qr{web/de is a symlink;}, 'and the message names it' );
+
+	# A directory below the top of the source directory gets the
+	# same rule, on the way to the body of a page.
+	$root = $project->($rc);
+	make_path("$root/web/de");
+	symlink "$root/secret", "$root/web/de/parts"
+	    or die "Cannot make the symlink: $!";
+
+	( $config, $reason ) = $load->($root);
+	is( $config, undef, 'a symlinked directory below de fails the load' );
+	like( $reason, qr{web/de/parts is a symlink;},
+		'and the message names it' );
+
+	# The output directory sits inside the source directory by
+	# default. A body that a page names there is a fragment all the
+	# same, and so is a body when the output directory is the
+	# source directory.
+	for my $out ( undef, 'web' ) {
+		my $text = "site = Example\n";
+		$text .= "out_dir = $out\n" if defined $out;
+		$text .= qq{\npage "index.html" {\n\tbody = build/x.body.html\n}\n};
+
+		$root = $project->($text);
+		make_path("$root/web/build");
+		symlink "$root/secret/secret.txt", "$root/web/build/x.body.html"
+		    or die "Cannot make the symlink: $!";
+
+		my $what = defined $out ? "out_dir = $out" : 'the default out_dir';
+		( $config, $reason ) = $load->($root);
+		is( $config, undef, "a symlinked body in build fails, $what" );
+		like( $reason, qr{web/build/x\.body\.html is a symlink},
+			'and the message names it' );
+	}
 };
 
 subtest 'a namespace is a name and not a path' => sub {

@@ -149,12 +149,13 @@ a yes/no setting holds something that is neither;
 
 =item *
 
-the source directory holds a symlink at any depth. Every file at its
-top that the build does not render is copied into the site, and the
-build reads each fragment below it, such as the footer of a language.
-A symlink would publish whatever it points at, from anywhere on the
-machine. A symlink below the output directory passes, because the build
-reads no source there.
+the top level of the source directory holds a symlink, or the path of a
+fragment that the build reads holds one. The rule holds for the file,
+and for each directory between the source directory and the file.
+Every file at the top level that the build does not render is copied
+into the site. The fragments are the body fragment of each page in each
+language, the footer, and the footer of each language. A symlink would
+publish whatever it points at, from anywhere on the machine.
 
 =back
 

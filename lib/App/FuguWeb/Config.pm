@@ -22,8 +22,8 @@ package App::FuguWeb::Config;
 use App::FuguWeb;
 use App::FuguWeb::Manual;
 use App::FuguWeb::Keys;
-use File::Find ();
-use File::Spec ();
+use App::FuguWeb::Page ();
+use File::Find         ();
 use Fugu::Config;
 use Fugu::KeyDir;
 use Fugu::OpenPGP;
@@ -1214,11 +1214,9 @@ sub _read_key_blocks ( $self, $reason )
 		# A symlink in a key directory publishes whatever it
 		# points at, from anywhere on the machine. The
 		# manifest would then record the digest of that
-		# target. The walk of the source directory refuses a
-		# symlink at any depth first, and this loop holds the
-		# rule beside the read of the key directory. That
-		# directory needs it most, because its bytes are the
-		# trust anchor of every release.
+		# target. The source directory gets the same rule one
+		# level up. A key directory needs it more, because its
+		# bytes are the trust anchor of every release.
 		for my $name (@$names) {
 			next unless -l "$path/$name";
 			return $self->_fail( $reason,
@@ -1500,36 +1498,73 @@ sub _check_paths ( $self, $reason )
 			"$key is $self->{$key}, which leaves the project" );
 	}
 
-	return $self->_check_source_dir($reason);
+	$self->_check_source_dir($reason) or return;
+
+	return $self->_check_fragments($reason);
 }
 
 # $self->_check_source_dir($reason):
-#	Refuse a symlink at any depth of the source directory. Every
-#	file at its top that the build does not render is copied into
-#	the site, and the build reads each fragment below it, such as
-#	the footer of a language. A symlink would publish whatever it
-#	points at, from anywhere on the machine. A content directory
-#	holds content.
-#
-#	The walk takes no entry below the output directory, which sits
-#	inside the source directory by default. The build writes there,
-#	and reads no source from it.
+#	Refuse a symlink at the top level of the source directory.
+#	Every file there that the build does not render is copied into
+#	the site, and a symlink would publish whatever it points at,
+#	from anywhere on the machine. A content directory holds
+#	content.
 sub _check_source_dir ( $self, $reason )
 {
 	my $dir = $self->source_path;
 	return $self unless -d $dir;
 
-	my $paths = App::FuguWeb::list_tree($dir)
+	my $names = App::FuguWeb::list_dir($dir)
 	    or return $self->_fail( $reason, "cannot read $dir: $!" );
 
-	my $out = File::Spec->canonpath("$self->{root}/$self->{out_dir}");
-	for my $relative (@$paths) {
-		my $path = "$dir/$relative";
-		next unless -l $path;
-		next if index( File::Spec->canonpath($path), "$out/" ) == 0;
+	for my $name (@$names) {
+		next unless -l "$dir/$name";
+		return $self->_fail( $reason,
+			      "$self->{source_dir}/$name is a symlink;"
+			    . ' the build would publish what it points at' );
+	}
+
+	return $self;
+}
+
+# $self->_check_fragments($reason):
+#	Refuse a symlink on the path of each fragment that the build
+#	reads below the source directory: the body fragment of each
+#	page in each language, the footer, and the footer of each
+#	language. A fragment can sit below the top level, where the
+#	scan above does not reach.
+sub _check_fragments ( $self, $reason )
+{
+	my $footer = App::FuguWeb::Page::FOOTER_FRAGMENT;
+	my @paths  = ( $footer, map { "$_/$footer" } $self->languages );
+
+	for my $code ( $self->languages ) {
+		push @paths, map { $_->{value} }
+		    grep { $_->{source} ne 'markdown' && defined $_->{value} }
+		    $self->pages($code);
+	}
+
+	for my $path (@paths) {
+		$self->_check_fragment( $reason, $path ) or return;
+	}
+
+	return $self;
+}
+
+# $self->_check_fragment($reason, $path):
+#	Refuse a path below the source directory when one of its
+#	components is a symlink: the file, or a directory on the way to
+#	it. The build would read the fragment through that symlink, and
+#	publish what it points at.
+sub _check_fragment ( $self, $reason, $path )
+{
+	my $prefix;
+	for my $part ( grep { length } split m{/}, $path ) {
+		$prefix = defined $prefix ? "$prefix/$part" : $part;
+		next unless -l $self->source_path($prefix);
 
 		return $self->_fail( $reason,
-			      "$self->{source_dir}/$relative is a symlink;"
+			      "$self->{source_dir}/$prefix is a symlink;"
 			    . ' the build would publish what it points at' );
 	}
 
