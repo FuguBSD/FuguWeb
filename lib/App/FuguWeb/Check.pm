@@ -217,6 +217,8 @@ sub _check_page ( $self, $page, $kind )
 		    0;
 	}
 
+	push @problems, $self->_check_languages( $page, $kind, $html );
+
 	# The base href of the top-level copy of the 404 page is the
 	# one root-absolute href that the site holds. The check takes
 	# it out, so every other root-absolute href still fails.
@@ -231,6 +233,42 @@ sub _check_page ( $self, $page, $kind )
 	}
 
 	push @problems, $self->_check_references( $page, $html );
+
+	return @problems;
+}
+
+# $self->_check_languages($page, $kind, $html):
+#	Hold the language links of the chrome to WEB-LANG-7. A tree
+#	page links the same page in each other language of the site,
+#	with the code as the text and the hreflang of the link. No
+#	other page carries a language link. The chrome ends where the
+#	main element starts, so a link of the body is the writer's own.
+sub _check_languages ( $self, $page, $kind, $html )
+{
+	my ($chrome) = $html =~ m{\A(.*?)<main\b}s;
+	$chrome //= $html;
+
+	my ( $code, $name ) = split m{/}, $page, 2;
+	my @others =
+	    $kind eq 'tree'
+	    ? grep { $_ ne $code } $self->{config}->languages
+	    : ();
+
+	my @problems;
+	for my $other (@others) {
+		my $link =
+		      qq{<a href="../$other/}
+		    . App::FuguWeb::escape_attr($name)
+		    . qq{" hreflang="$other">$other</a>};
+		push @problems, "$page: does not link the page in $other"
+		    unless index( $chrome, $link ) >= 0;
+	}
+
+	my $held = () = $chrome =~ m{\bhreflang="}g;
+	push @problems,
+	    "$page: carries $held language links, and the page takes "
+	    . scalar(@others)
+	    unless $held == @others;
 
 	return @problems;
 }

@@ -81,6 +81,14 @@ C<lang>;
 
 =item *
 
+the chrome of a tree page links the same page in each other language,
+as C<< <a href="../<code>/<page>" hreflang="<code>"><code></a> >>. The
+chrome of any other page, and of a site of one language, holds no
+C<hreflang>. The chrome ends where the C<< <main> >> element starts, so
+a link of the body is the writer's own;
+
+=item *
+
 no reference starts with C</>, because the host may serve the site from
 a path below the root. The C<< <base href="/"> >> of the top-level
 copy of F<404.html> is the one exception, and that page must carry it;

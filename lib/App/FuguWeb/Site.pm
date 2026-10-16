@@ -648,19 +648,23 @@ sub pod_date ($self)
 	return length $date ? $date : POSIX::strftime( '%Y-%m-%d', localtime );
 }
 
-# $self->_mdoc_manuals:
-#	Every mdoc source of the site, in group order.
-sub _mdoc_manuals ($self)
+# $self->_mdoc_manuals($code):
+#	Every mdoc manual of one language, in group order.
+sub _mdoc_manuals ( $self, $code )
 {
 	return grep { !$_->is_pod }
-	    map { $_->manuals } $self->{config}->groups;
+	    map { $_->manuals($code) } $self->{config}->groups;
 }
 
 # $self->_lint:
 #	Refuse a malformed manual source before anything is rendered.
+#	The lint reads the source of each language once.
 sub _lint ($self)
 {
-	my @paths = map { $_->path } $self->_mdoc_manuals;
+	my %seen;
+	my @paths = grep { !$seen{$_}++ }
+	    map { $_->path }
+	    map { $self->_mdoc_manuals($_) } $self->{config}->languages;
 
 	return $self->{render}->lint(@paths);
 }
@@ -815,13 +819,15 @@ sub _copy ( $self, $from, $to )
 }
 
 # $self->_stage_mdoc:
-#	Copy every mdoc source into the staging directory of each
-#	language, under the name that a cross-reference refers to it
-#	by.
+#	Copy the mdoc source of each language into the staging
+#	directory of that language, under the name that a
+#	cross-reference refers to it by. A source of a translation
+#	takes the name of its namesake, so a cross-reference reads the
+#	same in each language.
 sub _stage_mdoc ($self)
 {
 	for my $code ( $self->{config}->languages ) {
-		for my $manual ( $self->_mdoc_manuals ) {
+		for my $manual ( $self->_mdoc_manuals($code) ) {
 			$self->_copy( $manual->path,
 				      $self->staging($code) . '/'
 				    . $manual->staged_name )
@@ -961,8 +967,8 @@ sub _write_out ( $self, $path, $bytes )
 }
 
 # $self->_render_pages:
-#	Render every page block into each language tree, and then the
-#	pages of the top level.
+#	Render every page block into each language tree, from the
+#	values of that language, and then the pages of the top level.
 sub _render_pages ($self)
 {
 	my $config = $self->{config};
@@ -973,12 +979,21 @@ sub _render_pages ($self)
 			lang   => $code
 		);
 
-		for my $entry ( $config->pages ) {
-			my $fragment = $self->_fragment($entry) // return;
+		for my $entry ( $config->pages($code) ) {
+			my $fragment = $self->_fragment( $entry, $code )
+			    // return;
 
-			$page->write( $self->{out} . "/$code/$entry->{file}",
-				$entry->{title}, $fragment )
-			    or return;
+			# WEB-LANG-6. The index marks each part of its own,
+			# so the element that holds it takes the language of
+			# the tree.
+			$page->write(
+				$self->{out} . "/$code/$entry->{file}",
+				$entry->{title}, $fragment,
+				name      => $entry->{file},
+				body_lang => $entry->{source} eq 'index'
+				? $code
+				: $entry->{lang},
+			) or return;
 		}
 	}
 
@@ -989,29 +1004,37 @@ sub _render_pages ($self)
 		$self->_forward );
 }
 
-# $self->_fragment($entry):
-#	The body fragment of one page block, or undef with a message in
-#	the log. A body fragment is already HTML, a Markdown file goes
-#	through lowdown, and the index comes from App::FuguWeb::Index.
-sub _fragment ( $self, $entry )
+# $self->_fragment($entry, $code):
+#	The body fragment of one page of one language, or undef with a
+#	message in the log. A body fragment is already HTML, a Markdown
+#	file goes through lowdown, and the index comes from
+#	App::FuguWeb::Index. The body of an index page opens it.
+sub _fragment ( $self, $entry, $code )
 {
 	my $config = $self->{config};
-
-	if ( $entry->{source} eq 'body' ) {
-		my $path     = $config->source_path( $entry->{value} );
-		my $fragment = Fugu::File->read($path);
-		$self->{log}->error( 'Cannot read %s', $path )
-		    unless defined $fragment;
-
-		return $fragment;
-	}
 
 	if ( $entry->{source} eq 'markdown' ) {
 		return $self->{render}
 		    ->markdown( $config->root . '/' . $entry->{value} );
 	}
 
-	return App::FuguWeb::Index->new( config => $config )->body;
+	my $body;
+	if ( defined $entry->{value} ) {
+		my $path = $config->source_path( $entry->{value} );
+		$body = Fugu::File->read($path);
+		unless ( defined $body ) {
+			$self->{log}->error( 'Cannot read %s', $path );
+			return;
+		}
+	}
+	return $body if $entry->{source} eq 'body';
+
+	return App::FuguWeb::Index->new( config => $config, lang => $code )
+	    ->body(
+		$entry->{title}, $body,
+		title_lang => $entry->{title_lang},
+		body_lang  => $entry->{lang},
+	    );
 }
 
 # $self->_write_not_found:
@@ -1028,7 +1051,9 @@ sub _write_not_found ($self)
 	my ($entry) = grep { $_->{file} eq $not_found } $config->pages;
 	return 1 unless $entry;
 
-	my $fragment = $self->_fragment($entry) // return;
+	my $fragment =
+	    $self->_fragment( $entry, App::FuguWeb::DEFAULT_LANGUAGE )
+	    // return;
 	my $page = App::FuguWeb::Page->new( config => $config, kind => 'top' );
 
 	return $page->write( $self->{out} . "/$not_found",
@@ -1067,8 +1092,9 @@ HTML
 
 # $self->_render_manuals:
 #	Render one page for each manual of each group, into each
-#	language tree. mandoc runs in the staging directory of the
-#	language, so a cross-reference links a page of the same tree.
+#	language tree, from the source of that language. mandoc runs in
+#	the staging directory of the language, so a cross-reference
+#	links a page of the same tree.
 sub _render_manuals ($self)
 {
 	my $config = $self->{config};
@@ -1080,7 +1106,7 @@ sub _render_manuals ($self)
 			lang   => $code
 		);
 
-		for my $manual ( map { $_->manuals } $config->groups ) {
+		for my $manual ( map { $_->manuals($code) } $config->groups ) {
 			my $fragment =
 			      $manual->is_pod
 			    ? $self->{render}
@@ -1092,7 +1118,9 @@ sub _render_manuals ($self)
 			$page->write(
 				$self->{out} . "/$code/" . $manual->page,
 				$manual->name . '(' . $manual->section . ')',
-				$fragment
+				$fragment,
+				name      => $manual->page,
+				body_lang => $manual->lang,
 			) or return;
 		}
 	}

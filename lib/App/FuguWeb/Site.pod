@@ -71,7 +71,7 @@ on a path that the build writes;
 
 =item 3.
 
-lint every mdoc source;
+lint every mdoc source of each language;
 
 =item 4.
 
@@ -80,8 +80,9 @@ the staging directory of each language;
 
 =item 5.
 
-copy every mdoc source into the staging directory of each language,
-under its staged name;
+copy the mdoc source of each language into the staging directory of
+that language, under its staged name. A source of a translation takes
+the staged name of its namesake;
 
 =item 6.
 
@@ -93,13 +94,15 @@ write the key directory, when the description names one;
 
 =item 8.
 
-render each C<page> block into each language tree, then the pages of
-the top level: the copy of F<404.html> when the description holds that
-page, and the forward F<index.html>;
+render each C<page> block into each language tree, from the values of
+that language, then the pages of the top level: the copy of
+F<404.html> when the description holds that page, and the forward
+F<index.html>;
 
 =item 9.
 
-render one page for each manual in each group, into each language tree;
+render one page for each manual in each group, into each language
+tree, from the source of that language;
 
 =item 10.
 
