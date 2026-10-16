@@ -553,10 +553,11 @@ input, so an organization keeps the names that it has.
 
 ## The stylesheet
 
-The stylesheet gives every page the look of a plain document of the early web,
-set with care. The body face is a serif, the code face is a monospace, and the
-top two heading levels sit on a tinted band. A reader of openbsd.org knows the
-look at once. The sheet changes the rhythm of the page, not its vocabulary.
+The stylesheet gives each page that links it the look of a plain document of the
+early web, set with care. The body face is a serif, the code face is a
+monospace, and the top two heading levels sit on a tinted band. A reader of
+openbsd.org knows the look at once. The sheet changes the rhythm of the page,
+not its vocabulary.
 
 A body fragment comes from a hand, from `lowdown`, or from `pod2man`. None of
 them writes a class, and the sheet asks for none. A manual page is the one
@@ -566,7 +567,8 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   body fragment by element name alone. It must not need a class there, and the
   chrome must carry none. The classes that `mandoc` emits are the one exception.
 - **WEB-STYLE-2** — The sheet must name system fonts only, and must load no
-  resource. A page loads itself and the sheet, and nothing else.
+  resource. A page loads itself and the sheet, and nothing else. The forward
+  page of WEB-LANG-8 loads no sheet.
 - **WEB-STYLE-3** — The sheet must give a light scheme and a dark scheme, and
   the system preference must select one. Each color must appear once, in a
   custom property.

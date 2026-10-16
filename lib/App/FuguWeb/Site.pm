@@ -529,10 +529,11 @@ sub _prune_output ($self)
 #	the key tree any more, so the build keeps that tree and the
 #	checks report it. Remove it by hand, or name the block again.
 #
-#	The clean reads the same two tests, so the build can never
+#	The clean reads the same three tests, so the build can never
 #	remove a directory that the clean refuses. An operator
 #	directory therefore stays, empty or not, and the checks report
-#	it.
+#	it. A directory in the shape of a language code is a language
+#	tree, so the build removes it once it is empty.
 #
 #	rmdir refuses a directory that still holds a name, so the walk
 #	needs no second test: a directory that the site still uses
@@ -553,8 +554,9 @@ sub _prune_dirs ($self)
 
 	# A directory that the site holds a name below, a directory of
 	# the key tree, or a language tree. The clean reads the same
-	# three tests, so a directory of the operator stays here and the
-	# checks report it.
+	# three tests. A directory of the operator therefore stays here
+	# and the checks report it, unless its name has the shape of a
+	# language code.
 	#
 	# rmdir refuses a directory that still holds a name, so the
 	# walk needs no second test. The output directory itself

@@ -37,8 +37,9 @@ reports them, because the build and its checks touch no network.
 C<pages> names each page of each language tree, as
 C<< <code>/<page> >>: for each language, the pages of the description,
 then one page for each manual of each group. C<generated_pages> names
-each page that the build writes itself, which today is the human page
-of the key directory.
+the human page of each key directory, which the build writes itself
+and which no block names. The pages of the top level sit outside every
+tree as well, and L<App::FuguWeb::Config/top_pages> names them.
 
 A generated page takes the checks of a page. It takes no reachability
 check: a site links the key directory when it chooses to. The pages of
@@ -63,19 +64,20 @@ every expected page and asset exists and is not empty;
 
 =item *
 
-every page has a title;
+on every page but the top-level F<index.html>, the check finds a
+title, the header link and every navigation link;
+
+=item *
+
+each of those links takes the form of the kind of its page:
+C<< <page> >> on a tree page, C<< ../en/<page> >> on the key page, and
+C<< en/<page> >> on the top-level copy of F<404.html>. An absolute URL
+and a fragment stay as they stand;
 
 =item *
 
 every page of a language tree carries the code of its tree as
 C<lang>;
-
-=item *
-
-the header link and every navigation link of a page take the form of
-its kind: C<< <page> >> on a tree page, C<< ../en/<page> >> on the key
-page, and C<< en/<page> >> on the top-level copy of F<404.html>. An
-absolute URL stays as it stands;
 
 =item *
 

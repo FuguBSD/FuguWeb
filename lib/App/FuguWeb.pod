@@ -194,8 +194,9 @@ the build would remove the published keys with the staging.
 =head2 STYLESHEET
 
 The name of the stylesheet in the output directory, F<style.css>. The
-build writes it at the top level, outside every language tree, and
-each page links it with a relative path.
+build writes it at the top level, outside every language tree. Each
+page but the forward F<index.html> links it with a relative path, and
+the forward loads nothing.
 
 =head2 DEFAULT_LANGUAGE
 
@@ -206,8 +207,8 @@ the two pages of the top level are pages of it.
 =head2 LANGUAGE_CODE
 
 The shape of a language code, as a compiled pattern: two lowercase
-ASCII letters. A directory of the output whose name takes this shape
-holds a language tree.
+ASCII letters. A directory at the top level of the output whose name
+takes this shape holds a language tree.
 
 =head2 FORWARD_PAGE, NOT_FOUND_PAGE
 

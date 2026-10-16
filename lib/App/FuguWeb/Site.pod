@@ -93,8 +93,9 @@ write the key directory, when the description names one;
 
 =item 8.
 
-render each C<page> block into each language tree, then the forward
-F<index.html> and the copy of F<404.html> at the top level;
+render each C<page> block into each language tree, then the pages of
+the top level: the copy of F<404.html> when the description holds that
+page, and the forward F<index.html>;
 
 =item 9.
 
@@ -119,7 +120,10 @@ the description dropped, are therefore removed. Below the root the
 build also owns a file that the site names, and one that takes a shape
 of the key directory. It keeps every other entry and reports it. An
 operator directory in the output therefore survives a build, empty or
-not.
+not, unless its name has the shape of a language code. The build takes
+such a directory for a language tree: it removes each plain file
+directly in it that the site does not name, and then the directory
+itself once it is empty.
 
 A description with no C<keys> block owns no shape of the key directory
 and no directory of the key tree. A site of another maker holds

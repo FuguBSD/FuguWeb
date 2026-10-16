@@ -2,19 +2,20 @@
 
 ## Status
 
-Work package 1 landed: every page sits in the tree of `en`. Work package 2 can
-land now, as one pull request.
+Work package 1 landed: every page of the description sits in the tree of `en`.
+Work package 2 can land now, as one pull request.
 
 - Implements: WEB-LANG.
 - Extends: WEB-MANUALS.
 
 ## Purpose
 
-Every page sits in the tree of the default language, below `/en/`. Every string
-of the description exists in one language, and the code also writes English of
-its own. [Index.pm](../../lib/App/FuguWeb/Index.pm) writes the opening paragraph
-of the manual index, and [Keys.pm](../../lib/App/FuguWeb/Keys.pm) writes the
-human page of the key directory.
+Every page of the description sits in the tree of the default language, below
+`/en/`. Every string of the description exists in one language, and the code
+also writes English of its own. [Index.pm](../../lib/App/FuguWeb/Index.pm)
+writes the opening paragraph of the manual index, and
+[Keys.pm](../../lib/App/FuguWeb/Keys.pm) writes the human page of the key
+directory.
 
 A translation is a block with the language code in front of the block name, for
 example `page de "index.html" { title = Start; body = de/index.body.html }` and

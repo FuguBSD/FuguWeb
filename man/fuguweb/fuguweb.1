@@ -137,12 +137,19 @@ the first one that is not.
 It runs
 .Xr mandoc 1
 in lint mode over every mdoc source, and a warning fails the build.
-It then writes the stylesheet, the assets, each key directory, each
-page, and one page for each manual.
+It then writes the stylesheet, the assets and each key directory.
+It writes each page into each language tree, and then the pages of the
+top level: the copy of
+.Pa 404.html
+when the description holds that page, and the forward
+.Pa index.html .
+Next it writes one page for each manual into each tree.
 Last, it removes every file of the site that the description no longer
 names, so a second build over one directory gives the same tree as the
 first.
 See
+.Sx THE PAGE LAYOUT
+and
 .Sx THE OUTPUT DIRECTORY .
 .It Cm check Oo Fl v Oc Op Fl Fl out Ar dir
 Check a built site.
@@ -150,15 +157,56 @@ The command prints one line for each problem and exits with status 5.
 It prints nothing and exits with status 0 when the site is good.
 .Pp
 The checks are these:
-every page and asset of the site exists and is not empty;
-every page has a title and carries the whole navigation;
-every local link, manual cross-reference, and fragment resolves;
-no reference starts with a solidus, uses a
+.Bl -bullet
+.It
+Every page and asset of the site exists and is not empty.
+.It
+On every page but the forward
+.Pa index.html ,
+the check finds a title, the banner link and the whole navigation.
+.It
+Each of those links takes the form of the kind of its page:
+.Pa <page>
+on a tree page,
+.Pa ../en/<page>
+on the key page, and
+.Pa en/<page>
+on the copy of
+.Pa 404.html
+at the top level.
+An absolute URL and a fragment stay as they stand.
+.It
+Every tree page carries the code of its tree as
+.Ql lang .
+.It
+The forward
+.Pa index.html
+holds one meta refresh to the entry page of
+.Pa en/ ,
+and one link to that page.
+It holds no other reference and no navigation.
+.It
+Every local link, manual cross-reference, and fragment resolves.
+.It
+No reference uses a
 .Ql file\&:
-URL, or reads as a URL scheme;
-every page is reachable from the entry page, except a page marked
-.Ic unlinked ;
-and the output holds the site and nothing else, at any depth.
+URL, or reads as a URL scheme.
+.It
+No reference starts with a solidus.
+The one exception is the
+.Ql <base href="/">
+of the copy of
+.Pa 404.html
+at the top level, and that page must carry it.
+.It
+Every page of each language tree is reachable from the entry page of
+that tree, except a page marked
+.Ic unlinked .
+The pages of the top level and the key page take no such walk.
+.It
+The output holds the site and nothing else, at any depth.
+.El
+.Pp
 A description with a
 .Ic keys
 block adds the checks of
@@ -350,7 +398,10 @@ A path setting must not step out of the project.
 The block types are as follows:
 .Bl -tag -width Ds
 .It Ic nav Qq Ar href
-One navigation entry, on every page, in file order.
+One navigation entry, in file order.
+Every page carries it, except the forward
+.Pa index.html
+at the top level.
 The block must set a
 .Ic label .
 .It Ic page Qq Ar file
@@ -417,7 +468,7 @@ fragment in one fixed layout: the head, a banner, the navigation, the
 fragment, and a footer.
 A project decides the site name, the navigation, and the footer prose.
 .Pp
-Every page sits in the tree of its language, below
+Every page of the description sits in the tree of its language, below
 .Pa <code>/
 of the output.
 English is the default language, and its tree
@@ -432,10 +483,14 @@ tree by its file name.
 An absolute URL stays as it stands.
 .Pp
 The top level holds two pages for the host.
+The forward
 .Pa index.html
-forwards to the entry page of
+leads to the entry page of
 .Pa en/
 with a meta refresh, and holds one link to it.
+Its title is the site name alone.
+It carries no banner, no navigation and no footer, and it loads no
+stylesheet.
 When the description holds the page
 .Pa 404.html ,
 the top level holds one more copy of it, with
@@ -445,7 +500,8 @@ relative link of the page resolves from the root of the origin.
 Its banner and its navigation therefore link
 .Pa en/<page> .
 .Pp
-The title of a page is its own title, an em dash, and the site name.
+On every page but the forward, the title is the title of the page, an
+em dash, and the site name.
 The banner links the site name to the entry page.
 The navigation lists each
 .Ic nav
@@ -550,6 +606,13 @@ and
 .Pa CNAME
 therefore need no entry in the description, and notes for the
 maintainers are not published.
+.Pp
+The build copies each asset to the top level of the output, outside
+every language tree.
+A tree page sits one directory below the top level.
+A body fragment, a Markdown page and the footer therefore link an
+asset as
+.Pa ../<asset> .
 .Pp
 The build rejects a symlink in the source directory.
 A copy would publish the bytes of the target, from anywhere on the

@@ -66,9 +66,10 @@ sub pages ($self)
 }
 
 # $self->generated_pages:
-#	Every page that the build writes itself, and that no
-#	description block names. Today that is the human page of the
-#	key directory.
+#	The human page of each key directory. The build writes it
+#	itself, and no description block names it. The pages of the
+#	top level are the other pages outside every tree, and
+#	top_pages of the description names them.
 #
 #	The page gets the checks of a page, so a broken link of the
 #	chrome fails the check. It gets no reachability check: the

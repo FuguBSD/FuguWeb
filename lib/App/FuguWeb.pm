@@ -49,8 +49,8 @@ use constant STYLESHEET => 'style.css';
 use constant DEFAULT_LANGUAGE => 'en';
 
 # The shape of a language code: two lowercase ASCII letters, per ISO
-# 639-1. A directory of the output whose name takes this shape holds
-# a language tree.
+# 639-1. A directory at the top level of the output whose name takes
+# this shape holds a language tree.
 use constant LANGUAGE_CODE => qr/\A[a-z]{2}\z/;
 
 # The two pages of the top level, which a host serves. The forward
