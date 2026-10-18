@@ -245,6 +245,39 @@ for my $root ( $sheet =~ /:root\s*\{([^}]*)\}/g ) {
 is_deeply( \@alike, [], 'the visited color differs from the link color' )
     or diag join "\n", @alike;
 
+# luminance($color):
+#	The WCAG relative luminance of a hex color, or undef for any other
+#	value.
+sub luminance ($color)
+{
+	my ($hex) = $color =~ /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/ or return;
+	$hex =~ s/(.)/$1$1/g if length $hex == 3;
+	my @linear = map {
+		my $c = hex($_) / 255;
+		$c <= 0.04045 ? $c / 12.92 : ( ( $c + 0.055 ) / 1.055 )**2.4;
+	} $hex =~ /(..)/g;
+	return 0.2126 * $linear[0] + 0.7152 * $linear[1] + 0.0722 * $linear[2];
+}
+
+# WEB-STYLE-5 needs the dark line of the rule darker than its light
+# line, and WEB-STYLE-8 needs the ground of a terminal darker than its
+# text. The dark :root block overrides the light one, so each block
+# reads over the values of the blocks before it.
+my %scheme;
+$block = 0;
+for my $root ( $sheet =~ /:root\s*\{([^}]*)\}/g ) {
+	$block++;
+	%scheme = ( %scheme, "$root;" =~ /(--[\w-]+)\s*:\s*([^;]*?)\s*;/g );
+	for my $pair ( [qw(--shadow --highlight)], [qw(--term-bg --term-fg)] ) {
+		my @color = map { $scheme{$_} // '' } @$pair;
+		s{^var\((--[\w-]+)\)$}{$scheme{$1} // ''}e for @color;
+		my @tone = map { scalar luminance($_) } @color;
+		ok( defined $tone[0] && defined $tone[1] && $tone[0] < $tone[1],
+		    "$pair->[0] is darker than $pair->[1] in :root block $block" )
+		    or diag join ' ', @color;
+	}
+}
+
 my $index = Fugu::File->read("$out/en/index.html") // '';
 like( $index, qr/<header>/, 'the chrome writes a bare header' );
 unlike( $index, qr/class="banner"/, 'and no banner class' );
