@@ -159,6 +159,92 @@ my ($offset) = ( $link // '' ) =~ /\btext-underline-offset:\s*([\d.]+)/;
 ok( defined $offset && $offset > 0, 'and it sits below the baseline' )
     or diag 'text-underline-offset: ' . ( $offset // 'none' );
 
+# declarations($text, $selector):
+#	The declarations of each rule in the text that has a selector the
+#	pattern matches, in the order of the sheet. A selector list splits
+#	at each comma.
+sub declarations ( $text, $selector )
+{
+	my $found = '';
+	while ( $text =~ /([^{}]+)\{([^{}]*)\}/g ) {
+		my ( $list, $body ) = ( $1, $2 );
+		$found .= "$body;"
+		    if grep {/$selector/} map { s/^\s+|\s+$//gr } split /,/, $list;
+	}
+	return $found;
+}
+
+# value($text, $selector, $property):
+#	The value that the cascade gives the property in the rules of one
+#	selector. Those rules share one specificity, so the last one wins.
+#	The whitespace of the value folds to one space.
+sub value ( $text, $selector, $property )
+{
+	my @found = declarations( $text, qr/^\Q$selector\E$/ )
+	    =~ /(?<![-\w])\Q$property\E\s*:\s*([^;]*?)\s*;/g;
+	return @found ? $found[-1] =~ s/\s+/ /gr : undef;
+}
+
+# A rule outside every query applies in each scheme and at each width.
+# The light :root block is the one that no query encloses.
+( my $plain = $sheet ) =~ s/\@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}//g;
+
+# WEB-STYLE-3 gives the light scheme the gray ground of NCSA Mosaic.
+is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
+    'the light ground is the gray of NCSA Mosaic' );
+
+# WEB-STYLE-5 draws the rule of 1994, a dark line over a light line.
+# WEB-STYLE-6 gives a visited link its own color, and WEB-STYLE-8
+# sets a pre block as a terminal in a sunken well.
+my @declarations = (
+	[ 'hr',            'border-top',    '1px solid var(--shadow)' ],
+	[ 'hr',            'border-bottom', '1px solid var(--highlight)' ],
+	[ 'h2',            'border-top',    '1px solid var(--shadow)' ],
+	[ 'h2',            'box-shadow',    'inset 0 1px var(--highlight)' ],
+	[ 'table.head td', 'box-shadow',    'inset 0 -1px var(--shadow)' ],
+	[ 'table.head td', 'border-bottom', '1px solid var(--highlight)' ],
+	[ 'table.foot td', 'border-top',    '1px solid var(--shadow)' ],
+	[ 'table.foot td', 'box-shadow',    'inset 0 1px var(--highlight)' ],
+	[ 'h2.Ss',         'border',        '0' ],
+	[ 'h2.Ss',         'box-shadow',    'none' ],
+	[ 'a:visited',     'color',         'var(--visited)' ],
+	[ 'pre',           'background',    'var(--term-bg)' ],
+	[ 'pre',           'color',         'var(--term-fg)' ],
+	[ 'pre',           'border',        '2px solid' ],
+	[   'pre', 'border-color',
+	    'var(--shadow) var(--highlight) var(--highlight) var(--shadow)'
+	],
+);
+for (@declarations) {
+	my ( $selector, $property, $want ) = @$_;
+	is( value( $plain, $selector, $property ),
+	    $want, "$selector takes $property: $want" );
+}
+
+# WEB-STYLE-5 takes the band of the earlier design away. A band is a
+# background or a border, so no rule of an h1 sets either.
+unlike(
+	declarations( $sheet, qr/^h1(?![\w-])/ ),
+	qr/(?<![-\w])(?:border|background)[\w-]*\s*:/,
+	'no h1 takes a band'
+);
+
+# WEB-STYLE-6 needs a visited color apart from the link color, in each
+# :root block. An alias of one to the other is the same color.
+my @alike;
+$block = 0;
+for my $root ( $sheet =~ /:root\s*\{([^}]*)\}/g ) {
+	$block++;
+	my %value = "$root;" =~ /(--[\w-]+)\s*:\s*([^;]*?)\s*;/g;
+	my @pair  = map { $value{$_} // '' } qw(--link --visited);
+	s{^var\((--[\w-]+)\)$}{$value{$1} // ''}e for @pair;
+	push @alike, ":root block $block"
+	    unless length $pair[0] && length $pair[1]
+	    && lc $pair[0] ne lc $pair[1];
+}
+is_deeply( \@alike, [], 'the visited color differs from the link color' )
+    or diag join "\n", @alike;
+
 my $index = Fugu::File->read("$out/en/index.html") // '';
 like( $index, qr/<header>/, 'the chrome writes a bare header' );
 unlike( $index, qr/class="banner"/, 'and no banner class' );
