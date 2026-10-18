@@ -159,6 +159,125 @@ my ($offset) = ( $link // '' ) =~ /\btext-underline-offset:\s*([\d.]+)/;
 ok( defined $offset && $offset > 0, 'and it sits below the baseline' )
     or diag 'text-underline-offset: ' . ( $offset // 'none' );
 
+# declarations($text, $selector):
+#	The declarations of each rule in the text that has a selector the
+#	pattern matches, in the order of the sheet. A selector list splits
+#	at each comma.
+sub declarations ( $text, $selector )
+{
+	my $found = '';
+	while ( $text =~ /([^{}]+)\{([^{}]*)\}/g ) {
+		my ( $list, $body ) = ( $1, $2 );
+		$found .= "$body;"
+		    if grep {/$selector/} map { s/^\s+|\s+$//gr } split /,/, $list;
+	}
+	return $found;
+}
+
+# value($text, $selector, $property):
+#	The value that the cascade gives the property in the rules of one
+#	selector. Those rules share one specificity, so the last one wins.
+#	The whitespace of the value folds to one space.
+sub value ( $text, $selector, $property )
+{
+	my @found = declarations( $text, qr/^\Q$selector\E$/ )
+	    =~ /(?<![-\w])\Q$property\E\s*:\s*([^;]*?)\s*;/g;
+	return @found ? $found[-1] =~ s/\s+/ /gr : undef;
+}
+
+# A rule outside every query applies in each scheme and at each width.
+# The light :root block is the one that no query encloses.
+( my $plain = $sheet ) =~ s/\@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}//g;
+
+# WEB-STYLE-3 gives the light scheme the gray ground of NCSA Mosaic.
+is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
+    'the light ground is the gray of NCSA Mosaic' );
+
+# WEB-STYLE-5 draws the rule of 1994, a dark line over a light line.
+# WEB-STYLE-6 gives a visited link its own color, and WEB-STYLE-8
+# sets a pre block as a terminal in a sunken well.
+my @declarations = (
+	[ 'hr',            'border-top',    '1px solid var(--shadow)' ],
+	[ 'hr',            'border-bottom', '1px solid var(--highlight)' ],
+	[ 'h2',            'border-top',    '1px solid var(--shadow)' ],
+	[ 'h2',            'box-shadow',    'inset 0 1px var(--highlight)' ],
+	[ 'table.head td', 'box-shadow',    'inset 0 -1px var(--shadow)' ],
+	[ 'table.head td', 'border-bottom', '1px solid var(--highlight)' ],
+	[ 'table.foot td', 'border-top',    '1px solid var(--shadow)' ],
+	[ 'table.foot td', 'box-shadow',    'inset 0 1px var(--highlight)' ],
+	[ 'h2.Ss',         'border',        '0' ],
+	[ 'h2.Ss',         'box-shadow',    'none' ],
+	[ 'a:visited',     'color',         'var(--visited)' ],
+	[ 'pre',           'background',    'var(--term-bg)' ],
+	[ 'pre',           'color',         'var(--term-fg)' ],
+	[ 'pre',           'border',        '2px solid' ],
+	[   'pre', 'border-color',
+	    'var(--shadow) var(--highlight) var(--highlight) var(--shadow)'
+	],
+);
+for (@declarations) {
+	my ( $selector, $property, $want ) = @$_;
+	is( value( $plain, $selector, $property ),
+	    $want, "$selector takes $property: $want" );
+}
+
+# WEB-STYLE-5 takes the band of the earlier design away. A band is a
+# background or a border, so no rule of an h1 sets either.
+unlike(
+	declarations( $sheet, qr/^h1(?![\w-])/ ),
+	qr/(?<![-\w])(?:border|background)[\w-]*\s*:/,
+	'no h1 takes a band'
+);
+
+# WEB-STYLE-6 needs a visited color apart from the link color, in each
+# :root block. An alias of one to the other is the same color.
+my @alike;
+$block = 0;
+for my $root ( $sheet =~ /:root\s*\{([^}]*)\}/g ) {
+	$block++;
+	my %value = "$root;" =~ /(--[\w-]+)\s*:\s*([^;]*?)\s*;/g;
+	my @pair  = map { $value{$_} // '' } qw(--link --visited);
+	s{^var\((--[\w-]+)\)$}{$value{$1} // ''}e for @pair;
+	push @alike, ":root block $block"
+	    unless length $pair[0] && length $pair[1]
+	    && lc $pair[0] ne lc $pair[1];
+}
+is_deeply( \@alike, [], 'the visited color differs from the link color' )
+    or diag join "\n", @alike;
+
+# luminance($color):
+#	The WCAG relative luminance of a hex color, or undef for any other
+#	value.
+sub luminance ($color)
+{
+	my ($hex) = $color =~ /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/ or return;
+	$hex =~ s/(.)/$1$1/g if length $hex == 3;
+	my @linear = map {
+		my $c = hex($_) / 255;
+		$c <= 0.04045 ? $c / 12.92 : ( ( $c + 0.055 ) / 1.055 )**2.4;
+	} $hex =~ /(..)/g;
+	return 0.2126 * $linear[0] + 0.7152 * $linear[1] + 0.0722 * $linear[2];
+}
+
+# WEB-STYLE-5 needs the dark line of the rule darker than its light
+# line, and WEB-STYLE-8 needs the ground of a terminal darker than its
+# text. The dark :root block overrides the light one, so each block
+# reads over the values of the blocks before it.
+my %scheme;
+$block = 0;
+for my $root ( $sheet =~ /:root\s*\{([^}]*)\}/g ) {
+	$block++;
+	%scheme = ( %scheme, "$root;" =~ /(--[\w-]+)\s*:\s*([^;]*?)\s*;/g );
+	for my $pair ( [qw(--shadow --highlight)], [qw(--term-bg --term-fg)] ) {
+		my @color = map { $scheme{$_} // '' } @$pair;
+		s{^var\((--[\w-]+)\)$}{$scheme{$1} // ''}e for @color;
+		my @tone = map { scalar luminance($_) } @color;
+		ok( defined $tone[0] && defined $tone[1] && $tone[0] < $tone[1],
+		    "$pair->[0] is darker than $pair->[1] in :root block $block" )
+		    or diag join ' ', @color;
+	}
+}
+
 my $index = Fugu::File->read("$out/en/index.html") // '';
 like( $index, qr/<header>/, 'the chrome writes a bare header' );
 unlike( $index, qr/class="banner"/, 'and no banner class' );
