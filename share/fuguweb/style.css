@@ -167,13 +167,21 @@ table.foot {
 }
 
 table.head {
-	border-bottom: 1px solid var(--shadow);
 	margin-bottom: 1em;
 }
 
 table.foot {
-	border-top: 1px solid var(--shadow);
 	margin-top: 1.5em;
+}
+
+table.head td {
+	border-bottom: 1px solid var(--highlight);
+	box-shadow: inset 0 -1px var(--shadow);
+}
+
+table.foot td {
+	border-top: 1px solid var(--shadow);
+	box-shadow: inset 0 1px var(--highlight);
 }
 
 td.head-vol,

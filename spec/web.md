@@ -592,8 +592,9 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   1.5 and 1.6.
 - **WEB-STYLE-5** — The chrome `<hr>` must show the rule of 1994: a dark 1px
   line over a light 1px line. Each second-level heading must show the same rule
-  above it. A heading must carry no band, and no other decoration. A heading
-  that `mandoc` writes must take no rule.
+  above it. The head of a manual page must show the same rule below it, and the
+  foot must show it above it. A heading must carry no band, and no other
+  decoration. A heading that `mandoc` writes must take no rule.
 - **WEB-STYLE-6** — A link must take one color while unvisited, and a second
   color once visited. It must stay underlined. The underline must be one pixel,
   below the baseline.
