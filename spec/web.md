@@ -126,6 +126,18 @@ because each one answers one fixed URL.
   below its heading. The heading of the index page is its title. The index must
   write no opening of its own, per WEB-LANG-13.
 
+<a id="web-markdown"></a>
+
+## The Markdown pages
+
+A `markdown` page takes a Markdown file, and `lowdown` renders it. The file can
+hold HTML, as a `body` fragment does. A code host shows that HTML, so a
+`README.md` must show the same on the host and on the site.
+
+- **WEB-MARKDOWN-1** — The build must render a `markdown` page with `lowdown`,
+  and must keep each HTML block and span as written. It must not remove or
+  escape one.
+
 <a id="web-keys"></a>
 
 ## The key directory

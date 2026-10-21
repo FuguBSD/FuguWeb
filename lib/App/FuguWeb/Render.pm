@@ -117,11 +117,17 @@ sub lint ( $self, @paths )
 }
 
 # $self->markdown($path):
-#	Render one Markdown file into an HTML body fragment.
+#	Render one Markdown file into an HTML body fragment. The HTML that
+#	the file holds stays as written, as in a body fragment.
 sub markdown ( $self, $path )
 {
-	return $self->_capture( 'lowdown',
-		[ $self->{lowdown}, '-Thtml', $path ] );
+	return $self->_capture(
+		'lowdown',
+		[
+			$self->{lowdown},     '-Thtml',
+			'--html-no-skiphtml', '--html-no-escapehtml',
+			$path
+		] );
 }
 
 # $self->mdoc($file, $dir):
