@@ -175,12 +175,15 @@ my %COMMANDS = (
 );
 
 # The description that 'fuguweb init' writes: the smallest site that
-# builds, once web/index.body.html exists. The other settings keep
-# their defaults, which App::FuguWeb::Config documents.
+# builds, once web/index.body.html and web/footer.body.html exist. The
+# other settings keep their defaults, which App::FuguWeb::Config
+# documents.
 my $STARTER = <<'RC';
 # The website, built by fuguweb(1).
 
-site = Example
+site   = Example
+url    = https://example.org/
+footer = footer.body.html
 
 nav "index.html" {
 	label = Home

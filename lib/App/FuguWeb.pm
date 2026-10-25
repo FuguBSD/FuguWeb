@@ -31,8 +31,17 @@ package App::FuguWeb;
 #
 # This file holds what more than one module in the namespace needs:
 # the name of the configuration file, the name of the stylesheet in
-# the output, the escapes that guard a value on its way into HTML,
-# the directory listing, and the prefix test.
+# the output, the decode and the encode at each edge, the fold of a
+# name, the escapes that guard a value on its way into HTML, the
+# directory listing, and the prefix test.
+#
+# Text is UTF-8 at each edge, and characters inside. The build decodes
+# the description, each source and each output of a renderer, and it
+# encodes each page that it writes. A name of a file stays bytes,
+# because the file system reads bytes.
+
+use Encode             ();
+use Unicode::Normalize ();
 
 # The configuration file, at the project root. The name and the
 # discovery match .fuguvmrc.
@@ -42,16 +51,6 @@ use constant CONFIG_FILE => '.fuguwebrc';
 # the top level, outside every language tree, so one file serves each
 # tree.
 use constant STYLESHEET => 'style.css';
-
-# The language of the default tree, per D-05. Every page of the
-# description renders in its tree, and the key page and the pages of
-# the top level are pages of it.
-use constant DEFAULT_LANGUAGE => 'en';
-
-# The shape of a language code: two lowercase ASCII letters, per ISO
-# 639-1. A directory at the top level of the output whose name takes
-# this shape holds a language tree.
-use constant LANGUAGE_CODE => qr/\A[a-z]{2}\z/;
 
 # The two pages of the top level, which a host serves. The forward
 # sends a visitor of the root into the default tree. The copy of the
@@ -70,14 +69,74 @@ use constant {
 # staging.
 use constant STAGING_DIR => '.man';
 
+# decode($bytes, $name, $reason):
+#	The characters of UTF-8 bytes, per WEB-SITE-5. The function
+#	returns undef when the bytes are not UTF-8, with the reason in
+#	$reason. The reason names the file or the output, and the
+#	offset of the first byte that is wrong.
+#
+#	The decode is strict. It refuses an overlong form, a
+#	surrogate, a noncharacter and a code point above U+10FFFF. The
+#	quiet mode stops at the first fault and keeps the rest, so the
+#	function needs no eval.
+sub decode ( $bytes, $name, $reason )
+{
+	my $rest = $bytes;
+	my $text = Encode::decode( 'UTF-8', $rest, Encode::FB_QUIET );
+	return $text unless length $rest;
+
+	my $at = length($bytes) - length($rest);
+	$$reason = "$name is not valid UTF-8 at byte $at";
+
+	return;
+}
+
+# encode($text):
+#	The UTF-8 bytes of characters. Each page goes through here on
+#	its way to the disk.
+sub encode ($text)
+{
+	return Encode::encode( 'UTF-8', $text );
+}
+
+# as_text($bytes):
+#	The characters of a name or a field that a page shows: a name
+#	of the description, a name of a file, or a field of a key. The
+#	description is UTF-8, per WEB-SITE-5, so each of its names
+#	decodes. A name of a file that is not UTF-8 takes U+FFFD for
+#	each wrong byte. Its link then names no file, and the check
+#	reports it.
+sub as_text ($bytes)
+{
+	return Encode::decode( 'UTF-8', $bytes );
+}
+
+# fold_name($name):
+#	The fold of a name or a path of the output, per WEB-OUTPUT-17:
+#	its characters in NFD, the canonical decomposition of Unicode,
+#	then the full case fold of fc. A file system without case, such
+#	as APFS on Darwin, keeps two names of one fold as one entry.
+#	APFS joins an NFC name and its NFD form, two cases of a name,
+#	and the sharp s U+00DF and SS. The fold joins each such pair.
+#
+#	The fold reads the Unicode version of this Perl. A file system
+#	of an earlier version joins fewer pairs, and a guard then
+#	refuses more than it must, which is safe. A file system of a
+#	later version can fold a character that this Perl does not
+#	know, and a guard then misses that pair.
+sub fold_name ($name)
+{
+	return fc Unicode::Normalize::NFD( as_text($name) );
+}
+
 # escape_html($text):
 #	Escape the three characters that change the meaning of HTML
 #	text: the ampersand first, so an escape that the function
 #	itself writes is not escaped again.
 #
-#	The function takes bytes and returns bytes. No file in the
-#	namespace carries 'use utf8', so a multi-byte character passes
-#	through untouched.
+#	The function reads characters and returns characters. Each
+#	character outside ASCII passes through, and the encode of the
+#	page writes its bytes.
 sub escape_html ($text)
 {
 	return '' unless defined $text;

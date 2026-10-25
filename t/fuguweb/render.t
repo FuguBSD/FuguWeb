@@ -34,7 +34,7 @@ sub quiet ()
 
 # config($rc):
 #	Load a description in a new temporary project.
-sub config ( $rc = "site = Example\n" )
+sub config ( $rc = "site = Example\nurl = https://example.org/\n" )
 {
 	my $root = tempdir( CLEANUP => 1 );
 	open my $fh, '>', "$root/.fuguwebrc"
@@ -78,6 +78,7 @@ subtest 'the probe names the first tool that is absent' => sub {
 subtest 'the mandoc options carry the configured OS and manual URL' => sub {
 	my $render = App::FuguWeb::Render->new( config => config( <<'RC' ) );
 site      = Example
+url       = https://example.org/
 mandoc_os = Example OS
 man_url   = https://man.example.org/
 RC
@@ -195,5 +196,83 @@ SKIP: {
 		like( $html, qr{<kbd>x</kbd>}, 'an HTML span stays' );
 	};
 }
+
+subtest 'each output decodes, and one that is not UTF-8 fails' => sub {
+	# WEB-SITE-5. A renderer writes UTF-8, and the build reads its
+	# output as characters. The message names the renderer and the
+	# source.
+	my $dir = tempdir( CLEANUP => 1 );
+	my %script = (
+		good => "printf 'voil\\303\\240\\n'",
+		bad  => "printf 'caf\\351\\n'",
+	);
+	for my $name ( sort keys %script ) {
+		open my $fh, '>', "$dir/$name" or die "Cannot write: $!";
+		print {$fh} "#!/bin/sh\n$script{$name}\n";
+		close $fh;
+		chmod 0755, "$dir/$name" or die "Cannot chmod: $!";
+	}
+
+	my $render = App::FuguWeb::Render->new(
+		config  => config(),
+		log     => quiet(),
+		lowdown => "$dir/good",
+	);
+	is( $render->markdown('page.md'), "voil\x{e0}\n",
+		'an output of UTF-8 reads as characters' );
+
+	my $said = '';
+	open my $saved, '>&', \*STDERR or die "Cannot save stderr: $!";
+	close STDERR;
+	open STDERR, '>', \$said or die 'Cannot capture stderr';
+
+	$render = App::FuguWeb::Render->new(
+		config  => config(),
+		log     => Fugu::Log->new,
+		lowdown => "$dir/bad",
+	);
+	my $html = $render->markdown('page.md');
+
+	close STDERR;
+	open STDERR, '>&', $saved or die "Cannot restore stderr: $!";
+
+	is( $html, undef, 'an output that is not UTF-8 fails' );
+	like( $said,
+		qr/the output of lowdown for page\.md is not valid UTF-8 at byte 3/,
+		'and the message names the renderer and the source' );
+};
+
+subtest 'pod2man writes each character as UTF-8' => sub {
+	# WEB-SITE-5. Without --utf8, podlators 4.14 of perl 5.36 writes
+	# X or a roff escape for each character outside ASCII. A stub
+	# pod2man records its arguments, and a stub mandoc passes its
+	# input through.
+	my $dir = tempdir( CLEANUP => 1 );
+	my %script = (
+		pod2man => q{printf '%s\n' "$@" > "$0.args"; echo page},
+		mandoc  => 'cat',
+	);
+	for my $name ( sort keys %script ) {
+		open my $fh, '>', "$dir/$name" or die "Cannot write: $!";
+		print {$fh} "#!/bin/sh\n$script{$name}\n";
+		close $fh;
+		chmod 0755, "$dir/$name" or die "Cannot chmod: $!";
+	}
+
+	my $render = App::FuguWeb::Render->new(
+		config  => config(),
+		log     => quiet(),
+		mandoc  => "$dir/mandoc",
+		pod2man => "$dir/pod2man",
+	);
+	is( $render->pod( 'Foo.pod', 'Foo', '2026-10-25' ),
+		"page\n", 'the sidecar renders' );
+
+	open my $fh, '<', "$dir/pod2man.args" or die "Cannot read: $!";
+	my @args = <$fh>;
+	close $fh;
+	chomp @args;
+	ok( ( grep { $_ eq '--utf8' } @args ), 'and pod2man takes --utf8' );
+};
 
 done_testing();

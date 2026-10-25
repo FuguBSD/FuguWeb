@@ -54,6 +54,9 @@ fuguweb init
 fuguweb build --out web/build
 ```
 
+The starter names a front page and a footer, and the build needs both fragments.
+The EXAMPLES section of `man fuguweb` writes them.
+
 ## Verify
 
 ```sh

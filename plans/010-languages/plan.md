@@ -2,14 +2,13 @@
 
 ## Status
 
-No work package has landed. Work package 1 waits on a release of Fugu with the
-rule of Fugu LIB-CONFIG that keeps each byte of a value. Work packages 2, 4 and
-5 wait on work package 1. Work packages 3 and 6 wait on work packages 2 and 4.
-Each work package lands as one pull request. It trims the `Implements:` citation
-of each unit that it sets to `done`. The work package that lands last deletes
-this plan directory.
+Work package 1 landed, with the languages and the text over Fugu 0.5.5. It set
+WEB-SITE, WEB-KEYS and WEB-OUTPUT to `done`, and WEB-LANGUAGE and WEB-CHROME to
+`partial`. Work packages 2, 4 and 5 can land now. Work packages 3 and 6 wait on
+work packages 2 and 4. Each work package lands as one pull request. It trims the
+`Implements:` citation of each unit that it sets to `done`. The work package
+that lands last deletes this plan directory.
 
-- Implements: WEB-SITE.
 - Implements: WEB-LANGUAGE.
 - Implements: WEB-CHROME.
 - Implements: WEB-LINKS.
@@ -17,9 +16,7 @@ this plan directory.
 - Implements: WEB-OUTLINE.
 - Implements: WEB-STATUS.
 - Implements: WEB-MANUALS.
-- Implements: WEB-KEYS.
 - Implements: WEB-STYLE.
-- Implements: WEB-OUTPUT.
 
 ## Purpose
 

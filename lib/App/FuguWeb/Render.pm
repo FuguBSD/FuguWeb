@@ -19,6 +19,7 @@ use v5.36;
 
 package App::FuguWeb::Render;
 
+use App::FuguWeb;
 use App::FuguWeb::Manual;
 use Fugu::Log;
 use Fugu::Process;
@@ -31,8 +32,10 @@ use Fugu::Process;
 # this project already writes; a Perl reimplementation would be a
 # second, worse one.
 #
-# Every method returns the output as bytes, or undef with a message in
-# the log. The class keeps no state beyond the tool names and the
+# Every method returns the output as characters, or undef with a
+# message in the log. Each output goes through the decode of
+# WEB-SITE-5, so a renderer that writes bytes that are not UTF-8 fails
+# the build. The class keeps no state beyond the tool names and the
 # options that the site description decided.
 
 # The three programs, and the name of each in the diagnostics.
@@ -123,6 +126,7 @@ sub markdown ( $self, $path )
 {
 	return $self->_capture(
 		'lowdown',
+		$path,
 		[
 			$self->{lowdown},     '-Thtml',
 			'--html-no-skiphtml', '--html-no-escapehtml',
@@ -138,7 +142,7 @@ sub markdown ( $self, $path )
 sub mdoc ( $self, $file, $dir )
 {
 	return $self->_capture(
-		'mandoc',
+		'mandoc', $file,
 		[ $self->{mandoc}, $self->html_options, $file ],
 		cwd => $dir
 	);
@@ -152,11 +156,16 @@ sub mdoc ( $self, $file, $dir )
 #	The date comes from the caller and never from the file time.
 #	git does not preserve file times, so a build that read one
 #	would give different bytes on every checkout.
+#
+#	--utf8 makes pod2man write each character as UTF-8, per
+#	WEB-SITE-5. Without it, podlators 4.14 of perl 5.36 writes X or
+#	a roff escape for each character outside ASCII.
 sub pod ( $self, $path, $name, $date )
 {
 	my $man = Fugu::Process->run(
 		cmd => [
 			$self->{pod2man},
+			'--utf8',
 			'--section=' . App::FuguWeb::Manual::POD_SECTION,
 			"--name=$name",
 			"--date=$date",
@@ -179,7 +188,7 @@ sub pod ( $self, $path, $name, $date )
 	}
 
 	return $self->_capture(
-		'mandoc',
+		'mandoc', $path,
 		[ $self->{mandoc}, $self->html_options ],
 		stdin => $man->{stdout} );
 }
@@ -204,10 +213,12 @@ sub html_options ($self)
 	);
 }
 
-# $self->_capture($tool, $cmd, %args):
-#	Run one renderer and return its output. A failure names the
-#	tool and carries its diagnostics into the log.
-sub _capture ( $self, $tool, $cmd, %args )
+# $self->_capture($tool, $source, $cmd, %args):
+#	Run one renderer and return its output, as characters. A
+#	failure names the tool and carries its diagnostics into the
+#	log. An output that is not UTF-8 fails, and the message names
+#	the tool and the source, per WEB-SITE-5.
+sub _capture ( $self, $tool, $source, $cmd, %args )
 {
 	my $result = Fugu::Process->run( cmd => $cmd, %args );
 	unless ( $result->{success} ) {
@@ -221,7 +232,14 @@ sub _capture ( $self, $tool, $cmd, %args )
 		return;
 	}
 
-	return $result->{stdout};
+	my $text = App::FuguWeb::decode(
+		$result->{stdout} // '',
+		"the output of $tool for $source",
+		\my $reason
+	);
+	$self->{log}->error( '%s', $reason ) unless defined $text;
+
+	return $text;
 }
 
 # _on_path($program):

@@ -92,9 +92,13 @@ alone names the C<contact> and the C<expires> of the site.
     .well-known/openpgpkey/policy
     .well-known/security.txt            RFC 9116
 
-The human page is a page of the default language. Its chrome links the
-tree of C<en> as F<< ../en/<page> >>, it links the stylesheet as
-F<../style.css>, and it carries no footer.
+The human page is a page of C<en>, because its own words are English,
+per WEB-CHROME-8. Its chrome takes the site name and the navigation of
+the default language, and it links the default tree as
+F<< ../<tree>/<page> >>. When the default language is not C<en>, the
+site link and each navigation link carry the marks of that language,
+per WEB-LANGUAGE-11. The page links the stylesheet as F<../style.css>,
+and it carries no footer, per WEB-KEYS-32.
 
 The two well-known paths sit at the site root, because a reader asks
 for the registered path and never for one below the key directory.

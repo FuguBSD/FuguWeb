@@ -1055,11 +1055,12 @@ sub _name_text ($name)
 }
 
 # $self->_index_page($rows, $by_target):
-#	The human page of the directory, as a whole HTML document. The
-#	page carries the chrome of the site, and it is a page of the
-#	default language, per WEB-LANG-11. It sits one directory below
-#	the root, so each link of the chrome takes the step into the
-#	default tree, and the stylesheet link takes the step back.
+#	The human page of the directory, as the bytes of a whole HTML
+#	document. The page carries the chrome of the default tree, and
+#	it is a page of en, because its own words are English, per
+#	WEB-CHROME-8. It sits one directory below the root, so each
+#	link of the chrome takes the step into the default tree, and
+#	the stylesheet link takes the step back.
 sub _index_page ( $self, $rows, $by_target )
 {
 	my $page = App::FuguWeb::Page->new(
@@ -1067,7 +1068,8 @@ sub _index_page ( $self, $rows, $by_target )
 		kind   => 'keys'
 	);
 
-	return $page->document( 'Keys', _index_body( $rows, $by_target ) );
+	return App::FuguWeb::encode(
+		$page->document( 'Keys', _index_body( $rows, $by_target ) ) );
 }
 
 # $self->_by_target:
@@ -1093,13 +1095,14 @@ sub _by_target ($self)
 #
 #	One site serves one policy file, and every key directory of
 #	the site writes into that one tree. The line therefore names
-#	the site, and it names no org word.
+#	the site, and it names no org word. The name is that of the
+#	default language, which the pages of the default tree show,
+#	per WEB-LANGUAGE-3.
 sub _policy ($config)
 {
-	return
-	      '# The Web Key Directory of '
-	    . $config->site
-	    . ". It sets no policy flag.\n";
+	return App::FuguWeb::encode( '# The Web Key Directory of '
+		    . $config->default_language->site
+		    . ". It sets no policy flag.\n" );
 }
 
 # $self->_security_txt($set):
@@ -1335,9 +1338,9 @@ sub _fail ( $self, $reason )
 }
 
 # _index_body($rows, $by_target):
-#	The body fragment of the human page: one row for each key, in
-#	publication order. Every value is escaped, and a value that
-#	the description left out becomes an empty cell.
+#	The body fragment of the human page, as characters: one row for
+#	each key, in publication order. Every value is escaped, and a
+#	value that the description left out becomes an empty cell.
 #
 #	The subject and the validity cells hold the two facts of a
 #	certificate, per WEB-X509-5, and a key of another type leaves
@@ -1400,7 +1403,9 @@ sub _bindings ($bindings)
 #	its column count.
 sub _cell ($value)
 {
-	return defined $value ? App::FuguWeb::escape_html($value) : '';
+	return '' unless defined $value;
+
+	return App::FuguWeb::escape_html( App::FuguWeb::as_text($value) );
 }
 
 # _digest_of($path):
