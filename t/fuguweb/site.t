@@ -3,8 +3,8 @@
 # App::FuguWeb::Site: a small site builds into the tree of its
 # language, holds what the description names and nothing else, drops
 # the staging directory, and builds a second time to the same bytes.
-# A site of two languages builds one tree for each, from the sources
-# of each language.
+# A site of several languages builds one tree for each, below the path
+# of its tag, from the sources of each language.
 #
 # The test builds its site in a File::Temp directory. It never reads
 # the repository; t/web/site.t covers the real site.
@@ -38,6 +38,8 @@ use_ok('Fugu::Log');
 
 my $RC = <<'RC';
 site       = Example
+url        = https://example.org/
+footer     = footer.body.html
 source_dir = web
 out_dir    = out
 
@@ -209,7 +211,7 @@ subtest 'the build makes the site and nothing else' => sub {
 	is_deeply( App::FuguWeb::list_tree($OUT), \@expected,
 		'the output holds the site only' );
 
-	# WEB-LANG-7. A site of one language links no other.
+	# A site of one language links no other.
 	for my $name ( grep { /\.html\z/ } @expected ) {
 		open my $fh, '<', "$OUT/$name" or die "Cannot read: $!";
 		my $html = do { local $/; <$fh> };
@@ -223,7 +225,7 @@ subtest 'the top level holds the forward and the 404 page' => sub {
 	my $forward = do { local $/; <$fh> };
 	close $fh;
 
-	# WEB-LANG-8. One meta refresh, one link, and nothing loaded.
+	# One meta refresh, one link, and nothing loaded.
 	is( $forward, <<'HTML', 'the forward is byte for byte its shape' );
 <!DOCTYPE html>
 <html lang="en">
@@ -238,8 +240,8 @@ subtest 'the top level holds the forward and the 404 page' => sub {
 </html>
 HTML
 
-	# WEB-LANG-9. The copy is the page of the default language,
-	# with its base, and its chrome links the default tree.
+	# The copy is the page of the default language, with its base,
+	# and its chrome links the default tree.
 	open $fh, '<', "$OUT/404.html" or die "Cannot read: $!";
 	my $copy = do { local $/; <$fh> };
 	close $fh;
@@ -301,6 +303,15 @@ subtest 'each source reaches its page' => sub {
 # reachable, so the whole check runs over the site.
 my %DE = (
 	'.fuguwebrc' => <<'RC',
+
+language en {
+	name = English
+}
+
+language de {
+	name   = Deutsch
+	footer = de/footer.body.html
+}
 
 nav "readme.html" {
 	label = Readme
@@ -385,7 +396,7 @@ subtest 'a site of two languages builds one tree for each' => sub {
 	is( scalar @problems, 0, 'and the check finds no problem' )
 	    or diag join "\n", @problems;
 
-	# WEB-LANG-3. Each tree holds the same page names.
+	# WEB-LANGUAGE-5. Each tree holds the same page names.
 	my @tree = @{ App::FuguWeb::list_tree($out) };
 	my %in;
 	for my $path (@tree) {
@@ -396,15 +407,19 @@ subtest 'a site of two languages builds one tree for each' => sub {
 	ok( grep( { $_ eq 'Thing.3p.html' } @{ $in{de} } ),
 		'and each holds the umbrella' );
 
-	# WEB-LANG-5 and WEB-LANG-6. A translated page takes its own
-	# body, and a page with no translation the default body with
-	# lang="en" on the element that holds it.
+	# WEB-LANGUAGE-8 and WEB-LANGUAGE-11. A translated page takes
+	# its own body, and a page with no translation the default body
+	# with lang="en" on the element that holds it.
 	my $index = read_page("$out/de/index.html");
 	like( $index, qr{<html lang="de">}, 'the front page of de is a page of de' );
 	like( $index, qr{<title>Start \xe2\x80\x94 Example</title>},
 		'with the title of de' );
 	like( $index, qr{<main>\n<h1>Start</h1>}, 'and the body of de' );
 	like( $index, qr{<a href="index\.html">Start</a>}, 'and the nav of de' );
+	like( $index, qr{<a href="readme\.html" lang="en">Readme</a>},
+		'and a label of en, with its mark' );
+	like( $index, qr{<header><a href="index\.html" lang="en">Example</a>},
+		'and the site name of en, with its mark' );
 
 	my $readme = read_page("$out/de/readme.html");
 	like( $readme, qr{<html lang="de">}, 'the readme of de is a page of de' );
@@ -438,8 +453,8 @@ subtest 'a site of two languages builds one tree for each' => sub {
 	like( read_page("$out/en/tool.1.html"),
 		qr{<main>\n.*Words\.}s, 'the manual of en stays' );
 
-	# WEB-LANG-7. Each tree page links the same page in the other
-	# language, and a page of the top level links none.
+	# Each tree page links the same page in the other language, and
+	# a page of the top level links none.
 	like( read_page("$out/en/tool.1.html"),
 		qr{<a href="\.\./de/tool\.1\.html" hreflang="de">de</a>},
 		'a page of en links its page of de' );
@@ -450,12 +465,12 @@ subtest 'a site of two languages builds one tree for each' => sub {
 		"the top-level $_ carries no language link" )
 	    for qw(index.html 404.html);
 
-	# WEB-LANG-12. A tree takes the footer of its language.
+	# WEB-LANGUAGE-3. A tree takes the footer of its language.
 	like( $index, qr{<footer>\n<p>ISC-Lizenz\.</p>\n</footer>},
 		'a page of de carries the footer of de' );
 	like( read_page("$out/en/index.html"),
 		qr{<footer>\n<p>ISC\.</p>\n</footer>},
-		'and a page of en the default footer' );
+		'and a page of en the footer of the description' );
 	unlike( read_page("$out/404.html"), qr{<footer>},
 		'and the top-level copy of the 404 page none' );
 
@@ -463,7 +478,7 @@ subtest 'a site of two languages builds one tree for each' => sub {
 	ok( !-e "$out/de/index.body.html" && !-e "$out/index.body.html",
 		'the body of de is not published' );
 
-	# WEB-LANG-15. The check holds each language link.
+	# The check holds each language link.
 	my $broken = $readme =~ s{<a href="\.\./en/readme\.html" hreflang="en">en</a>}{}r;
 	open my $fh, '>', "$out/de/readme.html" or die "Cannot write: $!";
 	print {$fh} $broken;
@@ -484,14 +499,19 @@ subtest 'a site of two languages builds one tree for each' => sub {
 };
 
 subtest 'an index page marks each part of the default source' => sub {
-	# WEB-LANG-6. The parts of an index page come from the sources
-	# of more than one language. Each part from the default source
-	# carries lang="en" on its own element, and <main> carries no
-	# marker. The page of de translates each part, and the page of
-	# fr translates the title and the manual of one group alone.
+	# WEB-LANGUAGE-11. The parts of an index page come from the
+	# sources of more than one language. Each part from the default
+	# source carries lang="en" on its own element, and <main>
+	# carries no marker. The page of de translates each part, and
+	# the page of fr translates the title and the manual of one
+	# group alone.
 	my $root = project(
 		%DE,
 		'.fuguwebrc' => $DE{'.fuguwebrc'} . <<'RC',
+
+language fr {
+	name = Fran\xc3\xa7ais
+}
 
 nav "handbook.html" {
 	label = Handbook
@@ -524,7 +544,8 @@ RC
 	my $site = site( $root, $out );
 	ok( $site->build, 'the build succeeds' );
 
-	# WEB-LANG-14. The check holds each tree page to its language.
+	# WEB-LANGUAGE-13. The check holds each tree page to its
+	# language.
 	my @problems =
 	    App::FuguWeb::Check->new( config => $site->config, out => $out )->run;
 	is( scalar @problems, 0, 'and the check finds no problem' )
@@ -559,9 +580,284 @@ RC
 		'and a description of the default source carries lang="en"' );
 };
 
+# The site of three languages: en, zh-Hans and ar. The tree of zh-Hans
+# takes the path zh-hans, and ar is right to left. The site name of en
+# ends in a, with a grave accent, whose last byte is 0xA0. A trim of
+# white space that read that byte as a space would cut the value.
+my $THREE = <<"RC";
+site       = voil\xc3\xa0
+url        = https://example.org/
+footer     = footer.body.html
+source_dir = web
+out_dir    = out
+
+language en {
+	name = English
+}
+
+language zh-Hans {
+	name   = \xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87
+	site   = \xe7\xa4\xba\xe4\xbe\x8b
+	footer = zh-hans/footer.body.html
+}
+
+language ar {
+	name = \xd8\xa7\xd9\x84\xd8\xb9\xd8\xb1\xd8\xa8\xd9\x8a\xd8\xa9
+	dir  = rtl
+}
+
+nav "index.html" {
+	label = Home
+}
+
+nav "manuals.html" {
+	label = Manuals
+}
+
+nav zh-Hans "index.html" {
+	label = \xe9\xa6\x96\xe9\xa1\xb5
+}
+
+page "index.html" {
+	title = Home
+	body  = index.body.html
+}
+
+page zh-Hans "index.html" {
+	title = \xe9\xa6\x96\xe9\xa1\xb5
+	body  = zh-hans/index.body.html
+}
+
+page "manuals.html" {
+	title = Manuals
+	index = yes
+}
+
+page "404.html" {
+	title    = Not found
+	body     = 404.body.html
+	unlinked = yes
+}
+
+manuals manuals {
+	heading = Manuals
+	dir     = man
+}
+
+manuals zh-Hans manuals {
+	heading = \xe6\x89\x8b\xe5\x86\x8c
+}
+RC
+
+# three(%more):
+#	The project of the site of three languages.
+sub three (%more)
+{
+	my $root = project(
+		'web/zh-hans/index.body.html'  => "<h1>\xe9\xa6\x96\xe9\xa1\xb5</h1>\n",
+		'web/zh-hans/footer.body.html' => "<p>ISC \xe8\xae\xb8\xe5\x8f\xaf\xe3\x80\x82</p>\n",
+		%more
+	);
+
+	open my $fh, '>', "$root/.fuguwebrc" or die "Cannot write: $!";
+	print {$fh} $THREE;
+	close $fh;
+
+	return $root;
+}
+
+subtest 'a site of three languages builds each tree below its path' => sub {
+	my $root = three();
+	my $out  = tempdir( CLEANUP => 1 ) . '/out';
+	my $site = site( $root, $out );
+	ok( $site->build, 'the build succeeds' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $site->config, out => $out )->run;
+	is( scalar @problems, 0, 'and the check finds no problem' )
+	    or diag join "\n", @problems;
+
+	# WEB-LANGUAGE-5. One tree for each language, below the tag in
+	# lowercase, and each tree holds the same pages.
+	my %in;
+	for my $path ( @{ App::FuguWeb::list_tree($out) } ) {
+		my ( $tree, $name ) = split m{/}, $path, 2;
+		push @{ $in{$tree} }, $name if defined $name;
+	}
+	is_deeply( [ sort keys %in ], [qw(ar en zh-hans)],
+		'the trees are en, zh-hans and ar, and nothing else' );
+	is_deeply( $in{'zh-hans'}, $in{en}, 'zh-hans holds the pages of en' );
+	is_deeply( $in{ar},        $in{en}, 'and so does ar' );
+	is_deeply( $in{en}, [qw(404.html index.html manuals.html tool.1.html)],
+		'which are the pages of the description and the manual' );
+	ok( !-e "$out/.man", 'and the staging directory is gone' );
+
+	# WEB-LANGUAGE-10. Each page of a tree carries the tag of its
+	# language, and dir="rtl" in the tree of ar.
+	my %html = (
+		en        => '<html lang="en">',
+		'zh-hans' => '<html lang="zh-Hans">',
+		ar        => '<html lang="ar" dir="rtl">',
+	);
+	for my $tree ( sort keys %html ) {
+		for my $name ( @{ $in{$tree} } ) {
+			my $page = read_page("$out/$tree/$name");
+			like( $page, qr{^<!DOCTYPE html>\n\Q$html{$tree}\E\n},
+				"$tree/$name carries $html{$tree}" );
+		}
+	}
+
+	# The value that ends in a grave accent reads byte for byte.
+	my $en = read_page("$out/en/index.html");
+	like( $en, qr{<title>Home \xe2\x80\x94 voil\xc3\xa0</title>},
+		'the site name of en reaches the title byte for byte' );
+	like( $en, qr{<header><a href="index\.html">voil\xc3\xa0</a></header>},
+		'and the site link' );
+	like( read_page("$out/index.html"), qr{<title>voil\xc3\xa0</title>},
+		'and the forward' );
+
+	# WEB-LANGUAGE-11. The tree of zh-Hans takes its own site name,
+	# label, body and footer, and marks each part of en.
+	my $zh = read_page("$out/zh-hans/index.html");
+	like( $zh, qr{<header><a href="index\.html">\xe7\xa4\xba\xe4\xbe\x8b</a></header>},
+		'zh-Hans takes its own site name' );
+	like( $zh, qr{<a href="index\.html">\xe9\xa6\x96\xe9\xa1\xb5</a>},
+		'and its own label' );
+	like( $zh, qr{<a href="manuals\.html" lang="en">Manuals</a>},
+		'and marks a label of en' );
+	like( $zh, qr{<main>\n<h1>\xe9\xa6\x96\xe9\xa1\xb5</h1>},
+		'it takes its own body' );
+	like( $zh,
+		qr{<footer>\n<p>ISC \xe8\xae\xb8\xe5\x8f\xaf\xe3\x80\x82</p>\n</footer>},
+		'and its own footer' );
+	like( $zh, qr{<a href="\.\./ar/index\.html" hreflang="ar">ar</a>},
+		'and links the page of ar' );
+	like( read_page("$out/en/index.html"),
+		qr{<a href="\.\./zh-hans/index\.html" hreflang="zh-Hans">zh-Hans</a>},
+		'a page of en links the tree of zh-Hans' );
+
+	my $manuals = read_page("$out/zh-hans/manuals.html");
+	like( $manuals, qr{<h1 lang="en">Manuals</h1>},
+		'the index of zh-Hans marks the title of en' );
+	like( $manuals, qr{<h2 id="manuals">\xe6\x89\x8b\xe5\x86\x8c</h2>},
+		'and takes its own heading' );
+
+	# The tree of ar takes each value of en, and each mark carries
+	# the direction of en, which differs from that of the page.
+	my $ar = read_page("$out/ar/index.html");
+	like( $ar,
+		qr{<header><a href="index\.html" lang="en" dir="ltr">voil\xc3\xa0</a></header>},
+		'the site name of en carries its marks on a page of ar' );
+	like( $ar, qr{<a href="index\.html" lang="en" dir="ltr">Home</a>},
+		'and so does a label' );
+	like( $ar, qr{<main lang="en" dir="ltr">\n<h1>Home</h1>},
+		'and the body' );
+	like( $ar, qr{<footer lang="en" dir="ltr">\n<p>ISC\.</p>\n</footer>},
+		'and the footer' );
+
+	ok( site( $root, $out )->build, 'a second build succeeds' );
+	ok( site( $root, $out )->clean, 'and the clean takes the three trees' );
+	ok( !-e $out, 'and the directory is gone' );
+
+	# A description that does not load still declares its trees.
+	# The clean is the command an operator reaches for then, and it
+	# takes each tree that the language blocks of the file name.
+	ok( site( $root, $out )->build, 'a third build succeeds' );
+	open my $fh, '>>', "$root/.fuguwebrc" or die "Cannot write: $!";
+	print {$fh} "}\n";
+	close $fh;
+
+	my $broken = App::FuguWeb::Site->new(
+		config => App::FuguWeb::Config->anonymous($root),
+		out    => $out,
+		log    => Fugu::Log->new( mode => Fugu::Log::MODE_QUIET() ),
+	);
+	ok( $broken->clean, 'the clean of a broken description takes them' );
+	ok( !-e $out, 'and the directory is gone' );
+};
+
+subtest 'the default language need not be en' => sub {
+	# D-05. The first language is the default. The forward and the
+	# copy of the 404 page are pages of it, and they lead into its
+	# tree.
+	my ($ar) = $THREE =~ m/(language ar \{\n[^\}]*\}\n\n)/;
+	my $rc = $THREE =~ s/\Q$ar\E//r;
+	$rc =~ s/(language en \{)/$ar$1/;
+
+	my $root = three();
+	open my $fh, '>', "$root/.fuguwebrc" or die "Cannot write: $!";
+	print {$fh} $rc;
+	close $fh;
+
+	my $out  = tempdir( CLEANUP => 1 ) . '/out';
+	my $site = site( $root, $out );
+	is( $site->config->default_language->tag, 'ar', 'ar is the default' );
+	ok( $site->build, 'the build succeeds' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $site->config, out => $out )->run;
+	is( scalar @problems, 0, 'and the check finds no problem' )
+	    or diag join "\n", @problems;
+
+	my $forward = read_page("$out/index.html");
+	like( $forward, qr{<html lang="ar" dir="rtl">\n},
+		'the forward is a page of ar' );
+	like( $forward, qr{<meta http-equiv="refresh" content="0; url=ar/index\.html">},
+		'and it leads into the tree of ar' );
+
+	my $copy = read_page("$out/404.html");
+	like( $copy, qr{<html lang="ar" dir="rtl">\n}, 'so is the 404 copy' );
+	like( $copy, qr{<header><a href="ar/index\.html">voil\xc3\xa0</a>},
+		'and its chrome links the tree of ar' );
+	like( read_page("$out/en/index.html"), qr{<html lang="en">\n},
+		'and en is one more tree' );
+};
+
+subtest 'a source that is not UTF-8 fails the build' => sub {
+	# WEB-SITE-5. The message names the source.
+	my %case = (
+		'web/index.body.html'          => "<h1>caf\xe9</h1>\n",
+		'web/footer.body.html'         => "<p>caf\xe9</p>\n",
+		'web/zh-hans/footer.body.html' => "<p>caf\xe9</p>\n",
+		'README.md'                    => "# caf\xe9\n",
+		'man/tool.1' => ".Dd \$Mdocdate: July 27 2026 \$\n.Dt TOOL 1\n.Os\n"
+		    . ".Sh NAME\n.Nm tool\n.Nd caf\xe9\n",
+	);
+
+	for my $source ( sort keys %case ) {
+		my $root = three( $source => $case{$source} );
+
+		# A Markdown page of the description names README.md.
+		open my $fh, '>>', "$root/.fuguwebrc" or die "Cannot write: $!";
+		print {$fh} qq{\npage "readme.html" {\n\tmarkdown = README.md\n}\n};
+		close $fh;
+
+		my $out  = tempdir( CLEANUP => 1 ) . '/out';
+		my $said = '';
+		open my $saved, '>&', \*STDERR or die "Cannot save stderr: $!";
+		close STDERR;
+		open STDERR, '>', \$said or die 'Cannot capture stderr';
+
+		my $config = App::FuguWeb::Config->load(
+			root  => $root,
+			error => \my $reason
+		);
+		my $built =
+		    App::FuguWeb::Site->new( config => $config, out => $out )
+		    ->build;
+
+		close STDERR;
+		open STDERR, '>&', $saved or die "Cannot restore stderr: $!";
+
+		ok( !$built, "a $source that is not UTF-8 fails the build" );
+		like( $said, qr{\Q$root/$source\E is not valid UTF-8 at byte},
+			"and the message names $source" );
+	}
+};
+
 subtest 'a translation dir mirrors the default dir' => sub {
-	# WEB-LANG-5. A source of a translation dir with no namesake is
-	# a page that no other tree holds.
+	# WEB-LANGUAGE-9. A source of a translation dir with no namesake
+	# is a page that no other tree holds.
 	my %case = (
 		'man/de/extra.1' => qr{manuals de "manuals" holds man/de/extra\.1, which has no namesake in man; a translation dir mirrors the default dir},
 		'lib/de/Thing/Extra.pod' => qr{modules de "modules" holds lib/de/Thing/Extra\.pod, which has no namesake in lib/Thing},
@@ -716,38 +1012,64 @@ subtest 'a page the site no longer holds is removed' => sub {
 	ok( !-e "$out/en/tool.1.html",   'and the old one is gone' );
 };
 
-subtest 'the build removes the old flat layout and a stale tree' => sub {
-	my $root = project();
+subtest 'the build removes a stale page and keeps a dropped tree' => sub {
+	my $root = project(%DE);
 	my $out  = tempdir( CLEANUP => 1 ) . '/out';
 
 	ok( site( $root, $out )->build, 'the first build succeeds' );
 
-	# A page of the flat layout at the top level, and the tree of
-	# a language that the description no longer holds.
-	make_path("$out/de");
-	for my $stale (qw(manuals.html tool.1.html de/index.html de/404.html))
-	{
+	# A plain file at the top level, and a stale page of a declared
+	# tree, are files that a build writes, per WEB-OUTPUT-1.
+	for my $stale (qw(manuals.html de/gone.html)) {
 		open my $fh, '>', "$out/$stale" or die "Cannot write: $!";
 		print {$fh} "<h1>Stale</h1>\n";
 		close $fh;
 	}
 
 	ok( site( $root, $out )->build, 'the second build succeeds' );
-	ok( !-e "$out/$_", "$_ is gone" )
-	    for qw(manuals.html tool.1.html de/index.html de/404.html);
-	ok( !-e "$out/de",           'and so is the stale tree' );
-	ok( -e "$out/en/index.html", 'the tree of en stays' );
+	ok( !-e "$out/$_", "$_ is gone" ) for qw(manuals.html de/gone.html);
+	ok( -e "$out/de/index.html", 'the tree of de stays' );
 	ok( -e "$out/index.html",    'and so does the forward' );
+
+	# WEB-OUTPUT-4. The tree of a language that the description
+	# dropped holds the files of whoever made it. The build keeps
+	# it and reports it, and the clean refuses it.
+	open my $rc, '>', "$root/.fuguwebrc" or die "Cannot write: $!";
+	print {$rc} $RC;
+	close $rc;
+
+	my $said = '';
+	open my $saved, '>&', \*STDERR or die "Cannot save stderr: $!";
+	close STDERR;
+	open STDERR, '>', \$said or die 'Cannot capture stderr';
+
+	my $config =
+	    App::FuguWeb::Config->load( root => $root, error => \my $reason );
+	my $built =
+	    App::FuguWeb::Site->new( config => $config, out => $out )->build;
+
+	close STDERR;
+	open STDERR, '>&', $saved or die "Cannot restore stderr: $!";
+
+	ok( $built, 'a build of en alone succeeds' );
+	ok( -e "$out/de/index.html", 'and keeps the tree of de' );
+	like( $said,
+		qr{de/index\.html is in the output, and the site does not name it},
+		'and reports it' );
+	ok( !site( $root, $out )->clean, 'which the clean refuses' );
+	ok( -e "$out/en/index.html", 'and removes nothing' );
 
 	# A tree is one flat directory of pages. A deeper directory of
 	# a tree belongs to whoever made it, and the build keeps it.
-	make_path("$out/de/deep");
-	open my $fh, '>', "$out/de/deep/keep.txt" or die "Cannot write: $!";
+	$root = project();
+	$out  = tempdir( CLEANUP => 1 ) . '/out';
+	make_path("$out/en/deep");
+	open my $fh, '>', "$out/en/deep/keep.txt" or die "Cannot write: $!";
 	print {$fh} "important\n";
 	close $fh;
 
-	ok( site( $root, $out )->build, 'a third build succeeds' );
-	ok( -e "$out/de/deep/keep.txt", 'and keeps the deeper file' );
+	ok( site( $root, $out )->build, 'a build succeeds' );
+	ok( -e "$out/en/deep/keep.txt", 'and keeps the deeper file' );
 	ok( !site( $root, $out )->clean, 'which the clean refuses' );
 	ok( -e "$out/en/index.html", 'and removes nothing' );
 };
@@ -792,19 +1114,54 @@ subtest 'the build refuses an output directory it must not own' => sub {
 		'and the clean refuses it too' );
 	ok( -e "$root/web/index.body.html", 'the source is untouched' );
 
+	# WEB-OUTPUT-17. On a file system without case, WEB is the
+	# source directory web, so each refusal folds the paths.
+	ok( !site( $root, "$root/WEB" )->build,
+		'the build refuses the source directory in another case' );
+	ok( !site( $root, "$root/WEB" )->clean,
+		'and the clean refuses it too' );
+	ok( -e "$root/web/index.body.html", 'the source is untouched' );
+
 	# t/web/site.t builds the description of this repository, which
 	# names neither setting and therefore takes web/build.
 };
 
-subtest 'clean takes the trees and the staging of a build' => sub {
+subtest 'the exception reads the output directory as it stands' => sub {
+	# WEB-OUTPUT-13 and WEB-OUTPUT-17. On a file system with case,
+	# web/BUILD is a directory of the source, and not the output
+	# directory web/build. A fold of the exception would let the
+	# build own it. The skip comes before the first assertion.
+	my $probe = tempdir( CLEANUP => 1 );
+	open my $fh, '>', "$probe/case" or die "Cannot write: $!";
+	close $fh;
+	plan skip_all => 'the file system of the temporary directory has'
+	    . ' no case'
+	    if -e "$probe/CASE";
+
 	my $root = project();
+	open $fh, '>', "$root/.fuguwebrc" or die "Cannot write: $!";
+	print {$fh} $RC =~ s{^out_dir\s+= out$}{out_dir    = web/build}mr;
+	close $fh;
+
+	ok( !site( $root, "$root/web/BUILD" )->build,
+		'the build refuses the output directory in another case' );
+	ok( !-e "$root/web/BUILD", 'and makes nothing' );
+	ok( !site( $root, "$root/web/BUILD" )->clean,
+		'and the clean refuses it too' );
+	ok( site( $root, "$root/web/build" )->build,
+		'the build takes the output directory as it stands' );
+};
+
+subtest 'clean takes the trees and the staging of a build' => sub {
+	my $root = project(%DE);
 	my $out  = tempdir( CLEANUP => 1 ) . '/out';
 	ok( site( $root, $out )->build, 'the build succeeds' );
 
-	# A tree of another language and the staging of an interrupted
-	# build are both shapes that a build writes, per WEB-OUTPUT-5.
-	make_path( "$out/de", "$out/.man/en" );
-	for my $made (qw(de/index.html .man/en/tool.1)) {
+	# A stale page of a declared tree and the staging of an
+	# interrupted build are both shapes that a build writes, per
+	# WEB-OUTPUT-5.
+	make_path("$out/.man/de");
+	for my $made (qw(de/gone.html .man/de/tool.1)) {
 		open my $fh, '>', "$out/$made" or die "Cannot write: $!";
 		print {$fh} "made\n";
 		close $fh;
@@ -846,6 +1203,39 @@ subtest 'clean refuses a directory that no build made' => sub {
 
 	ok( !site( $root, $out )->clean, 'clean fails' );
 	ok( -e "$out/deep/keep.txt",     'and removes nothing' );
+};
+
+subtest 'the prune and the clean read each name as it stands' => sub {
+	# WEB-OUTPUT-17. Two names of one fold cannot both stand on a
+	# file system without case, so the test runs on a file system
+	# with case alone. The skip comes before the first assertion.
+	my $probe = tempdir( CLEANUP => 1 );
+	open my $fh, '>', "$probe/case" or die "Cannot write: $!";
+	close $fh;
+	plan skip_all => 'the file system of the temporary directory has'
+	    . ' no case'
+	    if -e "$probe/CASE";
+
+	my $root = project();
+	my $out  = tempdir( CLEANUP => 1 ) . '/out';
+	ok( site( $root, $out )->build, 'the first build succeeds' );
+
+	# EN is no tree of the language en, and STYLE.CSS is no name
+	# of the site.
+	make_path("$out/EN");
+	for my $made (qw(EN/index.html STYLE.CSS)) {
+		open my $fh, '>', "$out/$made" or die "Cannot write: $!";
+		print {$fh} "theirs\n";
+		close $fh;
+	}
+
+	ok( site( $root, $out )->build, 'the second build succeeds' );
+	ok( -e "$out/EN/index.html", 'and keeps the page of EN' );
+	ok( !-e "$out/STYLE.CSS",    'and removes STYLE.CSS' );
+	ok( -e "$out/style.css",     'and keeps the stylesheet' );
+
+	ok( !site( $root, $out )->clean, 'the clean refuses EN' );
+	ok( -e "$out/EN/index.html",     'and removes nothing' );
 };
 
 done_testing();

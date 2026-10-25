@@ -31,6 +31,7 @@ my $RENDERERS =
 
 my $RC = <<'RC';
 site       = Example
+url        = https://example.org/
 source_dir = web
 out_dir    = out
 
@@ -140,6 +141,29 @@ subtest 'init writes a starter, once' => sub {
 	my ( $exit, $out, $err ) = run( 'init', $dir );
 	is( $exit, 0, 'init succeeds' );
 	ok( -s "$dir/.fuguwebrc", 'and writes the description' );
+
+	# WEB-SITE-1 and WEB-SITE-3. The starter names the url and the
+	# footer, and it builds once the two fragments exist.
+	my $config =
+	    App::FuguWeb::Config->load( root => $dir, error => \my $reason );
+	ok( $config, 'the starter loads' ) or diag $reason;
+	is( $config->url, 'https://example.org/', 'and names a url' );
+	is( $config->default_language->footer, 'footer.body.html',
+		'and a footer' );
+
+	SKIP: {
+		skip 'a renderer is not installed', 1 unless $RENDERERS;
+
+		make_path("$dir/web");
+		for my $name (qw(index.body.html footer.body.html)) {
+			open my $fh, '>', "$dir/web/$name" or die "Cannot write: $!";
+			print {$fh} "<p>$name</p>\n";
+			close $fh;
+		}
+		( $exit, $out, $err ) = run( '--project', $dir, 'build' );
+		is( $exit, 0, 'and it builds with the two fragments' )
+		    or diag $err;
+	}
 
 	( $exit, $out, $err ) = run( 'init', $dir );
 	is( $exit, 1, 'a second init fails' );

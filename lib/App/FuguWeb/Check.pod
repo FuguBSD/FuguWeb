@@ -35,7 +35,8 @@ reports them, because the build and its checks touch no network.
 =head2 pages, generated_pages
 
 C<pages> names each page of each language tree, as
-C<< <code>/<page> >>: for each language, the pages of the description,
+C<< <path>/<page> >>, where the path is that of the tree of the
+language: for each language, the pages of the description,
 then one page for each manual of each group. C<generated_pages> names
 the human page of each key directory, which the build writes itself
 and which no block names. The pages of the top level sit outside every
@@ -70,20 +71,23 @@ title, the header link and every navigation link;
 =item *
 
 each of those links takes the form of the kind of its page:
-C<< <page> >> on a tree page, C<< ../en/<page> >> on the key page, and
-C<< en/<page> >> on the top-level copy of F<404.html>. An absolute URL
-and a fragment stay as they stand;
+C<< <page> >> on a tree page, C<< ../<tree>/<page> >> on the key page,
+and C<< <tree>/<page> >> on the top-level copy of F<404.html>, where
+the tree is the path of the default tree. An absolute URL and a
+fragment stay as they stand. A link can carry the marks of its
+language after its C<href>;
 
 =item *
 
-every page of a language tree carries the code of its tree as
-C<lang>;
+every page of a language tree carries the tag of its tree as C<lang>
+on its C<< <html> >> element, and C<dir="rtl"> when the language of the
+tree is right to left, per WEB-LANGUAGE-13;
 
 =item *
 
-the chrome of a tree page links the same page in each other language,
-as C<< <a href="../<code>/<page>" hreflang="<code>"><code></a> >>. The
-chrome of any other page, and of a site of one language, holds no
+the chrome of a tree page links the same page in the tree of each other
+language, as C<< <a href="../<path>/<page>" hreflang="<tag>"><tag></a> >>.
+The chrome of any other page, and of a site of one language, holds no
 C<hreflang>. The chrome ends where the C<< <main> >> element starts, so
 a link of the body is the writer's own;
 
@@ -126,13 +130,13 @@ C<./>;
 
 every page of a language tree is reachable from the entry page of that
 tree, except a page that the description marks C<unlinked>. The walk
-stays inside the tree;
+stays inside the tree, per WEB-LANGUAGE-13;
 
 =item *
 
 the output holds the site and nothing else, at any depth: no staging
-directory, no editor backup, no stray source, and no empty
-directory.
+directory, no editor backup, no stray source, no tree of a language
+that the description does not declare, and no empty directory.
 
 =back
 

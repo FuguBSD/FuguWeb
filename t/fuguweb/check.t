@@ -19,6 +19,7 @@ use_ok('App::FuguWeb::Config');
 
 my $RC = <<'RC';
 site       = Example
+url        = https://example.org/
 source_dir = web
 out_dir    = out
 
@@ -86,7 +87,7 @@ HTML
 <a href="https://example.org/">Elsewhere</a>
 HTML
 
-	# The forward of the top level, per WEB-LANG-8.
+	# The forward of the top level.
 	'index.html' => <<'HTML',
 <html lang="en">
 <meta http-equiv="refresh" content="0; url=en/index.html">
@@ -102,11 +103,19 @@ HTML
 #	and return a Check over it. A value of undef removes the file.
 sub built (%override)
 {
+	return built_rc( $RC, %GOOD, %override );
+}
+
+# built_rc($description, %page):
+#	Build a site of the description on disk, with the named pages,
+#	and return a Check over it. A value of undef writes no file.
+sub built_rc ( $description, %page )
+{
 	my $root = tempdir( CLEANUP => 1 );
 	make_path("$root/web");
 
 	for my $pair (
-		[ '.fuguwebrc',             $RC ],
+		[ '.fuguwebrc',             $description ],
 		[ 'web/index.body.html',    "<h1>Home</h1>\n" ],
 		[ 'web/404.body.html',      "<h1>Not found</h1>\n" ],
 		[ 'web/robots.txt',         "User-agent: *\n" ] )
@@ -138,15 +147,12 @@ PAGE
 	close $body;
 
 	my $out = "$root/out";
-	make_path("$out/en");
+	make_path($out);
 
-	my %page = ( %GOOD, %override );
 	for my $name ( sort keys %page ) {
-		unless ( defined $page{$name} ) {
-			unlink "$out/$name";
-			next;
-		}
+		next unless defined $page{$name};
 
+		make_path( "$out/$name" =~ s{/[^/]+\z}{}r );
 		open my $fh, '>', "$out/$name"
 		    or die "Cannot write $name: $!";
 		print {$fh} $page{$name};
@@ -209,8 +215,9 @@ HTML
 		'the missing entry is named' );
 };
 
-subtest 'a tree page of another language' => sub {
-	# WEB-LANG-14. A tree page carries the code of its tree.
+subtest 'a tree page carries the tag and the direction of its tree' => sub {
+	# WEB-LANGUAGE-13. The html element of a tree page carries the
+	# tag of its tree, and dir="rtl" when the tree is right to left.
 	my @problems = built( 'en/other.html' => <<'HTML' )->run;
 <html lang="sv">
 <link rel="stylesheet" href="../style.css">
@@ -220,29 +227,69 @@ subtest 'a tree page of another language' => sub {
 <a href="https://example.org/">Elsewhere</a>
 <h2 id="here">Here</h2>
 HTML
-	is_deeply( \@problems, ['en/other.html: does not carry lang="en"'],
+	is_deeply( \@problems, ['en/other.html: does not carry <html lang="en">'],
 		'the page is held to the language of its tree' );
+
+	@problems = built( 'en/other.html' =>
+		    $GOOD{'en/other.html'} =~ s{<html lang="en">}{<html lang="en" dir="rtl">}r )
+	    ->run;
+	is_deeply( \@problems, ['en/other.html: does not carry <html lang="en">'],
+		'and a tree of ltr carries no dir="rtl"' );
+
+	# The same site with the one language ar, which is right to
+	# left. Its tree is ar.
+	my %ar = map {
+		my $page = $GOOD{$_};
+		$page =~ s{<html lang="en">}{<html lang="ar" dir="rtl">};
+		$page =~ s{"en/}{"ar/}g;
+		$page =~ s{url=en/}{url=ar/};
+		( s{\Aen/}{ar/}r => $page )
+	} keys %GOOD;
+	my $rc = $RC . "\nlanguage ar {\n\tname = Arabic\n\tdir  = rtl\n}\n";
+
+	@problems = built_rc( $rc, %ar )->run;
+	is( scalar @problems, 0, 'a site of a tree of rtl gives no problem' )
+	    or diag join "\n", @problems;
+
+	@problems = built_rc( $rc, %ar,
+		'ar/other.html' => $ar{'ar/other.html'} =~ s{ dir="rtl"}{}r )->run;
+	is_deeply( \@problems,
+		['ar/other.html: does not carry <html lang="ar" dir="rtl">'],
+		'and a page of it with no dir fails' );
 };
 
 subtest 'each kind of page takes one form of the chrome' => sub {
-	# WEB-LANG-15. A tree page takes <page>, the key page
-	# ../en/<page>, and the top-level copy of the 404 page
-	# en/<page>. An absolute URL passes unchanged on each.
+	# A tree page takes <page>, the key page ../<tree>/<page>, and
+	# the top-level copy of the 404 page <tree>/<page>, where the
+	# tree is the path of the default tree. An absolute URL passes
+	# unchanged on each.
 	my %form = (
 		tree => 'index.html',
-		keys => '../en/index.html',
-		top  => 'en/index.html',
+		keys => '../zh-hans/index.html',
+		top  => 'zh-hans/index.html',
 	);
 	for my $kind ( sort keys %form ) {
-		is( App::FuguWeb::Check::_chrome( $kind, 'index.html' ),
+		is( App::FuguWeb::Check::_chrome( $kind, 'index.html', 'zh-hans' ),
 			$form{$kind}, "the form of a $kind page" );
-		is( App::FuguWeb::Check::_chrome( $kind, 'https://example.org/' ),
+		is(
+			App::FuguWeb::Check::_chrome(
+				$kind, 'https://example.org/', 'zh-hans'
+			),
 			'https://example.org/',
-			"and an absolute URL of a $kind page" );
+			"and an absolute URL of a $kind page"
+		);
 	}
 
+	# A link of the chrome can carry the marks of WEB-LANGUAGE-11
+	# after its href.
+	my @problems = built( 'en/other.html' =>
+		    $GOOD{'en/other.html'} =~ s{<header><a href="index\.html">}{<header><a href="index.html" lang="de">}r )
+	    ->run;
+	is( scalar @problems, 0, 'a site link with marks gives no problem' )
+	    or diag join "\n", @problems;
+
 	# A tree page that links the default tree from outside it.
-	my @problems = built( 'en/other.html' => <<'HTML' )->run;
+	@problems = built( 'en/other.html' => <<'HTML' )->run;
 <html lang="en">
 <link rel="stylesheet" href="../style.css">
 <header><a href="../en/index.html">Example</a></header>
@@ -289,8 +336,8 @@ qr{^404\.html: does not carry the navigation entry https://example\.org/}m,
 };
 
 subtest 'a language link that the site does not hold' => sub {
-	# WEB-LANG-7. A site of one language carries no language link.
-	# The site of two languages is in site.t, which builds it.
+	# A site of one language carries no language link. The site of
+	# several languages is in site.t, which builds it.
 	my @problems = built( 'en/other.html' => $GOOD{'en/other.html'}
 		    . qq{<a href="../de/other.html" hreflang="de">de</a>\n} )->run;
 	like(
@@ -310,8 +357,8 @@ qr{^en/other\.html: carries 1 language links, and the page takes 0$}m,
 };
 
 subtest 'the base href is the one root-absolute href' => sub {
-	# WEB-LANG-15. The top-level copy of the 404 page carries the
-	# base, and no other page and no other href may be rooted.
+	# The top-level copy of the 404 page carries the base, and no
+	# other page and no other href may be rooted.
 	my @problems = built( '404.html' => <<'HTML' )->run;
 <html lang="en">
 <title>Not found &#8212; Example</title>
@@ -343,7 +390,7 @@ HTML
 };
 
 subtest 'the forward takes one shape' => sub {
-	# WEB-LANG-8. A meta refresh, one link, and nothing loaded.
+	# A meta refresh, one link, and nothing loaded.
 	my @problems = built( 'index.html' => <<'HTML' )->run;
 <html lang="en">
 <title>Example</title>
@@ -472,9 +519,10 @@ HTML
 	unlike( $joined, qr{404\.html: no page links to it},
 		'a page marked unlinked is not reported' );
 
-	# WEB-LANG-14. The walk starts at the entry page of the tree,
-	# and never at a page of the top level. A link of the forward
-	# or of the copy of the 404 page reaches no page of the tree.
+	# WEB-LANGUAGE-13. The walk starts at the entry page of the
+	# tree, and never at a page of the top level. A link of the
+	# forward or of the copy of the 404 page reaches no page of the
+	# tree.
 	@problems = built(
 		'en/index.html' => $TREE . <<'HTML',
 <title>Home &#8212; Example</title>
@@ -536,10 +584,16 @@ subtest 'a stray file in the output' => sub {
 		qr{index\.html~: in the output but not in the site},
 		'the stray file is named' );
 
-	# A page of the old flat layout is a stray file of the new one.
+	# A page at the top level that the site does not name.
 	@problems = built( 'other.html' => $GOOD{'en/other.html'} )->run;
 	is_deeply( \@problems, ['other.html: in the output but not in the site'],
 		'a page at the top level is named' );
+
+	# WEB-OUTPUT-4. The tree of a language that the description
+	# does not declare is no tree of the site.
+	@problems = built( 'de/index.html' => $GOOD{'en/index.html'} )->run;
+	is_deeply( \@problems, ['de/index.html: in the output but not in the site'],
+		'a tree of no declared language is named' );
 };
 
 done_testing();

@@ -1,8 +1,9 @@
 #!/usr/bin/env perl
 # ex:ts=8 sw=4:
-# App::FuguWeb::Page: the chrome of each kind of page, the two byte
-# separators, the escaping, the optional footer fragment of each
-# language, the language links, and the language of the body.
+# App::FuguWeb::Page: the chrome of each kind of page, the two
+# separators, the escaping, the optional footer fragment, the language
+# links, the lang and the dir of each page, and the marks of each part
+# of another language.
 #
 # The test builds each site in a File::Temp directory. It never reads
 # the repository, so a change to web/ cannot break it.
@@ -65,6 +66,7 @@ sub render ( $page, $title, $fragment, %page )
 
 my $RC = <<'RC';
 site = Example
+url  = https://example.org/
 
 nav "index.html" {
 	label = Home
@@ -106,10 +108,38 @@ HTML
 
 	is( $html, $expected, 'the page is byte for byte the chrome' );
 
-	$page = App::FuguWeb::Page->new( config => site($RC), lang => 'sv' );
+	# WEB-LANGUAGE-10. The html element carries the tag of the tree,
+	# and dir="rtl" for a language that is right to left.
+	my $config = site( $RC . <<'RC' );
+
+language en {
+	name = English
+}
+
+language sv {
+	name = Svenska
+}
+
+language ar {
+	name = Arabic
+	dir  = rtl
+}
+RC
+	$page = App::FuguWeb::Page->new(
+		config   => $config,
+		language => $config->language('sv')
+	);
 	like( render( $page, 'Install', '', name => 'install.html' ),
-		qr/<html lang="sv">/,
-		'the html element carries the code of the tree' );
+		qr/<html lang="sv">\n/,
+		'the html element carries the tag of the tree' );
+
+	$page = App::FuguWeb::Page->new(
+		config   => $config,
+		language => $config->language('ar')
+	);
+	like( render( $page, 'Install', '', name => 'install.html' ),
+		qr/<html lang="ar" dir="rtl">\n/,
+		'and dir="rtl" for a tree that is right to left' );
 };
 
 subtest 'the whole chrome of the key page, in order' => sub {
@@ -117,7 +147,7 @@ subtest 'the whole chrome of the key page, in order' => sub {
 	my $html = render( $page, 'Keys', "<h1>Keys</h1>\n" );
 
 	# The key page sits one directory below the top level, and
-	# links the default tree, per WEB-LANG-11.
+	# links the default tree.
 	my $expected = <<"HTML";
 <!DOCTYPE html>
 <html lang="en">
@@ -144,12 +174,74 @@ HTML
 	is( $html, $expected, 'the page is byte for byte the chrome' );
 };
 
+subtest 'the key page is a page of en' => sub {
+	# WEB-CHROME-8. The chrome takes the words of the default
+	# language, and each part of it carries the marks of that
+	# language when it is not en.
+	my $config = site( <<"RC" );
+site = Example
+url  = https://example.org/
+
+language zh-Hans {
+	name = \xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87
+	site = \xe7\xa4\xba\xe4\xbe\x8b
+}
+
+language en {
+	name = English
+}
+
+nav "index.html" {
+	label = \xe9\xa6\x96\xe9\xa1\xb5
+}
+RC
+	my $page = App::FuguWeb::Page->new( config => $config, kind => 'keys' );
+	my $html = render( $page, 'Keys', "<h1>Keys</h1>\n" );
+
+	like( $html, qr{<html lang="en">\n}, 'the page is a page of en' );
+	like(
+		$html,
+qr{<header><a href="\.\./zh-hans/index\.html" lang="zh-Hans">\xe7\xa4\xba\xe4\xbe\x8b</a></header>},
+		'its site link goes into the default tree, with its marks'
+	);
+	like(
+		$html,
+		qr{<a href="\.\./zh-hans/index\.html" lang="zh-Hans">\xe9\xa6\x96\xe9\xa1\xb5</a>},
+		'and so does each nav link'
+	);
+	like( $html, qr{<main>\n<h1>Keys</h1>}, 'the body of en takes none' );
+
+	# A default language that is right to left gives each mark its
+	# direction too.
+	$config = site( <<'RC' );
+site = Example
+url  = https://example.org/
+
+language ar {
+	name = Arabic
+	dir  = rtl
+}
+
+nav "index.html" {
+	label = Home
+}
+RC
+	$page = App::FuguWeb::Page->new( config => $config, kind => 'keys' );
+	$html = render( $page, 'Keys', '' );
+	like( $html, qr{<html lang="en">\n}, 'a page of en, left to right' );
+	like( $html,
+		qr{<header><a href="\.\./ar/index\.html" lang="ar" dir="rtl">},
+		'with the marks of ar on the site link' );
+	like( $html, qr{<a href="\.\./ar/index\.html" lang="ar" dir="rtl">Home},
+		'and on each nav link' );
+};
+
 subtest 'the whole chrome of the top-level 404 page, in order' => sub {
 	my $page = App::FuguWeb::Page->new( config => site($RC), kind => 'top' );
 	my $html = render( $page, 'Not found', "<h1>Not found</h1>\n" );
 
 	# The host serves the copy at any path. The base makes each
-	# relative link resolve from the root, per WEB-LANG-9.
+	# relative link resolve from the root.
 	my $expected = <<"HTML";
 <!DOCTYPE html>
 <html lang="en">
@@ -180,14 +272,15 @@ HTML
 subtest 'an absolute URL passes unchanged' => sub {
 	my $config = site( <<'RC' );
 site = Example
+url  = https://example.org/
 
 nav "https://example.org/" {
 	label = Away
 }
 RC
 
-	# WEB-LANG-15. A step in front of it would name a page that the
-	# site does not hold.
+	# A step in front of it would name a page that the site does not
+	# hold.
 	for my $kind (qw(tree keys top)) {
 		my $page = App::FuguWeb::Page->new( config => $config, kind => $kind );
 		like( render( $page, 'Install', '' ),
@@ -202,11 +295,9 @@ subtest 'an unknown kind of page is a programming error' => sub {
 	like( $@, qr/unknown kind of page: x/, 'and names the kind' );
 };
 
-subtest 'the two separators are the UTF-8 bytes' => sub {
-	is( App::FuguWeb::Page::EM_DASH(),    "\xe2\x80\x94",
-		'the em dash' );
-	is( App::FuguWeb::Page::MIDDLE_DOT(), "\xc2\xb7",
-		'the middle dot' );
+subtest 'the two separators reach the page as UTF-8' => sub {
+	is( App::FuguWeb::Page::EM_DASH(),    "\x{2014}", 'the em dash' );
+	is( App::FuguWeb::Page::MIDDLE_DOT(), "\x{b7}",   'the middle dot' );
 
 	my $page = App::FuguWeb::Page->new( config => site($RC) );
 	my $html = render( $page, 'Install', '' );
@@ -222,6 +313,7 @@ subtest 'the two separators are the UTF-8 bytes' => sub {
 subtest 'the title and the labels are escaped' => sub {
 	my $config = site( <<'RC' );
 site = A & B
+url  = https://example.org/
 
 nav "index.html" {
 	label = <Home>
@@ -246,6 +338,7 @@ RC
 subtest 'a value that reaches an attribute is escaped' => sub {
 	my $config = site( <<'RC' );
 site  = Example
+url   = https://example.org/
 entry = index.html?a&b" onload="x
 
 nav "search.html?q=1&r=2" {
@@ -273,67 +366,79 @@ subtest 'the footer fragment is optional' => sub {
 	unlike( $html, qr/<footer>/, 'no fragment, no footer element' );
 	like( $html, qr/<\/main>\n<\/body>/, 'and no rule before one' );
 
-	my $config = site( $RC, 'footer.body.html' => "<p>ISC.</p>\n" );
-	$page = App::FuguWeb::Page->new( config => $config );
+	my $config = site($RC);
+	$page = App::FuguWeb::Page->new(
+		config => $config,
+		footer => "<p>ISC.</p>\n"
+	);
 	$html = render( $page, 'Install', '' );
 	like( $html, qr{</main>\n<hr>\n<footer>\n<p>ISC\.</p>\n</footer>\n},
 		'the fragment becomes the footer of a tree page' );
 
-	# WEB-LANG-12. A relative link of the fragment resolves inside
-	# a tree, and nowhere else.
+	# WEB-KEYS-32. A relative link of the fragment resolves inside a
+	# tree, and nowhere else.
 	for my $kind (qw(keys top)) {
-		$page = App::FuguWeb::Page->new( config => $config, kind => $kind );
+		$page = App::FuguWeb::Page->new(
+			config => $config,
+			kind   => $kind,
+			footer => "<p>ISC.</p>\n"
+		);
 		unlike( render( $page, 'Install', '' ), qr/<footer>/,
 			"a $kind page carries no footer" );
 	}
 };
 
-# The description of a site of three languages. Each nav translation
-# adds its language.
-my $LANGUAGES = $RC . <<'RC';
+# The description of a site of three languages. The tree of zh-Hans
+# takes the path zh-hans, and the language ar is right to left.
+my $LANGUAGES = $RC . <<"RC";
 
-nav de "index.html" {
-	label = Start
+language en {
+	name = English
 }
 
-nav fr "manuals.html" {
-	label = Manuels
+language zh-Hans {
+	name   = \xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87
+	site   = \xe7\xa4\xba\xe4\xbe\x8b
+	footer = zh-hans/footer.body.html
+}
+
+language ar {
+	name = Arabic
+	dir  = rtl
+}
+
+nav zh-Hans "index.html" {
+	label = \xe9\xa6\x96\xe9\xa1\xb5
 }
 RC
 
 subtest 'a tree page links the same page in each other language' => sub {
 	my $config = site($LANGUAGES);
 
-	# WEB-LANG-7. The code is the text and the hreflang of each
-	# link, and the links follow the nav entries in one row.
+	# The tag is the text and the hreflang of each link, and the
+	# link goes to the tree of the language. The links follow the
+	# nav entries in one row.
 	my $page = App::FuguWeb::Page->new( config => $config );
 	like( render( $page, 'Install', '', name => 'install.html' ),
 		qr{<nav>
 <a href="index\.html">Home</a> \xc2\xb7
 <a href="manuals\.html">Manuals</a> \xc2\xb7
-<a href="\.\./de/install\.html" hreflang="de">de</a> \xc2\xb7
-<a href="\.\./fr/install\.html" hreflang="fr">fr</a>
+<a href="\.\./zh-hans/install\.html" hreflang="zh-Hans">zh-Hans</a> \xc2\xb7
+<a href="\.\./ar/install\.html" hreflang="ar">ar</a>
 </nav>
-}, 'a page of en links de and fr' );
-
-	$page = App::FuguWeb::Page->new( config => $config, lang => 'de' );
-	like( render( $page, 'Install', '', name => 'install.html' ),
-		qr{<nav>
-<a href="index\.html">Start</a> \xc2\xb7
-<a href="manuals\.html">Manuals</a> \xc2\xb7
-<a href="\.\./en/install\.html" hreflang="en">en</a> \xc2\xb7
-<a href="\.\./fr/install\.html" hreflang="fr">fr</a>
-</nav>
-}, 'a page of de takes its own labels, and links en and fr' );
+}, 'a page of en links zh-Hans and ar' );
 
 	# A module page holds a colon in its name, and the step in
 	# front of it keeps the link from reading as a scheme.
+	$page = App::FuguWeb::Page->new(
+		config   => $config,
+		language => $config->language('zh-Hans')
+	);
 	like( render( $page, 'Thing', '', name => 'App::Thing.3p.html' ),
 		qr{<a href="\.\./en/App::Thing\.3p\.html" hreflang="en">en</a>},
 		'the link names the page as the tree names it' );
 
-	# WEB-LANG-11 and WEB-LANG-12. A page outside every tree
-	# carries no language link.
+	# A page outside every tree carries no language link.
 	for my $kind (qw(keys top)) {
 		$page = App::FuguWeb::Page->new( config => $config, kind => $kind );
 		unlike( render( $page, 'Keys', '' ), qr/hreflang/,
@@ -352,55 +457,71 @@ subtest 'a tree page links the same page in each other language' => sub {
 		'a site of one language links no other' );
 };
 
-subtest 'a body of another language carries its code' => sub {
+subtest 'each part of another language carries its marks' => sub {
 	my $config = site($LANGUAGES);
 
-	# WEB-LANG-6. The element that holds the body carries the
-	# language of a body that the default source gave.
-	my $page = App::FuguWeb::Page->new( config => $config, lang => 'de' );
-	like(
-		render(
-			$page, 'Install', "<p>Words.</p>\n",
-			name      => 'install.html',
-			body_lang => 'en'
-		),
-		qr{<hr>\n<main lang="en">\n<p>Words\.</p>\n</main>\n},
-		'a page of de with a body of en'
+	# WEB-LANGUAGE-11. A page of zh-Hans takes its own site name and
+	# its own label, and the default label of the other entry.
+	my $page = App::FuguWeb::Page->new(
+		config   => $config,
+		language => $config->language('zh-Hans'),
+		footer   => "<p>ISC.</p>\n",
 	);
+	my $html = render(
+		$page, 'Install', "<p>Words.</p>\n",
+		name      => 'install.html',
+		body_lang => 'en'
+	);
+	like( $html, qr{<html lang="zh-Hans">\n}, 'a page of zh-Hans' );
+	like(
+		$html,
+		qr{<header><a href="index\.html">\xe7\xa4\xba\xe4\xbe\x8b</a></header>},
+		'its own site name takes no mark'
+	);
+	like( $html, qr{<a href="index\.html">\xe9\xa6\x96\xe9\xa1\xb5</a>},
+		'nor does its own label' );
+	like( $html, qr{<a href="manuals\.html" lang="en">Manuals</a>},
+		'a label of en carries lang="en"' );
+	like( $html, qr{<hr>\n<main lang="en">\n<p>Words\.</p>\n</main>\n},
+		'and so does a body of en' );
+	like( $html, qr{<footer>\n<p>ISC\.</p>\n</footer>},
+		'the footer of zh-Hans takes no mark' );
+
+	# A page of ar takes each value of en. Each mark carries the
+	# direction too, because the two directions differ.
+	$page = App::FuguWeb::Page->new(
+		config   => $config,
+		language => $config->language('ar'),
+		footer   => "<p>ISC.</p>\n",
+	);
+	$html = render(
+		$page, 'Install', "<p>Words.</p>\n",
+		name      => 'install.html',
+		body_lang => 'en'
+	);
+	like( $html, qr{<html lang="ar" dir="rtl">\n}, 'a page of ar' );
+	like(
+		$html,
+		qr{<header><a href="index\.html" lang="en" dir="ltr">Example</a></header>},
+		'the site link carries the marks of en'
+	);
+	like( $html, qr{<a href="index\.html" lang="en" dir="ltr">Home</a>},
+		'and so does each nav link' );
+	like( $html, qr{<main lang="en" dir="ltr">\n}, 'and the body' );
+	like( $html, qr{<footer lang="en" dir="ltr">\n<p>ISC\.</p>\n</footer>},
+		'and the footer' );
+
 	like(
 		render(
 			$page, 'Install', '',
 			name      => 'install.html',
-			body_lang => 'de'
+			body_lang => 'ar'
 		),
 		qr{<hr>\n<main>\n},
-		'a page of de with a body of de carries no marker'
+		'a body of ar carries no mark'
 	);
 	like( render( $page, 'Install', '', name => 'install.html' ),
 		qr{<hr>\n<main>\n}, 'and the body takes the language of the page' );
-};
-
-subtest 'each language takes its own footer' => sub {
-	my $config = site(
-		$LANGUAGES,
-		'footer.body.html'    => "<p>ISC.</p>\n",
-		'de/footer.body.html' => "<p>ISC-Lizenz.</p>\n",
-	);
-
-	# WEB-LANG-12. A language without a fragment of its own takes
-	# the default one.
-	my %footer = (
-		en => '<p>ISC.</p>',
-		de => '<p>ISC-Lizenz.</p>',
-		fr => '<p>ISC.</p>',
-	);
-	for my $code ( sort keys %footer ) {
-		my $page =
-		    App::FuguWeb::Page->new( config => $config, lang => $code );
-		like( render( $page, 'Install', '', name => 'install.html' ),
-			qr{<footer>\n\Q$footer{$code}\E\n</footer>},
-			"a page of $code takes $footer{$code}" );
-	}
 };
 
 done_testing();

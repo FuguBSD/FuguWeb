@@ -28,9 +28,10 @@ holds the words of one other language, per WEB-LANGUAGE.
   of the site root. The value must start with `https://` or `http://`, and it
   must end in a solidus.
 - **WEB-SITE-2** — The description must take a `site`, which is the name of the
-  site in the default language.
-- **WEB-SITE-3** — The description can take a `footer`, which names the footer
-  fragment of the default language below the source directory.
+  site in each language whose block names none, per WEB-LANGUAGE-3.
+- **WEB-SITE-3** — The description can take a `footer`, which names a footer
+  fragment below the source directory. The fragment is the footer of each
+  language whose block names none, per WEB-LANGUAGE-3.
 - **WEB-SITE-4** — The renderer must reject a block type and a setting that
   fuguweb(1) does not document. The message must name the block and the word.
 - **WEB-SITE-5** — The description, each source and each output of a renderer
@@ -84,9 +85,10 @@ default language.
   of a group block can take `heading` and `dir`. The renderer must reject any
   other setting on a translation.
 - **WEB-LANGUAGE-8** — A tree page of a language must take each value from its
-  translation, and from the default block when the translation holds none. The
-  `site`, the `footer`, each nav label and each group heading follow the same
-  rule.
+  translation, and from the default block when the translation holds none. Each
+  nav label and each group heading follow the same rule. The `site` and the
+  `footer` follow it too: the language block is their translation, and the
+  description is their default block.
 - **WEB-LANGUAGE-9** — A manual of a language must come from the `dir` of the
   translation. It must come from the default `dir` when the translation holds no
   file of that name. A translation `dir` must mirror the default `dir`, so the
@@ -422,8 +424,9 @@ manifest parser. The renderer holds the wiring only.
   and each key directory must write into it. The file must hold the binary form
   of each OpenPGP key of that address, across every directory, in publication
   order. The order must come from the keys, and never from the directory that
-  holds them. The policy file must name the site, and no `org` word. One site
-  serves one such file, and each directory writes the same bytes there.
+  holds them. The policy file must name the site in the default language, per
+  WEB-LANGUAGE-3, and no `org` word. One site serves one such file, and each
+  directory writes the same bytes there.
 - **WEB-KEYS-28** — An address whose keys are all `retired` must serve no file.
   A reader of that file encrypts a message with the key that it holds. The rule
   must read the address across every key directory of the site.
@@ -924,3 +927,19 @@ build keeps it and the clean refuses the tree.
   own defeats this one alone.
 - **WEB-OUTPUT-16** — The stylesheet, each asset, each key directory and the
   well-known tree must sit at the top level, outside every tree.
+- **WEB-OUTPUT-17** — A test that refuses a name, a target or a link because it
+  meets another name must compare the folds of the two. The fold is the NFD form
+  of Unicode, the canonical decomposition, and then the full case fold. A file
+  system without case, such as APFS on Darwin, keeps two names of one fold as
+  one entry. These are the tests of WEB-KEYS-1, WEB-KEYS-29, WEB-KEYS-30,
+  WEB-KEYS-34 and WEB-OUTPUT-8, and the refusals of WEB-OUTPUT-13. The renderer
+  must also refuse two `page` blocks whose names have one fold. It must refuse
+  two manuals whose pages have one fold, and a manual and a `page` block whose
+  pages have one fold. Each other test must compare the names as they stand, so
+  a fold can only make a test refuse more. The exception of WEB-OUTPUT-13 is
+  such a test. So is each test of the prune and the clean that decides which
+  entry the build owns. A fold there would let the build own more. The fold
+  reads the Unicode version of its Perl. A file system of an earlier version
+  joins fewer pairs, so a test refuses more, which is safe. A file system of a
+  later version can fold a character that the Perl does not know, and a test
+  then misses that pair.

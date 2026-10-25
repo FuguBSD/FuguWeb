@@ -23,8 +23,10 @@ for C<mandoc> to finish. Each one is a mature program that reads a
 format this project already writes; a Perl reimplementation would be a
 second, worse one.
 
-Every method returns the output as bytes, or C<undef> with a message in
-the log.
+Every method returns the output as characters, or C<undef> with a
+message in the log. Each output goes through L<App::FuguWeb/decode>,
+per WEB-SITE-5. An output that is not UTF-8 fails, and the message
+names the renderer and the source.
 
 =head1 METHODS
 
@@ -88,6 +90,10 @@ chrome as a hand-written manual.
 C<$date> comes from the caller and never from the file time: git does not
 preserve file times, so a build that read one would give different bytes
 on every checkout. L<App::FuguWeb::Site/pod_date> supplies it.
+
+C<--utf8> makes C<pod2man> write each character as UTF-8, per
+WEB-SITE-5. Without it, podlators 4.14 of perl 5.36 writes C<X> or a
+roff escape for each character outside ASCII.
 
 C<pod2man> reports a malformed directive on standard error and still
 writes the page. The page is what the site needs, so a diagnostic is a
