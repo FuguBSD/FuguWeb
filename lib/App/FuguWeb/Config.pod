@@ -311,6 +311,13 @@ The C<pod2man> C<--center> and C<--release> values are not settings.
 They are constants of L<App::FuguWeb::Render>: they pin the C<pod2man>
 output so the site does not vary with the build host.
 
+=head2 url_path
+
+The path of the C<url>: the part after the host, which starts and ends
+with a solidus. A page of the top level carries it as its C<base>, per
+WEB-TOP-3, and the check takes that C<base> as the one root-absolute
+href, per WEB-LINKS-4.
+
 =head2 nav
 
     my @nav = $config->nav('de');

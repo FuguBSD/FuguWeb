@@ -1,6 +1,6 @@
 =head1 NAME
 
-App::FuguWeb::Page - the shared chrome around one body fragment
+App::FuguWeb::Page - the one chrome around one body fragment
 
 =head1 SYNOPSIS
 
@@ -11,15 +11,27 @@ App::FuguWeb::Page - the shared chrome around one body fragment
         language => $config->language('zh-Hans'),
         footer   => $footer);
 
-    $page->write("$out/zh-hans/install.html", 'Install', $fragment,
-        name => 'install.html');
+    $page->write($out, 'zh-hans/install.html', 'Install', $fragment);
+
+    my $link = App::FuguWeb::Page::relative('keys/index.html',
+        'en/index.html');    # ../en/index.html
 
 =head1 DESCRIPTION
 
 Every source format is reduced to one HTML body fragment, and this
-class wraps it: the head, the header, the navigation, the fragment, and
-the footer. The layout is fixed. What a project decides is the site
-name, the languages, the navigation, and the footer prose.
+class wraps it in the chrome of WEB-CHROME: the head, the header, the
+navigation, the fragment, and the footer. The layout is fixed. What a
+project decides is the site name, the languages, the navigation, and
+the footer prose.
+
+A page takes its path below the site root. L</relative> makes each link
+of the chrome from that path, per WEB-LINKS-1. The place of the path
+decides the rest of the chrome:
+
+    the path                  the page
+    <tree>/<page>             a tree page of the language of the tree
+    <page>                    a page of the top level, such as 404.html
+    <dir>/index.html          the human page of a key directory
 
 The class builds the document as characters, with string operations,
 not with a substitution over a template. A title may therefore hold any
@@ -27,12 +39,29 @@ character, including the slash and the ampersand that a C<sed> template
 could not take. The write encodes the document to UTF-8, per
 WEB-SITE-5.
 
-Two separators are not ASCII: an em dash between the page title and the
-site name, and a middle dot between navigation entries. Both are
-character constants, and the encode writes their bytes.
+The em dash between the page title and the site name is not ASCII. It
+is the character constant C<EM_DASH>, and the encode writes its bytes.
+The chrome holds no other separator, no C<< <hr> >> and no class, per
+WEB-CHROME-5 and D-04. The sheet draws each rule and each separator.
 
-The title, the site name and every navigation label go through
-L<App::FuguWeb/escape_html>.
+The title, the site name, the name of each language and every
+navigation label go through L<App::FuguWeb/escape_html>.
+
+=head1 FUNCTIONS
+
+=head2 relative
+
+    my $link = App::FuguWeb::Page::relative($from, $to);
+
+The link from the page at the path C<$from> to the file at the path
+C<$to>, per WEB-LINKS-1. Each path names a file below the site root.
+The link steps up out of each directory of C<$from> that C<$to> does
+not share, then down into C<$to>. A query or a fragment of C<$to> stays
+at the end of the link.
+
+A browser reads a link whose first segment holds a colon as a URL
+scheme. Such a link takes F<./> in front of it, so the link to
+F<Fugu::Daemon.3p.html> from its own tree is F<./Fugu::Daemon.3p.html>.
 
 =head1 METHODS
 
@@ -40,61 +69,37 @@ L<App::FuguWeb/escape_html>.
 
     App::FuguWeb::Page->new(config => $config, language => $language,
         footer => $html)
-    App::FuguWeb::Page->new(config => $config, kind => 'keys')
-    App::FuguWeb::Page->new(config => $config, kind => 'top')
 
 C<config> is an L<App::FuguWeb::Config> and is required.
 
-C<language> is the L<App::FuguWeb::Language> of a tree page, and it
-defaults to the default language of the site. The chrome takes the site
-name and the navigation labels of that language.
+C<language> is the L<App::FuguWeb::Language> of the tree whose words the
+chrome takes, and it defaults to the default language of the site. A
+page of the top level and the key page take the default language.
 
 C<footer> is the footer fragment of that language, as characters.
 L<App::FuguWeb::Site> reads it, and a tree page carries it. A page
 without one carries no footer.
 
-C<kind> is the kind of the page, and it decides the form of each
-relative link of the chrome. An absolute URL and a fragment stay as
-they stand. The tree below is the path of the default tree.
-
-    kind    the page                        a link          the sheet
-    tree    <path>/<page>                   <page>          ../style.css
-    keys    <dir>/index.html, the key page  ../<tree>/<page> ../style.css
-    top     404.html at the top level       <tree>/<page>   style.css
-
-A tree page names each page of its own tree. The key page and the
-top-level copy of the 404 page link the default tree, and their chrome
-takes the words of the default language. The C<top> page also carries
-C<< <base href="/"> >>. A host serves it at each path that no file
-answers, and the base makes each relative link resolve from the root of
-the origin.
-
-The constructor dies for an unknown kind.
-
 =head2 write
 
-    $page->write($path, $title, $fragment, %page)
+    $page->write($out, $path, $title, $fragment, %page)
 
-Write the whole page with L<Fugu::File>: the chrome around the
-fragment, encoded to UTF-8. The fragment goes in unchanged: it is
-already HTML, from a renderer or from the project's own source
+Write the whole page to F<< $out/$path >> with L<Fugu::File>: the chrome
+around the fragment, encoded to UTF-8. The fragment goes in unchanged:
+it is already HTML, from a renderer or from the project's own source
 directory. The method returns true on success, and C<undef> with a
 message in the log otherwise. The page arguments are those of
 L</document>.
 
 =head2 document
 
-    $page->document($title, $fragment,
-        name      => 'install.html',
-        body_lang => 'en')
+    $page->document($path, $title, $fragment, body_lang => 'en')
 
-The whole page as characters. A caller that writes the file itself, or
-that holds the page beside other generated bytes, reads the document
-here and never repeats the chrome.
-
-C<name> is the name of the page in its tree. A tree page of a site of
-more than one language links the same page in each other language, so
-it needs the name, and the method dies without it.
+The whole page at the path below the site root, as characters. A caller
+that writes the file itself, or that holds the page beside other
+generated bytes, reads the document here and never repeats the chrome.
+The method dies for a path of more than two segments, because no page
+of the site sits there.
 
 C<body_lang> is the tag of the language of the fragment, and it
 defaults to the language of the page. A fragment of another language
@@ -104,13 +109,92 @@ one language, so L<App::FuguWeb::Site> passes the language of the tree
 for it. L<App::FuguWeb::Index/body> marks each part of another
 language.
 
+=head1 THE TREE PAGE
+
+A tree page takes the whole chrome, per WEB-CHROME-1 to WEB-CHROME-7:
+
+    <head>
+    <meta charset="utf-8">
+    <meta name="viewport" ...>
+    <title>...</title>
+    <link rel="canonical" href="https://example.org/en/install.html">
+    <link rel="alternate" hreflang="en" href="https://example.org/en/install.html">
+    <link rel="alternate" hreflang="de" href="https://example.org/de/install.html">
+    <link rel="alternate" hreflang="x-default" href="https://example.org/">
+    <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+    <header>
+    <a href="index.html">Example</a>
+    <ul>
+    <li><a href="install.html" hreflang="en" lang="en" aria-current="page">English</a></li>
+    <li><a href="../de/install.html" hreflang="de" lang="de">Deutsch</a></li>
+    </ul>
+    </header>
+    <nav>
+    <ul>
+    <li><a href="index.html">Home</a></li>
+    <li><a href="install.html" aria-current="page">Install</a></li>
+    </ul>
+    </nav>
+    <main>
+    ...
+    </main>
+    <footer>
+    ...
+    </footer>
+
+The title is the page title, an em dash, and the site name of the
+language. The head names the page itself, the same page in each
+language, and the forward page, per WEB-CHROME-6. Each href is the
+C<url> of the description, then the path of the target page. The
+forward page is the bare C<url>.
+
+The header links the entry page of the tree, with the site name of the
+language as its text. On a site of more than one language, the list of
+the languages follows it, in the order of the declaration. Each link
+goes to the same page in that language. Its text is the C<name> of the
+language, and the tag is its C<lang> and its C<hreflang>. A language of
+another direction than the page also gives its C<dir>. The link of the
+language of the page carries C<aria-current="page">.
+
+The C<nav> holds one list of the C<nav> entries of the tree, in the
+order of the description. A relative href names a page of the tree, and
+the link goes from the page to that page. An absolute URL and a
+root-absolute path pass unchanged, per WEB-LINKS-2. The entry whose
+href names the page carries C<aria-current="page">, with or without the
+F<./> in front of it. A description with no C<nav> entry gives no
+C<nav>.
+
+=head1 THE KEY PAGE
+
+The human page of a key directory, F<< <dir>/index.html >>, is a page of
+C<en>, because its own words are English, per WEB-CHROME-8. Its head
+holds the charset, the viewport, the title and the stylesheet link. The
+title is the English page title alone, so it holds the words of one
+language. The head names no page of WEB-CHROME-6.
+
+The header holds the site link alone, to the entry page of the default
+tree. The C<nav> holds the entries of the default tree, and no entry is
+the current one. Each link of the chrome steps out of the key
+directory, as in F<../en/index.html>. The page carries no footer.
+
+=head1 THE PAGE OF THE TOP LEVEL
+
+A page of the top level is a page of the default language, and its
+chrome links the default tree, as in F<en/index.html>. Its head holds a
+C<< <base> >> before the title, and its href is
+L<App::FuguWeb::Config/url_path>. A host serves the copy of F<404.html>
+at each path that no file answers, and the base makes each relative link
+of the page resolve from the site root. The head names no page of
+WEB-CHROME-6, and the page carries no list of the languages and no
+footer.
+
 =head1 THE LANGUAGE OF EACH PART
 
 The C<< <html> >> element of a page carries the tag of its language as
 C<lang>, and C<dir="rtl"> when that language is right to left, per
-WEB-LANGUAGE-10. A tree page is a page of its language, and the copy of
-the 404 page a page of the default language. The key page is a page of
-C<en>, because its own words are English, per WEB-CHROME-8.
+WEB-LANGUAGE-10.
 
 A part of the chrome whose text comes from another language than the
 page carries the marks of that language, per WEB-LANGUAGE-11: the tag
@@ -121,31 +205,19 @@ C<< <footer> >>.
 
     <a href="manuals.html" lang="en" dir="ltr">Manuals</a>
 
-=head1 THE LANGUAGE LINKS
-
-A tree page links the same page in the tree of each other language of
-the site. The links follow the navigation entries, in the order of
-L<App::FuguWeb::Config/languages>:
-
-    <a href="../zh-hans/install.html" hreflang="zh-Hans">zh-Hans</a>
-
-The tag is the text and the C<hreflang> of each link, and the path of
-the tree is the tag in lowercase. A site of one language carries no
-such link, and neither does a page of another kind.
-
 =head1 THE OPTIONAL FOOTER
 
 The C<footer> setting of the description names the footer fragment, and
 a C<language> block can name the fragment of its language. A project
-without one gets no C<< <footer> >> element and no rule before one: an
-empty footer is a gap, not chrome.
+without one gets no C<< <footer> >> element: an empty footer is a gap,
+not chrome.
 
-A tree page carries the footer, and a page of another kind carries
-none, per WEB-KEYS-32. The prose is the project's own, and this class
-copies it in unchanged. A relative link inside it resolves against the
-directory of the page. Inside a tree it names a page of that tree. On
-the key page it would name a file of the key directory, and on the
-top-level copy of the 404 page a file of the root. The writer of the
+A tree page carries the footer, and no other page does, per
+WEB-CHROME-7 and WEB-KEYS-32. The prose is the project's own, and this
+class copies it in unchanged. A relative link inside it resolves
+against the directory of the page. Inside a tree it names a page of
+that tree. On the key page it would name a file of the key directory,
+and on a page of the top level a file of the root. The writer of the
 fragment named neither.
 
 =head1 SEE ALSO

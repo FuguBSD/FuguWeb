@@ -4,14 +4,19 @@
 
 Work package 1 landed, with the languages and the text over Fugu 0.5.5. It set
 WEB-SITE, WEB-KEYS and WEB-OUTPUT to `done`, and WEB-LANGUAGE and WEB-CHROME to
-`partial`. Work packages 2, 4 and 5 can land now. Work packages 3 and 6 wait on
-work packages 2 and 4. Each work package lands as one pull request. It trims the
+`partial`.
+
+Work package 2 landed, with the links and the chrome. It set WEB-CHROME and
+WEB-LINKS to `done`. The top-level `404.html` takes the base of WEB-TOP-3, so
+WEB-TOP is `partial`. The sheet holds the rule above `main` and `footer`, and
+WEB-STYLE-9. WEB-STYLE stays `partial`.
+
+Work packages 4 and 5 can land now. Work packages 3 and 6 wait on work
+package 4. Each work package lands as one pull request. It trims the
 `Implements:` citation of each unit that it sets to `done`. The work package
 that lands last deletes this plan directory.
 
 - Implements: WEB-LANGUAGE.
-- Implements: WEB-CHROME.
-- Implements: WEB-LINKS.
 - Implements: WEB-TOP.
 - Implements: WEB-OUTLINE.
 - Implements: WEB-STATUS.

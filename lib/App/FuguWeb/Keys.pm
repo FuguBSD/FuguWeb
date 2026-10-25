@@ -1058,18 +1058,16 @@ sub _name_text ($name)
 #	The human page of the directory, as the bytes of a whole HTML
 #	document. The page carries the chrome of the default tree, and
 #	it is a page of en, because its own words are English, per
-#	WEB-CHROME-8. It sits one directory below the root, so each
-#	link of the chrome takes the step into the default tree, and
-#	the stylesheet link takes the step back.
+#	WEB-CHROME-8. The chrome makes each link from the path of the
+#	page, in the key directory.
 sub _index_page ( $self, $rows, $by_target )
 {
-	my $page = App::FuguWeb::Page->new(
-		config => $self->{config},
-		kind   => 'keys'
-	);
+	my $page = App::FuguWeb::Page->new( config => $self->{config} );
 
 	return App::FuguWeb::encode(
-		$page->document( 'Keys', _index_body( $rows, $by_target ) ) );
+		$page->document(
+			$self->_in_dir(INDEX_PAGE), 'Keys',
+			_index_body( $rows, $by_target ) ) );
 }
 
 # $self->_by_target:

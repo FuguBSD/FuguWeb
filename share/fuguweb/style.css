@@ -80,20 +80,57 @@ a:visited {
 /* The chrome carries no class, so the selector names the element */
 
 body > header {
-	font-size: 2em;
-	font-weight: bold;
-	letter-spacing: 0.05em;
 	margin: 0 0 0.2em 0;
 }
 
-body > header a:link,
-body > header a:visited {
+body > header > a {
+	font-size: 2em;
+	font-weight: bold;
+	letter-spacing: 0.05em;
+}
+
+body > header > a:link,
+body > header > a:visited {
 	color: var(--fg);
 	text-decoration: none;
 }
 
-nav {
+/* The list of the languages and the nav list, each on one line */
+
+body > header ul,
+nav ul {
 	font-size: 0.95em;
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+body > header li,
+nav li {
+	display: inline;
+}
+
+body > header li + li::before,
+nav li + li::before {
+	content: "\00b7";
+	margin: 0 0.5em;
+}
+
+a[aria-current="page"]:link,
+a[aria-current="page"]:visited {
+	color: var(--fg);
+	font-weight: bold;
+	text-decoration: none;
+}
+
+/* The rule of 1994 above the main part and above the footer */
+
+main,
+footer {
+	border-top: 1px solid var(--shadow);
+	box-shadow: inset 0 1px var(--highlight);
+	margin-top: 1.25em;
+	padding-top: 0.6em;
 }
 
 h1, h2, h3, h4 {

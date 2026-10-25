@@ -95,30 +95,29 @@ sub external ($self)
 #	Check the site and return the problems, each one a sentence
 #	that names the page. An empty list means the site is good.
 #
-#	Each kind of page takes the checks of its own chrome. The
-#	forward takes the checks of its own shape.
+#	Each page of a tree, each page of the top level and the human
+#	page of each key directory take the checks of a page. The place
+#	of the path of a page decides its chrome, as it does in
+#	App::FuguWeb::Page. The forward takes the checks of its own
+#	shape.
 sub run ($self)
 {
-	$self->{external} = {};
+	$self->{external}  = {};
+	$self->{inventory} = { map { $_ => 1 } $self->{config}->inventory };
 
 	my @problems = $self->_check_inventory;
 
 	my $forward   = App::FuguWeb::FORWARD_PAGE;
 	my @not_found = grep { $_ ne $forward } $self->{config}->top_pages;
 
-	my @kinds = (
-		( map { [ $_, 'tree' ] } $self->pages ),
-		( map { [ $_, 'top' ] } @not_found ),
-		( map { [ $_, 'keys' ] } $self->generated_pages ),
-	);
-	for my $each (@kinds) {
-		my ( $page, $kind ) = @$each;
+	for my $page ( $self->pages, @not_found, $self->generated_pages ) {
 		next unless -f $self->{out} . "/$page";
-		push @problems, $self->_check_page( $page, $kind );
+		push @problems, $self->_check_page($page);
 	}
 
 	push @problems, $self->_check_forward
 	    if -f $self->{out} . "/$forward";
+	push @problems, $self->_check_nav;
 	push @problems, $self->_check_reachable;
 	push @problems, $self->_check_keys;
 
@@ -176,14 +175,47 @@ sub _check_inventory ($self)
 	return @problems;
 }
 
-# The base element of the top-level copy of the 404 page. Its href is
-# the one root-absolute href of the site.
-use constant BASE_ELEMENT => '<base href="/">';
+# An href of the description that passes unchanged, per WEB-LINKS-2: an
+# absolute URL, and a root-absolute path, which the check of the
+# references refuses, per WEB-LINKS-4.
+my $UNCHANGED = qr{\A(?:[A-Za-z][A-Za-z0-9.+-]*:|/)};
 
-# $self->_check_page($page, $kind):
-#	Everything that one page must be true of. The kind is tree,
-#	keys or top, as App::FuguWeb::Page names it.
-sub _check_page ( $self, $page, $kind )
+# $self->_check_nav:
+#	Hold each relative nav href of the description to a page of
+#	each tree, per WEB-LINKS-2. The path of the href resolves from
+#	each tree, and it must name a page of that tree.
+sub _check_nav ($self)
+{
+	my $config = $self->{config};
+	my @names  = $config->page_names;
+	my %tree   = map {
+		my $path = $_->path;
+		( $path => { map { ( "$path/$_" => 1 ) } @names } )
+	} $config->languages;
+
+	my @problems;
+	for my $href ( map { $_->{href} } $config->nav ) {
+		next if $href =~ $UNCHANGED;
+
+		my ($path) = App::FuguWeb::ref_parts($href);
+		push @problems,
+		    map { qq{nav "$href": names no page of the tree $_} }
+		    grep {
+			!$tree{$_}{ App::FuguWeb::resolve_ref( $_, $path )
+				    // '' }
+		    }
+		    sort keys %tree;
+	}
+
+	return @problems;
+}
+
+# $self->_check_page($page):
+#	Everything that one page must be true of. A page of a tree
+#	takes the chrome of its tree. A page of the top level and the
+#	human page of a key directory take the chrome of the default
+#	tree, and a page of the top level carries the base.
+sub _check_page ( $self, $page )
 {
 	my $html = Fugu::File->read( $self->{out} . "/$page" ) // '';
 	my @problems;
@@ -194,102 +226,332 @@ sub _check_page ( $self, $page, $kind )
 
 	# WEB-LANGUAGE-13. A tree page carries the tag and the
 	# direction of its tree on its html element.
-	if ( $kind eq 'tree' ) {
-		my $element =
-		    '<html' . $self->_tree_of($page)->attributes . '>';
+	my $tree = $self->_tree_of($page);
+	if ($tree) {
+		my $element = '<html' . $tree->attributes . '>';
 		push @problems, "$page: does not carry $element"
 		    unless index( $html, $element ) >= 0;
 	}
 
-	# The header link and each nav link take the form of the kind
-	# of page. The chrome escapes an attribute on its way out, so
-	# the search escapes it the same way. A link can carry the
-	# marks of WEB-LANGUAGE-11 after its href.
-	my $tree  = $self->{config}->default_language->path;
-	my $entry = $self->{config}->entry;
-	push @problems,
-	    "$page: the header does not link $entry"
-	    unless index( $html,
-		'<header><a href="' . _chrome( $kind, $entry, $tree ) . '"' )
-	    >= 0;
+	push @problems, $self->_check_head( $page, $html, $tree );
+	push @problems, $self->_check_chrome( $page, $html, $tree );
 
-	for my $each ( $self->{config}->nav ) {
-		my $href = $each->{href};
+	# The links of WEB-CHROME-6 name the site by its url, and the
+	# check of the head holds each one. None of them is an
+	# external link. A link of the body is no link of the head, so
+	# the check of the references holds it.
+	$html =~ s{(<head>.*?</head>)}
+	    {$1 =~ s{<link rel="(?:canonical|alternate)"[^>]*>}{}gr}se;
 
-		push @problems,
-		    "$page: does not carry the navigation"
-		    . " entry $href"
-		    unless index( $html,
-			'href="' . _chrome( $kind, $href, $tree ) . '"' ) >= 0;
-	}
-
-	push @problems, $self->_check_languages( $page, $kind, $html );
-
-	# The base href of the top-level copy of the 404 page is the
-	# one root-absolute href that the site holds. The check takes
-	# it out, so every other root-absolute href still fails.
-	if ( $kind eq 'top' ) {
-		my $at = index $html, BASE_ELEMENT;
+	# WEB-LINKS-4. The base of a page of the top level is the one
+	# root-absolute href of the site. The check takes it out, so
+	# every other root-absolute href still fails. Each relative
+	# reference of the page then resolves from the base, which is
+	# the site root, per WEB-LINKS-3.
+	my $base;
+	if ( $page !~ m{/} ) {
+		my $element =
+		      '<base href="'
+		    . App::FuguWeb::escape_attr( $self->{config}->url_path )
+		    . '">';
+		my $at = index $html, $element;
 		if ( $at < 0 ) {
-			push @problems, "$page: does not carry " . BASE_ELEMENT;
+			push @problems, "$page: does not carry $element";
 		}
 		else {
-			substr( $html, $at, length BASE_ELEMENT ) = '';
+			substr( $html, $at, length $element ) = '';
+			$base = '';
 		}
 	}
 
-	push @problems, $self->_check_references( $page, $html );
+	push @problems, $self->_check_references( $page, $html, $base );
 
 	return @problems;
 }
 
 # $self->_tree_of($page):
-#	The language of the tree that holds one page of the output.
+#	The language of the tree that holds one page of the output, or
+#	undef for a page outside every tree. A page of a tree is one
+#	segment below the path of the tree.
 sub _tree_of ( $self, $page )
 {
-	my ($path) = split m{/}, $page;
+	my ( $path, $name, @deeper ) = split m{/}, $page;
+	return if !defined $name || @deeper;
+
 	my ($language) =
 	    grep { $_->path eq $path } $self->{config}->languages;
 
 	return $language;
 }
 
-# $self->_check_languages($page, $kind, $html):
-#	Hold the language links of the chrome. A tree page links the
-#	same page in the tree of each other language of the site, with
-#	the tag as the text and the hreflang of the link. No other page
-#	carries a language link. The chrome ends where the main element
-#	starts, so a link of the body is the writer's own.
-sub _check_languages ( $self, $page, $kind, $html )
+# $self->_check_head($page, $html, $tree):
+#	Hold the links of WEB-CHROME-6 in the head of a page. A tree
+#	page links itself, the same page in each language, and the
+#	forward page. Any other page links none. Each href is the url
+#	of the site, then the path of a page of the inventory, or the
+#	bare url, per WEB-LINKS-5.
+sub _check_head ( $self, $page, $html, $tree )
 {
-	my ($chrome) = $html =~ m{\A(.*?)<main\b}s;
-	$chrome //= $html;
+	my $url = $self->{config}->url;
 
-	my ( undef, $name ) = split m{/}, $page, 2;
-	my $own = $kind eq 'tree' ? $self->_tree_of($page)->tag : undef;
-	my @others =
-	    defined $own
-	    ? grep { $_->tag ne $own } $self->{config}->languages
-	    : ();
+	my ($head) = $html =~ m{<head>(.*?)</head>}s;
+	my @held =
+	    ( $head // '' ) =~ m{(<link rel="(?:canonical|alternate)"[^>]*>)}g;
 
 	my @problems;
-	for my $other (@others) {
-		my ( $tag, $path ) = ( $other->tag, $other->path );
-		my $link =
-		      qq{<a href="../$path/}
-		    . App::FuguWeb::escape_attr($name)
-		    . qq{" hreflang="$tag">$tag</a>};
-		push @problems, "$page: does not link the page in $tag"
-		    unless index( $chrome, $link ) >= 0;
+	for my $link (@held) {
+		my ($href) = $link =~ m{\bhref="([^"]*)"};
+		$href = _unescape( $href // '' );
+
+		my $path =
+		    index( $href, $url ) == 0
+		    ? substr( $href, length $url )
+		    : undef;
+		push @problems,
+		    "$page: $href is no URL of a page of the site"
+		    unless defined $path
+		    && (
+			$path eq ''
+			|| ( $path =~ m{\.html\z} && $self->{inventory}{$path} )
+		    );
 	}
 
-	my $held = () = $chrome =~ m{\bhreflang="}g;
+	my @want;
+	if ($tree) {
+		my ( undef, $name ) = split m{/}, $page, 2;
+		my $to = sub ($path) {
+			return App::FuguWeb::escape_attr( $url . $path );
+		};
+
+		@want = (
+			'<link rel="canonical" href="' . $to->($page) . '">',
+			(
+				map {
+					      '<link rel="alternate" hreflang="'
+					    . $_->tag
+					    . '" href="'
+					    . $to->( $_->path . "/$name" )
+					    . '">'
+				} $self->{config}->languages
+			),
+			'<link rel="alternate" hreflang="x-default" href="'
+			    . $to->('') . '">',
+		);
+	}
+
+	my %held = map { $_ => 1 } @held;
+	push @problems, map { "$page: the head does not carry $_" }
+	    grep { !$held{$_} } @want;
 	push @problems,
-	    "$page: carries $held language links, and the page takes "
-	    . scalar(@others)
-	    unless $held == @others;
+	      "$page: the head carries "
+	    . scalar(@held)
+	    . ' canonical and alternate links, and the page takes '
+	    . scalar(@want)
+	    unless @held == @want;
 
 	return @problems;
+}
+
+# $self->_check_chrome($page, $html, $tree):
+#	Hold the chrome of the body of a page: the header, the list of
+#	the languages and the nav, per WEB-CHROME-2 to WEB-CHROME-5. A
+#	tree page takes the words of its tree. A page outside every
+#	tree takes the words of the default tree, and it carries no
+#	list of the languages. Each link of the chrome resolves from
+#	the path of the page, per WEB-LINKS-3.
+sub _check_chrome ( $self, $page, $html, $tree )
+{
+	my $words = $tree // $self->{config}->default_language;
+
+	# The chrome is the page around the body fragment and the
+	# footer fragment. The two fragments are the writer's own.
+	my $chrome = $html;
+	$chrome =~ s{(<main\b[^>]*>).*</main>}{$1</main>}s;
+	$chrome =~ s{(<footer\b[^>]*>).*</footer>}{$1</footer>}s;
+
+	my @problems;
+	push @problems, "$page: the chrome carries a class"
+	    if $chrome =~ m{<[^>]*\sclass=};
+	push @problems, "$page: the chrome carries an hr"
+	    if $chrome =~ m{<hr\b};
+
+	# WEB-CHROME-5. Each word of the chrome of the body is the
+	# text of a link. A word between two links is a separator, and
+	# the sheet draws each one instead, per WEB-STYLE-9.
+	my ($body) = $chrome =~ m{<body>(.*)</body>}s;
+	my $loose = ( $body // '' ) =~ s{<a\b[^>]*>.*?</a>}{}gsr;
+	$loose =~ s{<[^>]*>}{}g;
+	push @problems, "$page: the chrome carries a text separator"
+	    if $loose =~ /\S/;
+
+	# WEB-CHROME-2. The site link comes before the list of the
+	# languages.
+	my ($header) = $chrome =~ m{<header\b[^>]*>(.*?)</header>}s;
+	$header //= '';
+	my ($lead) = $header =~ m{\A(.*?)(?:<ul\b|\z)}s;
+	my ($site) = _links($lead);
+	my $entry  = $words->path . '/' . $self->{config}->entry;
+	push @problems, "$page: the header does not link $entry"
+	    unless $site && _target( $page, $site->{href} ) eq $entry;
+	push @problems, _current( $page, 'the site link', $site // {}, 0 );
+
+	push @problems, $self->_check_languages( $page, $header, $tree );
+	push @problems,
+	    $self->_check_navigation( $page, $chrome, $words, $tree );
+
+	return @problems;
+}
+
+# $self->_check_languages($page, $header, $tree):
+#	Hold the list of the languages of WEB-CHROME-3. A tree page of
+#	a site of more than one language holds one item for each
+#	language, in the order of the declaration. The link of each
+#	item goes to the same page in that language. Its text is the
+#	name of the language, and the tag is its lang and its
+#	hreflang. The link of the language of the page is the current
+#	one. Any other page holds no item.
+sub _check_languages ( $self, $page, $header, $tree )
+{
+	my @languages = $self->{config}->languages;
+	@languages = () unless $tree && @languages > 1;
+
+	my ($list) = $header =~ m{<ul\b[^>]*>(.*?)</ul>}s;
+	my @items = _items( $list // '' );
+
+	my @problems;
+	push @problems,
+	      "$page: carries "
+	    . scalar(@items)
+	    . ' language links, and the page takes '
+	    . scalar(@languages)
+	    unless @items == @languages;
+
+	my ( undef, $name ) = split m{/}, $page, 2;
+	for my $i ( 0 .. $#languages ) {
+		my $language = $languages[$i];
+		my $link     = $items[$i] // {};
+		my $tag      = $language->tag;
+		my $text     = App::FuguWeb::encode(
+			App::FuguWeb::escape_html( $language->name ) );
+
+		push @problems, "$page: does not link the page in $tag"
+		    unless _target( $page, $link->{href} ) eq $language->path
+		    . "/$name"
+		    && ( $link->{hreflang} // '' ) eq $tag
+		    && ( $link->{lang}     // '' ) eq $tag
+		    && ( $link->{text}     // '' ) eq $text;
+
+		push @problems,
+		    _current( $page, "the link to $tag",
+			$link, $tag eq $tree->tag );
+	}
+
+	return @problems;
+}
+
+# $self->_check_navigation($page, $chrome, $words, $tree):
+#	Hold the nav of WEB-CHROME-4: one item for each nav entry of the
+#	tree of the words, in the order of the description. A relative
+#	href resolves from the page to the page of the tree that it
+#	names. Any other href stands as the description writes it. The
+#	entry whose path, with no query, resolves from the tree to the
+#	page is the current one. A site with no nav entry carries no
+#	nav.
+sub _check_navigation ( $self, $page, $chrome, $words, $tree )
+{
+	my @entries = $self->{config}->nav( $words->tag );
+	my ($nav) = $chrome =~ m{<nav\b[^>]*>(.*?)</nav>}s;
+
+	unless (@entries) {
+		return () unless defined $nav;
+		return "$page: carries a nav, and the site has no nav entry";
+	}
+
+	my ($list) = ( $nav // '' ) =~ m{<ul\b[^>]*>(.*?)</ul>}s;
+	my @items = _items( $list // '' );
+
+	my @problems;
+	push @problems,
+	      "$page: carries "
+	    . scalar(@items)
+	    . ' navigation links, and the site has '
+	    . scalar(@entries)
+	    unless @items == @entries;
+
+	for my $i ( 0 .. $#entries ) {
+		my $href = $entries[$i]{href};
+		my $link = $items[$i] // {};
+
+		my $held =
+		    $href =~ $UNCHANGED
+		    ? _unescape( $link->{href} // '' ) eq $href
+		    : _target( $page, $link->{href} ) eq
+		    ( App::FuguWeb::resolve_ref( $words->path, $href ) // '' );
+		push @problems,
+		    "$page: does not carry the navigation entry $href"
+		    unless $held;
+
+		my ($path) = App::FuguWeb::ref_parts($href);
+		my $current = $tree
+		    && ( App::FuguWeb::resolve_ref( $words->path, $path )
+			// '' ) eq $page;
+		push @problems,
+		    _current( $page, "the navigation entry $href",
+			$link, $current );
+	}
+
+	return @problems;
+}
+
+# _current($page, $what, $link, $current):
+#	The problem of a link that carries aria-current="page" and is
+#	not the current one, or the reverse. The answer is empty when
+#	the link agrees.
+sub _current ( $page, $what, $link, $current )
+{
+	my $held = ( $link->{'aria-current'} // '' ) eq 'page';
+	return () if $held == !!$current;
+
+	return
+	      "$page: $what "
+	    . ( $current ? 'does not carry' : 'carries' )
+	    . ' aria-current="page"';
+}
+
+# _links($html):
+#	Each link of a part of a page, in order, as a hash reference of
+#	its attributes, with its text under the key text.
+sub _links ($html)
+{
+	my @links;
+	while ( $html =~ m{<a\b([^>]*)>(.*?)</a>}gs ) {
+		my ( $attributes, $text ) = ( $1, $2 );
+		push @links,
+		    {
+			( $attributes =~ m{([a-z-]+)="([^"]*)"}g ),
+			text => $text
+		    };
+	}
+
+	return @links;
+}
+
+# _items($list):
+#	The link of each item of one list, in order. An item with no
+#	link gives an empty hash reference.
+sub _items ($list)
+{
+	return
+	    map { ( _links($_) )[0] // {} } $list =~ m{<li\b[^>]*>(.*?)</li>}gs;
+}
+
+# _target($page, $href):
+#	The path below the site root that one href of the chrome of a
+#	page names, or an empty string when it names none.
+sub _target ( $page, $href )
+{
+	return App::FuguWeb::resolve_ref( _dir($page),
+		_unescape( $href // '' ) ) // '';
 }
 
 # $self->_check_forward:
@@ -323,32 +585,17 @@ sub _check_forward ($self)
 	push @problems, "$page: carries a nav, and the forward takes none"
 	    if $html =~ m{<nav\b};
 
-	push @problems, $self->_check_references( $page, $html );
+	push @problems, $self->_check_references( $page, $html, undef );
 
 	return @problems;
 }
 
-# _chrome($kind, $href, $tree):
-#	The form of one link of the chrome on a page of the kind, as
-#	App::FuguWeb::Page writes it. The tree is the path of the
-#	default tree. A tree page takes <page>, the key page
-#	../<tree>/<page>, and the top-level copy of the 404 page
-#	<tree>/<page>. An absolute URL and a fragment pass unchanged.
-sub _chrome ( $kind, $href, $tree )
-{
-	my $written = App::FuguWeb::escape_attr($href);
-	return $written
-	    if $href =~ m{\A(?:[A-Za-z][A-Za-z0-9.+-]*:|/|\#)};
-
-	return "../$tree/$written" if $kind eq 'keys';
-	return "$tree/$written"    if $kind eq 'top';
-
-	return $written;
-}
-
-# $self->_check_references($page, $html):
-#	Every href and src of one page.
-sub _check_references ( $self, $page, $html )
+# $self->_check_references($page, $html, $base):
+#	Every href and src of one page. A relative reference resolves
+#	against the directory of the page. It resolves against the base
+#	when the page holds one, and the base is then the directory
+#	below the site root that it names, per WEB-LINKS-3.
+sub _check_references ( $self, $page, $html, $base )
 {
 	my @problems;
 
@@ -381,20 +628,28 @@ sub _check_references ( $self, $page, $html )
 			next;
 		}
 
-		my ( $path, $fragment ) = split /#/, $ref, 2;
-		if ( defined $path && length $path ) {
-			$path = _resolve( $page, $path );
-			unless ( defined $path ) {
-				push @problems,
-				    "$page: $ref names no page of the site";
-				next;
-			}
+		# A fragment alone names the page itself, or the base
+		# when the page holds one. A base names a directory,
+		# and a directory is no page.
+		my ( $path, $fragment ) = App::FuguWeb::ref_parts($ref);
+		if ( length $path ) {
+			$path = App::FuguWeb::resolve_ref( $base // _dir($page),
+				$path );
 		}
 		else {
-			$path = $page;
+			$path = defined $base ? undef : $page;
+		}
+		unless ( defined $path ) {
+			push @problems, "$page: $ref names no page of the site";
+			next;
 		}
 
-		unless ( -e $self->{out} . "/$path" ) {
+		# The target is a file of the inventory. A file that the
+		# inventory does not name is a stray, and a directory is
+		# no file.
+		unless ( $self->{inventory}{$path}
+			&& -f $self->{out} . "/$path" )
+		{
 			push @problems, "$page: $ref leads nowhere";
 			next;
 		}
@@ -408,37 +663,13 @@ sub _check_references ( $self, $page, $html )
 	return @problems;
 }
 
-# _resolve($page, $ref):
-#	One relative reference of a page, as a path below the output
-#	directory. A reference is relative to the directory of its own
-#	page: a language tree, a key directory, or the top level.
-sub _resolve ( $page, $ref )
+# _dir($page):
+#	The directory of one page, as a path below the site root: a
+#	language tree, a key directory, or the empty path of the top
+#	level.
+sub _dir ($page)
 {
-	my @parts = split m{/}, $page;
-	pop @parts;
-
-	for my $step ( split m{/}, $ref, -1 ) {
-		next if $step eq '' || $step eq '.';
-		if ( $step eq '..' ) {
-
-			# A step above the site root names no file of
-			# the output. A pop of an empty list does
-			# nothing, so the reference would clamp to the
-			# root and read like a link that resolves.
-			return unless @parts;
-			pop @parts;
-			next;
-		}
-		push @parts, $step;
-	}
-
-	# A reference of './' names the directory of its own page, and
-	# a directory is no page of a site. An empty answer also reads
-	# as false in the walk of the reachability check. The walk
-	# would then stop at the first page that holds one.
-	return unless @parts;
-
-	return join '/', @parts;
+	return $page =~ s{/?[^/]*\z}{}r;
 }
 
 # _unescape($text):
@@ -509,9 +740,9 @@ sub _walk ( $self, $tree, $entry )
 		{
 			next if $ref =~ m{^[A-Za-z][A-Za-z0-9.+-]*:};
 
-			my ($path) = split /#/, $ref, 2;
-			next unless defined $path && length $path;
-			$path = _resolve( $page, $path );
+			my ($path) = App::FuguWeb::ref_parts($ref);
+			next unless length $path;
+			$path = App::FuguWeb::resolve_ref( _dir($page), $path );
 			next unless defined $path;
 			next unless App::FuguWeb::path_below( $path, $tree );
 

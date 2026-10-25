@@ -1050,12 +1050,10 @@ sub _render_pages ($self)
 			# own, so the element that holds it takes the
 			# language of the tree.
 			$page->write(
-				$self->{out} . '/'
-				    . $language->path
-				    . "/$entry->{file}",
+				$self->{out},
+				$language->path . "/$entry->{file}",
 				$entry->{title},
 				$fragment,
-				name      => $entry->{file},
 				body_lang => $entry->{source} eq 'index'
 				? $language->tag
 				: $entry->{lang},
@@ -1124,10 +1122,10 @@ sub _fragment ( $self, $entry, $language )
 
 # $self->_write_not_found:
 #	Write the top-level copy of the 404 page, when the description
-#	holds that page. The copy is the page of the default language.
-#	Its base makes each relative link resolve from the root of the
-#	origin, and not from the missing path that the host serves it
-#	at.
+#	holds that page. The copy is the page of the default language
+#	at the top level. Its base makes each relative link resolve
+#	from the site root, and not from the missing path that the host
+#	serves it at.
 sub _write_not_found ($self)
 {
 	my $config    = $self->{config};
@@ -1138,10 +1136,10 @@ sub _write_not_found ($self)
 	return 1 unless $entry;
 
 	my $fragment = $self->_fragment( $entry, $default ) // return;
-	my $page = App::FuguWeb::Page->new( config => $config, kind => 'top' );
 
-	return $page->write( $self->{out} . "/$not_found",
-		$entry->{title}, $fragment, body_lang => $entry->{lang} );
+	return App::FuguWeb::Page->new( config => $config )
+	    ->write( $self->{out}, $not_found, $entry->{title}, $fragment,
+		body_lang => $entry->{lang} );
 }
 
 # $self->_forward:
@@ -1203,15 +1201,13 @@ sub _render_manuals ($self)
 			return unless defined $fragment;
 
 			$page->write(
-				$self->{out} . '/'
-				    . $language->path . '/'
-				    . $manual->page,
+				$self->{out},
+				$language->path . '/' . $manual->page,
 				App::FuguWeb::as_text(
 					      $manual->name . '('
 					    . $manual->section . ')'
 				),
 				$fragment,
-				name      => $manual->page,
 				body_lang => $manual->lang,
 			) or return;
 		}

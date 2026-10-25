@@ -176,19 +176,12 @@ Every page and asset of the site exists and is not empty.
 On every page but the forward
 .Pa index.html ,
 the check finds a title, the banner link and the whole navigation.
+A tree page takes the words of its tree, and any other page those of
+the default tree.
 .It
-Each of those links takes the form of the kind of its page:
-.Pa <page>
-on a tree page,
-.Pa ../<tree>/<page>
-on the key page, and
-.Pa <tree>/<page>
-on the copy of
-.Pa 404.html
-at the top level, where
-.Pa <tree>
-is the tree of the default language.
-An absolute URL and a fragment stay as they stand.
+The check resolves each link of the chrome from the path of its page,
+and holds the target of the link and not its form.
+An absolute URL stays as it stands.
 .It
 The
 .Ql html
@@ -198,12 +191,37 @@ and
 .Ql dir="rtl"
 when the language of the tree is right to left.
 .It
+The head of a tree page names the page, the same page in each
+language, and the forward page, below the
+.Ic url .
+The head of any other page names none.
+.It
+On a site of more than one language, the banner of a tree page lists
+each language, in the order of the declaration, with its name as the
+text.
+No other page lists one.
+.It
+The link of the language of the page and the navigation link of the
+page are the current ones, and no other link is.
+.It
+The chrome holds no class, no
+.Ql <hr>
+and no text separator.
+.It
+A relative
+.Ic nav
+href names a page of each tree, as it resolves from the path of that
+tree.
+.It
 The forward
 .Pa index.html
 holds a meta refresh to the entry page of the default tree.
 Its one reference is a link to that page, and it holds no navigation.
 .It
-Every local link, manual cross-reference, and fragment resolves.
+Every local link, manual cross-reference, and fragment resolves to a
+file of the site.
+A reference with a query passes when its path names a file of the
+site.
 .It
 No reference uses a
 .Ql file\&:
@@ -211,10 +229,13 @@ URL, or reads as a URL scheme.
 .It
 No reference starts with a solidus.
 The one exception is the
-.Ql <base href="/">
+.Ql <base>
 of the copy of
 .Pa 404.html
 at the top level, and that page must carry it.
+Its href is the path of the
+.Ic url ,
+and each relative link of the page resolves from the site root.
 .It
 Every page of each language tree is reachable from the entry page of
 that tree, except a page marked
@@ -447,6 +468,11 @@ One navigation entry, in file order.
 Every page carries it, except the forward
 .Pa index.html
 at the top level.
+A relative
+.Ar href
+names a page of each tree, such as
+.Pa manuals.html ,
+and an absolute URL stays as it stands.
 The block must set a
 .Ic label .
 .It Ic page Qq Ar file
@@ -702,10 +728,22 @@ fragment in one fixed layout: the head, a banner, the navigation, the
 fragment, and a footer.
 A project decides the site name, the languages, the navigation, and
 the footer prose.
+The layout carries no class, no
+.Ql <hr>
+and no text separator: the stylesheet draws each rule and each
+separator.
 .Pp
 Every page of the description sits in the tree of each language, below
 .Pa <tree>/
 of the output, where the tree is the tag of the language in lowercase.
+Each file of the site has one path below the site root, and each link
+of the layout goes from the directory of its page to that path.
+A page of
+.Pa en/
+links the entry page as
+.Pa index.html ,
+and the key page links it as
+.Pa ../en/index.html .
 The
 .Ql html
 element of a page carries the tag of its language as
@@ -713,16 +751,40 @@ element of a page carries the tag of its language as
 and
 .Ql dir="rtl"
 when that language is right to left.
-The banner and the navigation of a tree page name each page of the
-tree by its file name.
-An absolute URL stays as it stands.
-After the navigation entries, a tree page links the same page in each
-other language of the site, as
-.Pa ../<tree>/<page> .
-The tag is the text and the
-.Ql hreflang
-of each link.
-A site of one language carries no such link.
+.Pp
+The head of a tree page holds the charset, the viewport, the title,
+the links to the page in each language, and the stylesheet link.
+The links are one
+.Ql rel="canonical"
+link to the page itself, one
+.Ql rel="alternate"
+link for each language with its tag as
+.Ql hreflang ,
+and one alternate link with
+.Ql hreflang="x-default"
+to the forward page.
+Each href is the
+.Ic url ,
+then the path of the page, such as
+.Lk https://example.org/en/index.html .
+The forward page is the bare
+.Ic url .
+.Pp
+The banner links the site name to the entry page of the tree.
+On a site of more than one language, the list of the languages follows
+the link.
+Each item links the same page in that language, with the
+.Ic name
+of the language as its text, and its tag as
+.Ql lang
+and
+.Ql hreflang .
+The navigation is one list of the
+.Ic nav
+blocks, in file order.
+The link of the language of the page and the navigation link of the
+page carry
+.Ql aria-current="page" .
 .Pp
 A part of a page whose text comes from another language than the page
 carries the tag of that language as
@@ -757,20 +819,22 @@ It carries no banner, no navigation and no footer, and it loads no
 stylesheet.
 When the description holds the page
 .Pa 404.html ,
-the top level holds one more copy of it, with
+the top level holds one more copy of it, with a
+.Ql <base>
+whose href is the path of the
+.Ic url ,
+such as
 .Ql <base href="/"> .
 A host serves that copy at each path that no file answers, and each
-relative link of the page resolves from the root of the origin.
-Its banner and its navigation therefore link
-.Pa <tree>/<page> ,
-where the tree is that of the default language.
+relative link of the page resolves from the site root.
+Its banner and its navigation link the tree of the default language,
+as
+.Pa en/index.html .
+Its head names no page in another language, and it lists no language.
 .Pp
-On every page but the forward, the title is the title of the page, an
-em dash, and the site name.
-The banner links the site name to the entry page.
-The navigation lists each
-.Ic nav
-block, in file order.
+On a tree page and on the copy of
+.Pa 404.html ,
+the title is the title of the page, an em dash, and the site name.
 .Pp
 The fragment that the
 .Ic footer
@@ -786,9 +850,10 @@ The base stylesheet ships with the tool as
 The build copies it to
 .Pa style.css
 at the top level of the output, outside every tree.
-A tree page and the key page link it as
+Each page but the forward links it from its own directory: a tree
+page and the key page as
 .Pa ../style.css ,
-and the copy of the 404 page links it as
+and the copy of the 404 page as
 .Pa style.css .
 The
 .Ic stylesheet
@@ -1115,10 +1180,14 @@ beside the fingerprint.
 The page is a page of
 .Ql en ,
 because its own words are English.
-Its banner and its navigation take the words of the default language,
-and they link
-.Pa ../<tree>/<page> ,
-where the tree is that of the default language.
+Its title is
+.Ql Keys
+alone, and its head names no page in another language.
+Its banner holds the site link alone, and its navigation is that of the
+default language.
+Each of those links steps out of the key directory into the tree of
+the default language, as
+.Pa ../en/index.html .
 When the default language is not
 .Ql en ,
 each of those links carries the marks of the default language: its tag
