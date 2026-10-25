@@ -233,6 +233,16 @@ sub path_below ( $path, $root )
 	return index( $one, "$two/" ) == 0 ? 1 : 0;
 }
 
+# canonical_path($path):
+#	The one form of a path from the project root: no '.' step, no
+#	empty step, and no final solidus. The record of the
+#	translations names each file in this form, per WEB-STATUS-1.
+#	The form of the project root is the empty string.
+sub canonical_path ($path)
+{
+	return join '/', grep { length && $_ ne '.' } split m{/}, $path;
+}
+
 # ref_parts($ref):
 #	The path and the fragment of one reference. A query is no part
 #	of the name of a file, so the path holds none, per WEB-LINKS-3.

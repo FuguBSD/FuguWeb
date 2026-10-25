@@ -303,4 +303,216 @@ subtest 'build reports a renderer that is not installed' => sub {
 	ok( !-e "$root/out", 'and the build wrote nothing' );
 };
 
+# A site of en and zh-Hans. zh-Hans names each value of its own, so
+# the one part that can leave its source is the body of its page.
+my $HOME = "\xe9\xa6\x96\xe9\xa1\xb5";
+my $RC_ZH = <<"RC";
+site       = Example
+url        = https://example.org/
+source_dir = web
+out_dir    = out
+
+language en {
+	name = English
+}
+
+language zh-Hans {
+	name = \xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87
+	site = \xe7\xa4\xba\xe4\xbe\x8b
+}
+
+nav "index.html" {
+	label = Home
+}
+
+nav zh-Hans "index.html" {
+	label = $HOME
+}
+
+page "index.html" {
+	title = Home
+	body  = index.body.html
+}
+
+page zh-Hans "index.html" {
+	title = $HOME
+	body  = zh-hans/index.body.html
+}
+RC
+
+# zh_project(%file):
+#	A project of en and zh-Hans, plus any extra file.
+sub zh_project (%file)
+{
+	return project(
+		'.fuguwebrc'                  => $RC_ZH,
+		'web/zh-hans/index.body.html' => "<h1>$HOME</h1>\n",
+		%file,
+	);
+}
+
+subtest 'status reports the coverage and the age of a translation' => sub {
+	my ( $exit, $out ) = run('help');
+	like( $out, qr/\bstatus\b/,     'the help lists status' );
+	like( $out, qr/\btranslated\b/, 'and translated' );
+
+	# WEB-STATUS-3 and WEB-STATUS-5. One line for the body that no
+	# record names, with a tab between two fields, and exit 1.
+	my $root = zh_project();
+	my $err;
+	( $exit, $out, $err ) = run( '--project', $root, 'status' );
+	is( $exit, 1, 'a part that does not follow its source gives 1' );
+	is( $out, "zh-Hans\tunrecorded\tpage\tindex.html\n",
+		'and the line names the tag, the state, the kind and the name' );
+	is( $err, '', 'and says nothing more' );
+
+	# WEB-STATUS-2. The record takes the digest of the default source.
+	( $exit, $out, $err ) = run( '--project', $root, 'translated',
+		'web/zh-hans/index.body.html' );
+	is( $exit, 0, 'translated succeeds' ) or diag $err;
+	is( $out . $err, '', 'and says nothing' );
+	ok( -f "$root/TRANSLATIONS", 'and writes the record' );
+
+	( $exit, $out, $err ) = run( '--project', $root, 'status' );
+	is( $exit, 0, 'each part follows its source' ) or diag $out;
+	is( $out . $err, '', 'and status says nothing' );
+
+	# WEB-STATUS-4. A change to the en source after the record.
+	open my $fh, '>', "$root/web/index.body.html" or die "Cannot write: $!";
+	print {$fh} "<h1>Home, again</h1>\n";
+	close $fh;
+
+	( $exit, $out ) = run( '--project', $root, 'status' );
+	is( $exit, 1, 'a change to the default source gives 1' );
+	is( $out, "zh-Hans\tstale\tpage\tindex.html\n",
+		'and the translation is stale' );
+
+	run( '--project', $root, 'translated', 'web/zh-hans/index.body.html' );
+	( $exit, $out ) = run( '--project', $root, 'status' );
+	is( $exit, 0, 'a new record makes it follow again' );
+};
+
+subtest 'translated refuses a file that translates no source' => sub {
+	my $root = zh_project();
+
+	my ( $exit, $out, $err ) = run( '--project', $root, 'translated' );
+	is( $exit, 2, 'no file gives EXIT_INVALID_ARGS' );
+	like( $err, qr/translated needs a file/, 'and says why' );
+
+	( $exit, $out, $err ) =
+	    run( '--project', $root, 'translated', 'web/index.body.html' );
+	is( $exit, 1, 'a default source gives EXIT_ERROR' );
+	like( $err, qr{web/index\.body\.html translates no source},
+		'and names the file' );
+	ok( !-e "$root/TRANSLATIONS", 'and writes no record' );
+};
+
+subtest 'status fails on a record that does not parse' => sub {
+	my $root = zh_project( 'TRANSLATIONS' => "not a manifest\n" );
+
+	# Exit 1 is the answer of WEB-STATUS-5, so a failure takes the
+	# code of a project file that does not load.
+	my ( $exit, $out, $err ) = run( '--project', $root, 'status' );
+	is( $exit, 3,  'a malformed record gives EXIT_CONFIG_ERROR' );
+	is( $out,  '', 'and prints no line' );
+	like( $err, qr{TRANSLATIONS: .*not a manifest}, 'and names the record' );
+};
+
+subtest 'translated fails on a record or a source that does not read' => sub {
+	my $root = zh_project( 'TRANSLATIONS' => "not a manifest\n" );
+
+	# WEB-STATUS-2. The fault takes the code of status.
+	my ( $exit, $out, $err ) = run( '--project', $root, 'translated',
+		'web/zh-hans/index.body.html' );
+	is( $exit, 3, 'a malformed record gives EXIT_CONFIG_ERROR' );
+	like( $err, qr{TRANSLATIONS: .*not a manifest}, 'and names the record' );
+
+	$root = zh_project();
+	unlink "$root/web/index.body.html" or die "Cannot remove: $!";
+	( $exit, $out, $err ) = run( '--project', $root, 'translated',
+		'web/zh-hans/index.body.html' );
+	is( $exit, 3, 'a default source that is gone gives EXIT_CONFIG_ERROR' );
+	like( $err, qr{Cannot read .*/web/index\.body\.html}, 'and names it' );
+	ok( !-e "$root/TRANSLATIONS", 'and writes no record' );
+};
+
+subtest 'an empty record holds no line' => sub {
+	my $root = zh_project( 'TRANSLATIONS' => '' );
+
+	# WEB-STATUS-1. Each verb reads an empty record as no line.
+	my ( $exit, $out, $err ) = run( '--project', $root, 'status' );
+	is( $exit, 1, 'status reads an empty record' ) or diag $err;
+	is( $out, "zh-Hans\tunrecorded\tpage\tindex.html\n",
+		'and the body is unrecorded' );
+
+	( $exit, $out, $err ) = run( '--project', $root, 'translated',
+		'./web//zh-hans/index.body.html' );
+	is( $exit, 0, 'translated writes into an empty record' ) or diag $err;
+
+	# WEB-STATUS-2. The record names the file in the one form.
+	open my $fh, '<', "$root/TRANSLATIONS" or die "Cannot read: $!";
+	my $record = do { local $/; <$fh> };
+	close $fh;
+	like(
+		$record,
+		qr{\ASHA256 \(web/zh-hans/index\.body\.html\) = [0-9a-f]{64}\n\z},
+		'and holds the one line, in the one form'
+	);
+
+	( $exit, $out ) = run( '--project', $root, 'status' );
+	is( $exit, 0, 'and the body follows its source' ) or diag $out;
+};
+
+subtest 'one translated file over two default sources is a fault' => sub {
+	my $root = zh_project(
+		'.fuguwebrc' => $RC_ZH . <<'RC',
+
+page "other.html" {
+	title = Other
+	body  = other.body.html
+}
+
+page zh-Hans "other.html" {
+	body = zh-hans/index.body.html
+}
+RC
+		'web/other.body.html' => "<h1>Other</h1>\n",
+	);
+	my $two = join ' ', 'web/zh-hans/index.body.html translates',
+	    'web/index.body.html and web/other.body.html';
+	$two = qr/\Q$two\E/;
+
+	# WEB-STATUS-7. Each verb refuses the description, and names the
+	# file and the two sources.
+	my ( $exit, $out, $err ) = run( '--project', $root, 'status' );
+	is( $exit, 3,  'status gives EXIT_CONFIG_ERROR' );
+	is( $out,  '', 'and prints no line' );
+	like( $err, $two, 'and names the file and the two sources' );
+
+	( $exit, $out, $err ) = run( '--project', $root, 'translated',
+		'web/zh-hans/index.body.html' );
+	is( $exit, 3, 'translated gives EXIT_CONFIG_ERROR' );
+	like( $err, $two, 'and names the file and the two sources' );
+	ok( !-e "$root/TRANSLATIONS", 'and writes no record' );
+};
+
+SKIP: {
+	skip 'a renderer is not installed', 1 unless $RENDERERS;
+
+	subtest 'the build and the check do not read the record' => sub {
+
+		# WEB-STATUS-6. A record that does not parse changes
+		# nothing in the build, the check or the site.
+		my $root = zh_project( 'TRANSLATIONS' => "not a manifest\n" );
+
+		my ( $exit, $out, $err ) = run( '--project', $root, 'build' );
+		is( $exit, 0, 'the build succeeds' ) or diag $err;
+
+		( $exit, $out, $err ) = run( '--project', $root, 'check' );
+		is( $exit, 0, 'and the check passes' ) or diag $err;
+
+		ok( !-e "$root/out/TRANSLATIONS", 'and the site holds no record' );
+	};
+}
+
 done_testing();

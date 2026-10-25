@@ -361,6 +361,27 @@ out_dir = ..config/build
 RC
 	ok( $config, 'a name that merely starts with two dots is fine' )
 	    or diag $reason;
+
+	# WEB-SITE-7. The record of the translations sits at the
+	# project root, per WEB-STATUS-1, and the build publishes each
+	# plain file of the source directory.
+	for my $dir ( '.', './', './.', './/', '""' ) {
+		( $config, $reason ) = load_rc( <<"RC" );
+site       = Example
+url        = https://example.org/
+source_dir = $dir
+RC
+		is( $config, undef, "a source_dir of $dir fails the load" );
+		like( $reason, qr/source_dir is .*, which is the project root/,
+			'and the message names the setting' );
+	}
+
+	( $config, $reason ) = load_rc( <<'RC' );
+site       = Example
+url        = https://example.org/
+source_dir = ./web
+RC
+	ok( $config, 'a source_dir below the root is fine' ) or diag $reason;
 };
 
 subtest 'a page name stays inside the output directory' => sub {

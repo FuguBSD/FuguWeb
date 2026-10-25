@@ -169,6 +169,12 @@ a path setting steps out of the project with a C<..> component;
 
 =item *
 
+the C<source_dir> is the project root, per WEB-SITE-7. The record of
+the translations sits there, per WEB-STATUS-1, and the build publishes
+each plain file of the source directory;
+
+=item *
+
 a C<page> block name is absolute or steps out of the output directory:
 the name becomes a file there, so it is a path and gets the same guard
 the sources get;

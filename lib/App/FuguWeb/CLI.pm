@@ -24,6 +24,7 @@ use App::FuguWeb::Check;
 use App::FuguWeb::Config;
 use App::FuguWeb::Rotate;
 use App::FuguWeb::Site;
+use App::FuguWeb::Status;
 use File::Spec;
 use Fugu::File;
 use Fugu::CLI;
@@ -171,6 +172,19 @@ my %COMMANDS = (
 		usage   => '[dir]',
 		method  => 'cmd_init',
 		offline => 1,
+	},
+
+	# WEB-STATUS. The two verbs read the record of the
+	# translations, and the build and the check do not.
+	status => {
+		summary => 'Report each translation that does not follow '
+		    . 'its source',
+		method => 'cmd_status',
+	},
+	translated => {
+		summary => 'Record that each file follows its source now',
+		usage   => '<file> ...',
+		method  => 'cmd_translated',
 	},
 );
 
@@ -374,6 +388,47 @@ sub cmd_init ( $self, $cli, @args )
 	$self->{log}->info( 'Wrote %s', $path );
 
 	return EXIT_SUCCESS;
+}
+
+# Report each translation that does not follow its source
+sub cmd_status ( $self, $cli, @args )
+{
+	my $status = App::FuguWeb::Status->new( config => $self->{config} );
+
+	# A record or a source that the command cannot read is a fault
+	# of the project files, as a description is, and so is the
+	# description of WEB-STATUS-7. Exit 1 is the answer of
+	# WEB-STATUS-5, so a failure must take another code. Each
+	# failure of the report is such a fault.
+	my $lines = $status->report;
+	unless ($lines) {
+		$self->{log}->error( '%s', $status->error );
+		return EXIT_CONFIG_ERROR;
+	}
+
+	say for @$lines;
+
+	# WEB-STATUS-5. A script reads the answer from the exit code,
+	# as it does from diff(1).
+	return @$lines ? EXIT_ERROR : EXIT_SUCCESS;
+}
+
+# Record that each file follows its source now
+sub cmd_translated ( $self, $cli, @files )
+{
+	unless (@files) {
+		$self->{log}->error('translated needs a file');
+		return EXIT_INVALID_ARGS;
+	}
+
+	my $status = App::FuguWeb::Status->new( config => $self->{config} );
+	return EXIT_SUCCESS if $status->record(@files);
+
+	$self->{log}->error( '%s', $status->error );
+
+	# WEB-STATUS-2. A fault of the project files takes the code of
+	# cmd_status, and a file that translates no source takes 1.
+	return $status->fault ? EXIT_CONFIG_ERROR : EXIT_ERROR;
 }
 
 # Mint the next key of a purpose

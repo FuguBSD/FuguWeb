@@ -1757,6 +1757,17 @@ sub _check_paths ( $self, $reason )
 			"$key is $self->{$key}, which leaves the project" );
 	}
 
+	# WEB-SITE-7. The record of the translations sits at the
+	# project root, per WEB-STATUS-1, and the build publishes each
+	# plain file of the source directory. The source directory is
+	# therefore not the project root.
+	unless ( length App::FuguWeb::canonical_path( $self->{source_dir} ) ) {
+		return $self->_fail( $reason,
+			      "source_dir is $self->{source_dir}, which is the"
+			    . ' project root, where the record of the'
+			    . ' translations sits' );
+	}
+
 	$self->_check_source_dir($reason) or return;
 
 	return $self->_check_fragments($reason);
