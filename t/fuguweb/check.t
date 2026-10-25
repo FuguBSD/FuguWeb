@@ -758,6 +758,49 @@ subtest 'a link that leads nowhere, or to no such anchor' => sub {
 	);
 };
 
+subtest 'each heading of a translation takes the id of en' => sub {
+	# WEB-OUTLINE-3. The check compares each heading id of a page of
+	# zh-Hans and of ar with the id of the heading at the same
+	# position of the page of en.
+	my @problems = built_rc(
+		$THREE,
+		'zh-hans/other.html' => swap( qr{<h2 id="here">}, '<h2 id="ici">' ),
+		'ar/other.html'      => swap( qr{<h2 id="here">}, '<h2>' ),
+		'ar/index.html'      => swap( qr{<h1>}, '<h1 id="home">' ),
+	)->run;
+	is_deeply(
+		[ sort grep { /heading/ } @problems ],
+		[
+			'ar/index.html: heading 1 takes the id "home", and'
+			    . ' en/index.html takes no id',
+			'ar/other.html: heading 1 takes no id, and en/other.html'
+			    . ' takes the id "here"',
+			'zh-hans/other.html: heading 1 takes the id "ici", and'
+			    . ' en/other.html takes the id "here"',
+		],
+		'a heading id that differs from en, or that one side lacks'
+	);
+
+	@problems = built_rc( $THREE,
+		'zh-hans/other.html' => inside(qq{<h2 id="more">More</h2>\n}) )
+	    ->run;
+	is_deeply(
+		\@problems,
+		[
+			'zh-hans/other.html: holds 2 headings, and en/other.html'
+			    . ' holds 1'
+		],
+		'and a page that holds another count of headings'
+	);
+
+	# A heading outside the main element is no part of the outline.
+	@problems = built_rc( $THREE,
+		'zh-hans/other.html' => swap( qr{</header>}, "<h2>Banner</h2>\n</header>" ) )
+	    ->run;
+	is_deeply( [ grep { /heading/ } @problems ], [],
+		'a heading outside the main element is no part of the outline' );
+};
+
 subtest 'a reference that leaves the site' => sub {
 	my @problems = built( 'en/other.html' => inside(<<'HTML') )->run;
 <a href="/index.html">Rooted</a>

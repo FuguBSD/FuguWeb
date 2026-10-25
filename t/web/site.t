@@ -93,8 +93,9 @@ $sheet =~ s{/\*.*?\*/}{}gs;
 
 # The chrome carries no class, and a body fragment carries none. The
 # class names that mandoc(1) emits are the one set the sheet may use.
+# The fit removes the head and the foot of a manual page, per D-07, so
+# the set holds none of their classes.
 my %mandoc = map { $_ => 1 } qw(
-    head foot head-vol foot-date head-rtitle foot-os
     Sh Ss permalink manual-text Nm Bd-indent Bl-tag
     Cm Fl Ic Fn Dv Er Ev Ar Va Pa Em
 );
@@ -194,7 +195,8 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 
 # WEB-STYLE-5 draws the rule of 1994, a dark line over a light line,
 # above the main part, the footer and each h2. A body fragment can
-# hold an hr, and it takes the same rule. WEB-STYLE-6 gives a visited
+# hold an hr, and it takes the same rule. A section heading of a
+# manual page is an h2, and it takes no rule. WEB-STYLE-6 gives a visited
 # link its own color, and WEB-STYLE-8 sets a pre block as a terminal
 # in a sunken well. WEB-STYLE-9 sets each list of the chrome on one
 # line, draws the separator between two items, and shows the current
@@ -216,12 +218,8 @@ my @declarations = (
 	[ 'nav li + li::before',           'content', '"\\00b7"' ],
 	[ 'a[aria-current="page"]:link',    'text-decoration', 'none' ],
 	[ 'a[aria-current="page"]:visited', 'text-decoration', 'none' ],
-	[ 'table.head td', 'box-shadow',    'inset 0 -1px var(--shadow)' ],
-	[ 'table.head td', 'border-bottom', '1px solid var(--highlight)' ],
-	[ 'table.foot td', 'border-top',    '1px solid var(--shadow)' ],
-	[ 'table.foot td', 'box-shadow',    'inset 0 1px var(--highlight)' ],
-	[ 'h2.Ss',         'border',        '0' ],
-	[ 'h2.Ss',         'box-shadow',    'none' ],
+	[ 'h2.Sh',         'border',        '0' ],
+	[ 'h2.Sh',         'box-shadow',    'none' ],
 	[ 'a:visited',     'color',         'var(--visited)' ],
 	[ 'pre',           'background',    'var(--term-bg)' ],
 	[ 'pre',           'color',         'var(--term-fg)' ],
@@ -302,6 +300,31 @@ like( $index, qr{<nav>\n<ul>\n<li><a href="index\.html" aria-current="page">},
 	'and a nav list, with the current page' );
 unlike( $index, qr/<hr>/,   'and no rule' );
 unlike( $index, qr/class=/, 'and no class' );
+
+# WEB-MANUALS-9 to WEB-MANUALS-11 over the manual and a sidecar of this
+# repository. Each page opens with its title, holds no head and no foot
+# of mandoc(1), holds each section heading as an h2 with no link to
+# itself, and holds each character outside ASCII as text.
+my %manual = (
+	'en/fuguweb.1.html'               => 'fuguweb(1)',
+	'en/App::FuguWeb::Fragment.3p.html' => 'App::FuguWeb::Fragment(3p)',
+);
+for my $page ( sort keys %manual ) {
+	my $html = Fugu::File->read("$out/$page") // '';
+	like( $html, qr{<main>\n<h1>\Q$manual{$page}\E</h1>\n},
+		"$page opens with its title" );
+	unlike( $html, qr{class="(?:head|foot)\b},
+		"$page holds no head and no foot of mandoc" );
+	like( $html, qr{<h2 class="Sh" id="NAME">NAME</h2>},
+		"$page holds a section heading as an h2" );
+	unlike( $html, qr{<h1 class=}, "$page holds no section heading as an h1" );
+	unlike( $html, qr{<h[1-6][^>]*><a class="permalink"},
+		"$page holds no heading that links itself" );
+	unlike( $html, qr{&#x}, "$page holds no character reference" );
+}
+like( Fugu::File->read("$out/en/fuguweb.1.html") // '',
+	qr{<code class="Nm">fuguweb</code> \xe2\x80\x94},
+	'the dash of the name line is text' );
 
 ok( site()->build, 'a second build succeeds over the same tree' );
 

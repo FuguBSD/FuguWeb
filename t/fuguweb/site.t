@@ -966,35 +966,334 @@ subtest 'clean removes the output directory' => sub {
 	ok( $site->clean, 'clean is idempotent' );
 };
 
-subtest 'pod_date is the date of the last commit' => sub {
-	my $site = site( project(), tempdir( CLEANUP => 1 ) . '/out' );
+# The translation of the small project into zh-Hans: a body page, a
+# Markdown page, a manual and a sidecar. Each heading of zh-Hans holds
+# Han text, so lowdown(1) and mandoc(1) give it no id of the heading of
+# en. Two more nav entries make each page reachable, so the whole check
+# runs over the site.
+my %ZH = (
+	'.fuguwebrc' => <<"RC",
 
-	# A temporary project is no git checkout, so the fallback
-	# answers. Either way the answer is a date and not a file time.
-	like( $site->pod_date, qr/^\d{4}-\d{2}-\d{2}$/,
-		'the date is an ISO date' );
+language en {
+	name = English
+}
 
-	SKIP: {
-		skip 'git not found', 1 unless have('git');
+language zh-Hans {
+	name = \xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87
+}
 
-		# git does not preserve file times, so a build that read
-		# one would give different bytes on every checkout. The
-		# value has to be the commit date and not merely a date.
-		my $root = project();
-		my $quiet = '>/dev/null 2>&1';
-		my $env = 'GIT_AUTHOR_DATE="2001-02-03T04:05:06 +0000"'
-		    . ' GIT_COMMITTER_DATE="2001-02-03T04:05:06 +0000"'
-		    . ' GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.org'
-		    . ' GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.org';
-		system("cd '$root' && git init -q $quiet") == 0
-		    or skip 'git init failed', 1;
-		system("cd '$root' && git add -A $quiet") == 0
-		    or skip 'git add failed', 1;
-		system("cd '$root' && $env git commit -qm one $quiet") == 0
-		    or skip 'git commit failed', 1;
+nav "readme.html" {
+	label = Readme
+}
 
-		is( site( $root, tempdir( CLEANUP => 1 ) . '/out' )->pod_date,
-			'2001-02-03', 'the date of the last commit' );
+nav "manuals.html" {
+	label = Manuals
+}
+
+page zh-Hans "index.html" {
+	title = \xe9\xa6\x96\xe9\xa1\xb5
+	body  = zh-hans/index.body.html
+}
+
+page zh-Hans "readme.html" {
+	title    = \xe8\x87\xaa\xe8\xbf\xb0
+	markdown = zh-hans/README.md
+}
+
+manuals zh-Hans manuals {
+	dir = man/zh-hans
+}
+
+modules zh-Hans modules {
+	dir = lib/zh-hans/Thing
+}
+RC
+	'README.md' => "# Readme\n\nA paragraph.\n\n## Install\n\nSteps.\n"
+	    . "\n## For the CTO\n\nWords.\n",
+	'zh-hans/README.md' => "# \xe8\x87\xaa\xe8\xbf\xb0\n\n"
+	    . "\xe4\xb8\x80\xe6\xae\xb5\xe3\x80\x82\n\n"
+	    . "## \xe5\xae\x89\xe8\xa3\x85\n\n"
+	    . "\xe6\xad\xa5\xe9\xaa\xa4\xe3\x80\x82\n\n"
+	    . "## \xe9\x9d\xa2\xe5\x90\x91 CTO\n\n"
+	    . "\xe6\x96\x87\xe5\xad\x97\xe3\x80\x82\n",
+	'web/zh-hans/index.body.html' => "<h1>\xe9\xa6\x96\xe9\xa1\xb5</h1>\n",
+	'man/tool.1'                  => <<'MDOC',
+.Dd $Mdocdate: July 27 2026 $
+.Dt TOOL 1
+.Os
+.Sh NAME
+.Nm tool
+.Nd a tool
+.Sh DESCRIPTION
+Words.
+.Ss Install
+Steps.
+MDOC
+	'man/zh-hans/tool.1' => <<"MDOC",
+.Dd \$Mdocdate: July 27 2026 \$
+.Dt TOOL 1
+.Os
+.Sh NAME
+.Nm tool
+.Nd \xe5\xb7\xa5\xe5\x85\xb7
+.Sh \xe6\x8f\x8f\xe8\xbf\xb0
+\xe6\x96\x87\xe5\xad\x97\xe3\x80\x82
+.Ss \xe5\xae\x89\xe8\xa3\x85
+\xe6\xad\xa5\xe9\xaa\xa4\xe3\x80\x82
+MDOC
+	'lib/Thing/Depot.pod' => <<'POD',
+=head1 NAME
+
+Thing::Depot - the persistence contract
+
+=head1 DESCRIPTION
+
+Words.
+
+=head2 Part
+
+More.
+POD
+	'lib/zh-hans/Thing/Depot.pod' => <<"POD",
+=encoding utf8
+
+=head1 NAME
+
+Thing::Depot - \xe5\xb7\xa5\xe5\x85\xb7
+
+=head1 \xe6\x8f\x8f\xe8\xbf\xb0
+
+\xe6\x96\x87\xe5\xad\x97\xe3\x80\x82
+
+=head2 \xe9\x83\xa8\xe5\x88\x86
+
+\xe6\xad\xa5\xe9\xaa\xa4\xe3\x80\x82
+POD
+);
+
+# heading_ids($html):
+#	The id of each heading of the main element of a page, in order,
+#	with an empty string for a heading that has none. The test reads
+#	the page with its own pattern, and not with App::FuguWeb::Fragment.
+sub heading_ids ($html)
+{
+	return map { /\sid="([^"]*)"/ ? $1 : '' }
+	    main_of($html) =~ m{<h[1-6]\b([^>]*)>}g;
+}
+
+subtest 'each page of zh-Hans takes the heading ids of en' => sub {
+	# WEB-OUTLINE-1 and WEB-OUTLINE-2. A body page, a Markdown page,
+	# a manual and a sidecar of zh-Hans each follow the outline of
+	# their namesake of en, and take its ids.
+	my $root = project(%ZH);
+	my $out  = tempdir( CLEANUP => 1 ) . '/out';
+	my $site = site( $root, $out );
+	ok( $site->build, 'the build succeeds' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $site->config, out => $out )->run;
+	is( scalar @problems, 0, 'and the check finds no problem' )
+	    or diag join "\n", @problems;
+
+	my @names = qw(404.html Thing::Depot.3p.html index.html manuals.html
+	    readme.html tool.1.html);
+	for my $name (@names) {
+		my @en = heading_ids( read_page("$out/en/$name") );
+		my @zh = heading_ids( read_page("$out/zh-hans/$name") );
+		ok( scalar @en, "en/$name holds a heading" );
+		is_deeply( \@zh, \@en, "zh-hans/$name takes the ids of en/$name" );
+	}
+
+	# lowdown(1) gives a heading of Han text the id section, and a
+	# heading of Han text and Latin letters the id of the letters.
+	my $readme = read_page("$out/zh-hans/readme.html");
+	is_deeply(
+		[ heading_ids($readme) ],
+		[qw(readme install for-the-cto)],
+		'the Markdown page of zh-Hans takes the ids of en'
+	);
+	like( $readme, qr{<h2 id="install">\xe5\xae\x89\xe8\xa3\x85</h2>},
+		'and keeps the text of each heading' );
+	unlike( $readme, qr{id="(?:section|cto)}, 'and no id of lowdown' );
+
+	# WEB-MANUALS-9 to WEB-MANUALS-11. A manual page opens with its
+	# title. It holds no head and no foot of mandoc(1), its sections
+	# are h2 and its subsections h3, and it holds each character
+	# outside ASCII as text.
+	my %manual = (
+		'en/tool.1.html' => [
+			'tool(1)', [ 'NAME', 'DESCRIPTION' ], 'Install',
+			"<code class=\"Nm\">tool</code> \xe2\x80\x94"
+		],
+		'zh-hans/tool.1.html' => [
+			'tool(1)', [ 'NAME', "\xe6\x8f\x8f\xe8\xbf\xb0" ],
+			"\xe5\xae\x89\xe8\xa3\x85",
+			"\xe5\xb7\xa5\xe5\x85\xb7"
+		],
+		'en/Thing::Depot.3p.html' => [
+			'Thing::Depot(3p)', [ 'NAME', 'DESCRIPTION' ], 'Part',
+			'the persistence contract'
+		],
+		'zh-hans/Thing::Depot.3p.html' => [
+			'Thing::Depot(3p)', [ 'NAME', "\xe6\x8f\x8f\xe8\xbf\xb0" ],
+			"\xe9\x83\xa8\xe5\x88\x86",
+			"Thing::Depot - \xe5\xb7\xa5\xe5\x85\xb7"
+		],
+	);
+	for my $page ( sort keys %manual ) {
+		my ( $title, $sections, $subsection, $text ) =
+		    @{ $manual{$page} };
+		my $html = read_page("$out/$page");
+
+		like( $html, qr{<main>\n<h1>\Q$title\E</h1>\n<div class="manual-text">\n},
+			"$page opens with its title" );
+		unlike( $html, qr{class="(?:head|foot)\b},
+			"$page holds no head and no foot of mandoc" );
+		is( scalar( () = main_of($html) =~ /<h1\b/g ), 1,
+			"$page holds one h1" );
+		like(
+			$html,
+			qr{<h2 class="Sh" id="NAME">\Q$sections->[0]\E</h2>.*<h2 class="Sh" id="DESCRIPTION">\Q$sections->[1]\E</h2>}s,
+			"$page holds each section heading as an h2, with the id of en"
+		);
+		like( $html, qr{<h3 class="Ss" id="[^"]+">\Q$subsection\E</h3>},
+			"$page holds the subsection heading as an h3" );
+		unlike( $html, qr{&#x}, "$page holds no character reference" );
+		like( $html, qr{\Q$text\E}, "$page holds its text as UTF-8" );
+	}
+};
+
+subtest 'a link to a section of a translated manual names the id of en' => sub {
+	# WEB-OUTLINE-4. mandoc(1) writes .Sx BESCHREIBUNG as a link to
+	# #BESCHREIBUNG, and the heading takes the id DESCRIPTION of en.
+	# mandoc 1.14.6 gives a heading of Han text no id, and writes .Sx
+	# of that text as a link to an id that no heading holds. The whole
+	# check runs over the build, so a link that names no id fails it.
+	my $root = project(
+		%ZH,
+		'.fuguwebrc' => $ZH{'.fuguwebrc'} . <<'RC',
+
+language de {
+	name = Deutsch
+}
+
+manuals de manuals {
+	dir = man/de
+}
+RC
+		'man/tool.1' => <<'MDOC',
+.Dd $Mdocdate: July 27 2026 $
+.Dt TOOL 1
+.Os
+.Sh NAME
+.Nm tool
+.Nd a tool
+.Sh DESCRIPTION
+See
+.Sx INSTALL .
+.Sh INSTALL
+See
+.Sx DESCRIPTION .
+MDOC
+		'man/de/tool.1' => <<'MDOC',
+.Dd $Mdocdate: July 27 2026 $
+.Dt TOOL 1
+.Os
+.Sh NAME
+.Nm tool
+.Nd ein Werkzeug
+.Sh BESCHREIBUNG
+Siehe
+.Sx INSTALLATION .
+.Sh INSTALLATION
+Siehe
+.Sx BESCHREIBUNG .
+MDOC
+		'man/zh-hans/tool.1' => <<"MDOC",
+.Dd \$Mdocdate: July 27 2026 \$
+.Dt TOOL 1
+.Os
+.Sh NAME
+.Nm tool
+.Nd \xe5\xb7\xa5\xe5\x85\xb7
+.Sh \xe6\x8f\x8f\xe8\xbf\xb0
+\xe8\xa7\x81
+.Sx \xe5\xae\x89\xe8\xa3\x85 .
+.Sh \xe5\xae\x89\xe8\xa3\x85
+\xe8\xa7\x81
+.Sx \xe6\x8f\x8f\xe8\xbf\xb0 .
+MDOC
+	);
+	my $out  = tempdir( CLEANUP => 1 ) . '/out';
+	my $site = site( $root, $out );
+	ok( $site->build, 'the build succeeds' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $site->config, out => $out )->run;
+	is( scalar @problems, 0, 'and the check finds no problem' )
+	    or diag join "\n", @problems;
+
+	my %link = (
+		'de/tool.1.html' => [ 'BESCHREIBUNG', 'INSTALLATION' ],
+		'zh-hans/tool.1.html' =>
+		    [ "\xe6\x8f\x8f\xe8\xbf\xb0", "\xe5\xae\x89\xe8\xa3\x85" ],
+	);
+	for my $page ( sort keys %link ) {
+		my ( $description, $install ) = @{ $link{$page} };
+		my $html = read_page("$out/$page");
+		like( $html, qr{<h2 class="Sh" id="INSTALL">\Q$install\E</h2>},
+			"$page gives the heading the id of en" );
+		like( $html, qr{<a class="Sx" href="#INSTALL">\Q$install\E</a>},
+			'and the link to it names that id' );
+		like( $html,
+			qr{<a class="Sx" href="#DESCRIPTION">\Q$description\E</a>},
+			'and so does the link to the other section' );
+	}
+};
+
+subtest 'a translation that leaves the outline fails the build' => sub {
+	# WEB-OUTLINE-1. The message names the page, the language and the
+	# position of the first heading that differs.
+	my %case = (
+		'zh-hans/README.md' => [
+			$ZH{'zh-hans/README.md'} . "\n## \xe9\xa2\x9d\xe5\xa4\x96\n",
+			'zh-hans/readme.html', 4
+		],
+		'man/zh-hans/tool.1' => [
+			$ZH{'man/zh-hans/tool.1'} =~ s/^\.Ss /.Sh /mr,
+			'zh-hans/tool.1.html', 4
+		],
+		'web/zh-hans/index.body.html' => [
+			"<h2>\xe9\xa6\x96\xe9\xa1\xb5</h2>\n", 'zh-hans/index.html', 1
+		],
+	);
+
+	for my $source ( sort keys %case ) {
+		my ( $text, $page, $position ) = @{ $case{$source} };
+		my $root = project( %ZH, $source => $text );
+		my $out  = tempdir( CLEANUP => 1 ) . '/out';
+
+		my $said = '';
+		open my $saved, '>&', \*STDERR or die "Cannot save stderr: $!";
+		close STDERR;
+		open STDERR, '>', \$said or die 'Cannot capture stderr';
+
+		my $config = App::FuguWeb::Config->load(
+			root  => $root,
+			error => \my $reason
+		);
+		my $built =
+		    App::FuguWeb::Site->new( config => $config, out => $out )
+		    ->build;
+
+		close STDERR;
+		open STDERR, '>&', $saved or die "Cannot restore stderr: $!";
+
+		ok( !$built, "a $source that leaves the outline fails the build" );
+		like( $said,
+			qr{\Q$page\E: the outline of zh-Hans differs from en at heading $position\b},
+			'and the message names the page, the language and the heading'
+		);
 	}
 };
 

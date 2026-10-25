@@ -15,15 +15,17 @@ Work package 5 landed, with the translation status. It set WEB-STATUS to `done`.
 The description refuses a `source_dir` at the project root, where the record
 sits, per WEB-SITE-7.
 
-Work package 4 can land now. Work packages 3 and 6 wait on work package 4. Each
-work package lands as one pull request. It trims the `Implements:` citation of
-each unit that it sets to `done`. The work package that lands last deletes this
-plan directory.
+Work package 4 landed, with the fit of each fragment. It set WEB-OUTLINE and
+WEB-MANUALS to `done`. WEB-LANGUAGE stays `partial`, with WEB-LANGUAGE-11 as the
+one absent rule. `not_found` of Fragment.pm holds the fit of WEB-TOP-6, and work
+package 3 calls it.
+
+Work packages 3 and 6 can land now. Each work package lands as one pull request.
+It trims the `Implements:` citation of each unit that it sets to `done`. The
+work package that lands last deletes this plan directory.
 
 - Implements: WEB-LANGUAGE.
 - Implements: WEB-TOP.
-- Implements: WEB-OUTLINE.
-- Implements: WEB-MANUALS.
 - Implements: WEB-STYLE.
 
 ## Purpose

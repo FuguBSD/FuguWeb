@@ -20,6 +20,7 @@ use v5.36;
 package App::FuguWeb::Check;
 
 use App::FuguWeb;
+use App::FuguWeb::Fragment;
 use App::FuguWeb::Keys;
 use Fugu::File;
 
@@ -118,6 +119,7 @@ sub run ($self)
 	push @problems, $self->_check_forward
 	    if -f $self->{out} . "/$forward";
 	push @problems, $self->_check_nav;
+	push @problems, $self->_check_outlines;
 	push @problems, $self->_check_reachable;
 	push @problems, $self->_check_keys;
 
@@ -208,6 +210,89 @@ sub _check_nav ($self)
 	}
 
 	return @problems;
+}
+
+# $self->_check_outlines:
+#	Hold each heading id of each tree page of another language than
+#	the default, per WEB-OUTLINE-3. The heading at each position
+#	takes the id of the heading at the same position in the
+#	namesake of the default tree, or no id when that heading has
+#	none. The check reads the outline of the main element through
+#	App::FuguWeb::Fragment, as the build does. A footer is the
+#	fragment of its own language, so its headings are no part of
+#	the outline.
+sub _check_outlines ($self)
+{
+	my $config  = $self->{config};
+	my $default = $config->default_language;
+
+	my @problems;
+	for my $language ( $config->languages ) {
+		next if $language->tag eq $default->tag;
+
+		for my $name ( $config->page_names ) {
+			my $page   = $language->path . "/$name";
+			my $source = $default->path . "/$name";
+			next
+			    unless -f $self->{out} . "/$page"
+			    && -f $self->{out} . "/$source";
+
+			push @problems, $self->_check_outline( $page, $source );
+		}
+	}
+
+	return @problems;
+}
+
+# $self->_check_outline($page, $source):
+#	Hold the heading ids of one page to those of its namesake of the
+#	default tree, per WEB-OUTLINE-3.
+sub _check_outline ( $self, $page, $source )
+{
+	my @have = @{ $self->_outline_of($page) };
+	my @want = @{ $self->_outline_of($source) };
+
+	my @problems;
+	push @problems,
+	      "$page: holds "
+	    . scalar(@have)
+	    . " headings, and $source holds "
+	    . scalar(@want)
+	    unless @have == @want;
+
+	my $last = @have < @want ? $#have : $#want;
+	for my $i ( 0 .. $last ) {
+		my ( $held, $id ) = ( $have[$i][1], $want[$i][1] );
+		next if !defined $held && !defined $id;
+		next if defined $held && defined $id && $held eq $id;
+
+		push @problems,
+		      "$page: heading "
+		    . ( $i + 1 )
+		    . ' takes '
+		    . _id_text($held)
+		    . ", and $source takes "
+		    . _id_text($id);
+	}
+
+	return @problems;
+}
+
+# $self->_outline_of($page):
+#	The outline of the main element of one page of the output.
+sub _outline_of ( $self, $page )
+{
+	my $html = Fugu::File->read( $self->{out} . "/$page" ) // '';
+	my ($main) = $html =~ m{<main\b[^>]*>(.*)</main>}s;
+
+	return App::FuguWeb::Fragment::outline( $main // '' );
+}
+
+# _id_text($id):
+#	The words of one id in a problem.
+sub _id_text ($id)
+{
+	return defined $id ? qq{the id "$id"} : 'no id';
 }
 
 # $self->_check_page($page):

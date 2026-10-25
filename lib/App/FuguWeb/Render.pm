@@ -20,15 +20,14 @@ use v5.36;
 package App::FuguWeb::Render;
 
 use App::FuguWeb;
-use App::FuguWeb::Manual;
 use Fugu::Log;
 use Fugu::Process;
 
 # App::FuguWeb::Render - the three external renderers.
 #
 # The tool renders no format itself. mandoc turns mdoc into HTML,
-# lowdown turns Markdown into HTML, and pod2man turns POD into mdoc for
-# mandoc to finish. Each one is a mature program that reads a format
+# lowdown turns Markdown into HTML, and pod2man turns POD into man(7)
+# for mandoc to finish. Each one is a mature program that reads a format
 # this project already writes; a Perl reimplementation would be a
 # second, worse one.
 #
@@ -43,15 +42,6 @@ use constant {
 	DEFAULT_MANDOC  => 'mandoc',
 	DEFAULT_LOWDOWN => 'lowdown',
 	DEFAULT_POD2MAN => 'pod2man',
-};
-
-# The pod2man --center and --release values. They are constants and
-# not settings: they pin the pod2man output so the site does not vary
-# with the build host. Without them, pod2man writes its own center
-# text and the perl version of the machine that built the site.
-use constant {
-	POD_CENTER  => 'Perl Library Manual',
-	POD_RELEASE => 'OpenBSD',
 };
 
 # App::FuguWeb::Render->new(%args):
@@ -148,32 +138,23 @@ sub mdoc ( $self, $file, $dir )
 	);
 }
 
-# $self->pod($path, $name, $date):
+# $self->pod($path):
 #	Render one POD sidecar into an HTML body fragment. pod2man
-#	writes mdoc, and mandoc finishes the job, so a module page
+#	writes man(7), and mandoc finishes the job, so a module page
 #	carries the same chrome as a hand-written manual.
 #
-#	The date comes from the caller and never from the file time.
-#	git does not preserve file times, so a build that read one
-#	would give different bytes on every checkout.
+#	pod2man writes the name, the section, the date, the center text
+#	and the release into the head and the foot of the page. The fit
+#	of App::FuguWeb::Fragment removes both, per D-07, so the call
+#	gives none of them.
 #
 #	--utf8 makes pod2man write each character as UTF-8, per
 #	WEB-SITE-5. Without it, podlators 4.14 of perl 5.36 writes X or
 #	a roff escape for each character outside ASCII.
-sub pod ( $self, $path, $name, $date )
+sub pod ( $self, $path )
 {
-	my $man = Fugu::Process->run(
-		cmd => [
-			$self->{pod2man},
-			'--utf8',
-			'--section=' . App::FuguWeb::Manual::POD_SECTION,
-			"--name=$name",
-			"--date=$date",
-			'--center=' . POD_CENTER,
-			'--release=' . POD_RELEASE,
-			$path,
-		],
-	);
+	my $man =
+	    Fugu::Process->run( cmd => [ $self->{pod2man}, '--utf8', $path ] );
 
 	# pod2man reports a malformed directive on standard error and
 	# still writes the page. The page is what the site needs, so a
@@ -196,20 +177,16 @@ sub pod ( $self, $path, $name, $date )
 # $self->html_options:
 #	The mandoc options that every page shares.
 #
-#	-I os= pins the footer, which otherwise names the operating
-#	system of the build host, and the site would then vary with the
-#	machine that built it.
-#
 #	The './' in the man= template matters. A module page is named
 #	Fugu::Daemon.3p.html, and a browser reads a relative URL whose
 #	first segment holds a colon as a scheme.
 sub html_options ($self)
 {
-	my $config = $self->{config};
-
 	return (
-		'-Thtml', '-I', 'os=' . $config->mandoc_os,
-		'-O', 'fragment,man=./%N.%S.html;' . $config->man_url . '%N.%S',
+		'-Thtml',
+		'-O',
+		'fragment,man=./%N.%S.html;'
+		    . $self->{config}->man_url . '%N.%S',
 	);
 }
 
