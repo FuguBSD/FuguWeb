@@ -23,6 +23,12 @@ A project keeps only the assertions that are about its own content.
 The class never fetches a link. It collects the external ones and
 reports them, because the build and its checks touch no network.
 
+The class reads each attribute of a page through
+L<App::FuguWeb/edit_attributes>, the reader that
+L<App::FuguWeb::Fragment> reads too. The text of a value, such as
+C<title="see href=x">, is therefore no reference, and a name such as
+C<data-id> is no C<id>.
+
 =head1 METHODS
 
 =head2 new
@@ -79,10 +85,12 @@ tree is right to left, per WEB-LANGUAGE-13;
 =item *
 
 the head of a tree page names the page itself, the same page in each
-language, and the forward page, per WEB-CHROME-6. The head of any other
-page names none. Each such href is the C<url> of the description, then
-the path of a page of the inventory, or the bare C<url>, per
-WEB-LINKS-5. None of them is an external link;
+language, and the forward page, per WEB-CHROME-6. The head of the
+forward names the bare C<url> as its canonical link and as
+C<x-default>, and the entry page of each language, per WEB-TOP-2. The
+head of any other page names none. Each such href is the C<url> of the description, then the
+path of a page of the inventory, or the bare C<url>, per WEB-LINKS-5.
+None of them is an external link;
 
 =item *
 
@@ -95,11 +103,14 @@ its language after its C<href>;
 
 =item *
 
-on a site of more than one language, the header of a tree page holds
-one item for each language, in the order of the declaration. Each link
-goes to the same page in that language. Its text is the name of the
-language, and the tag is its C<lang> and its C<hreflang>. Any other
-page, and each page of a site of one language, holds no such item;
+on a site of more than one language, the header of a tree page and of
+the top-level F<404.html>, and the body of the forward, hold one item
+for each language, in the order of the declaration. On a tree page,
+each link goes to the same page in that language. On a page of the top
+level, each link goes to the entry page of that language, per
+WEB-TOP-2 and WEB-TOP-4. Its text is the name of the language, and the
+tag is its C<lang> and its C<hreflang>. The key page, and each page of a
+site of one language, holds no such item;
 
 =item *
 
@@ -126,9 +137,26 @@ L<App::FuguWeb::Config/url_path>, and that page must carry it;
 
 =item *
 
-the top-level F<index.html> holds a meta refresh to the entry page of
-the default tree. Its one reference is a link to that page, so it
-loads nothing, and it carries no navigation;
+the top-level F<index.html> is a page of the default language, per
+WEB-TOP-1. Its head holds the charset, a meta refresh to the entry page
+of the default tree, the title and the links of WEB-CHROME-6, in that
+order, and nothing else. Its title is the site name. On a site of one
+language, its body holds one link to the entry page, with the site name
+as its text. The body holds no other reference, so the page loads
+nothing, and it carries no navigation;
+
+=item *
+
+the top-level F<404.html> is a page of the default language, with the
+title of the F<404.html> of the default tree, per WEB-TOP-4. Its head
+holds the charset, the viewport, the base, the title and the stylesheet
+link, in that order, and nothing else, per WEB-TOP-3. Its
+C<< <main> >> carries no mark. It holds one C<< <section> >> for each
+language, in the order of the declaration, and nothing else, per
+WEB-TOP-5. Each section carries the marks of the language of its text.
+It holds the body of the F<404.html> of the tree of its language, as
+L<App::FuguWeb::Fragment/not_found> fits it: with no id, and with each
+relative link from the site root, per WEB-TOP-6;
 
 =item *
 

@@ -145,6 +145,12 @@ HTML
 <IMG SRC="zh-hans/img/a.png" ALT="a"></P>
 HTML
 		'not_found removes the id and rebases the link attribute alone' );
+
+	# The fit of a manual reads the class of a heading, and not a
+	# class in the text of another value.
+	is( App::FuguWeb::Fragment::manual( qq{<h1 title=' class="Ss"'>Words</h1>\n}, 't(1)' ),
+		qq{<h1>t(1)</h1>\n<h1 title=' class="Ss"'>Words</h1>\n},
+		'manual reads the class attribute alone' );
 };
 
 subtest 'a link to a heading names the id that the heading takes' => sub {

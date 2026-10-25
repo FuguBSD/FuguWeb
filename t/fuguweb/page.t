@@ -514,6 +514,137 @@ HTML
 		'is the base of the page' );
 };
 
+subtest 'the top-level 404 page of three languages' => sub {
+	# WEB-TOP-4. The page lists each language after the site link.
+	# It belongs to no tree, so each link goes to the entry page of
+	# its language, and no link is the current one. The nav is that
+	# of the default tree, and the page carries no footer.
+	my $config = site($LANGUAGES);
+	my $page   = App::FuguWeb::Page->new(
+		config => $config,
+		footer => "<p>ISC.</p>\n"
+	);
+
+	# WEB-TOP-5. Each body sits in its own section, with the marks of
+	# the language of its text.
+	my $html = render(
+		$page,
+		'404.html',
+		'Not found',
+		$page->sections(
+			[ 'en',      "<h1>Not found</h1>\n" ],
+			[ 'zh-Hans', "<h1>\x{672a}\x{627e}\x{5230}</h1>\n" ],
+			[ 'ar',      "<h1>Lost</h1>\n" ],
+		)
+	);
+
+	my $expected = <<"HTML";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/">
+<title>Not found \xe2\x80\x94 Example</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+<a href="en/index.html">Example</a>
+<ul>
+<li><a href="en/index.html" hreflang="en" lang="en">English</a></li>
+<li><a href="zh-hans/index.html" hreflang="zh-Hans" lang="zh-Hans">\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87</a></li>
+<li><a href="ar/index.html" hreflang="ar" lang="ar" dir="rtl">Arabic</a></li>
+</ul>
+</header>
+<nav>
+<ul>
+<li><a href="en/index.html">Home</a></li>
+<li><a href="en/manuals.html">Manuals</a></li>
+</ul>
+</nav>
+<main>
+<section>
+<h1>Not found</h1>
+</section>
+<section lang="zh-Hans">
+<h1>\xe6\x9c\xaa\xe6\x89\xbe\xe5\x88\xb0</h1>
+</section>
+<section lang="ar" dir="rtl">
+<h1>Lost</h1>
+</section>
+</main>
+</body>
+</html>
+HTML
+
+	is( $html, $expected, 'the page is byte for byte the chrome' );
+};
+
+subtest 'the forward page' => sub {
+	# WEB-TOP-1. A page of the default language. Its head holds the
+	# charset, the meta refresh, the title and the links of
+	# WEB-CHROME-6, and nothing else. It loads nothing. Its
+	# canonical link is the bare url, and the link of each language
+	# goes to the entry page of that language, per WEB-TOP-2.
+	my $page = App::FuguWeb::Page->new( config => site($RC) );
+	is( App::FuguWeb::encode( $page->forward ), <<'HTML',
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=en/index.html">
+<title>Example</title>
+<link rel="canonical" href="https://example.org/">
+<link rel="alternate" hreflang="en" href="https://example.org/en/index.html">
+<link rel="alternate" hreflang="x-default" href="https://example.org/">
+</head>
+<body>
+<p><a href="en/index.html">Example</a></p>
+</body>
+</html>
+HTML
+		'a site of one language links the entry page with the site name' );
+
+	# WEB-TOP-2. A site of more than one language lists each one,
+	# with no current link.
+	$page = App::FuguWeb::Page->new( config => site($LANGUAGES) );
+	is( App::FuguWeb::encode( $page->forward ), <<"HTML",
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=en/index.html">
+<title>Example</title>
+<link rel="canonical" href="https://example.org/">
+<link rel="alternate" hreflang="en" href="https://example.org/en/index.html">
+<link rel="alternate" hreflang="zh-Hans" href="https://example.org/zh-hans/index.html">
+<link rel="alternate" hreflang="ar" href="https://example.org/ar/index.html">
+<link rel="alternate" hreflang="x-default" href="https://example.org/">
+</head>
+<body>
+<ul>
+<li><a href="en/index.html" hreflang="en" lang="en">English</a></li>
+<li><a href="zh-hans/index.html" hreflang="zh-Hans" lang="zh-Hans">\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87</a></li>
+<li><a href="ar/index.html" hreflang="ar" lang="ar" dir="rtl">Arabic</a></li>
+</ul>
+</body>
+</html>
+HTML
+		'a site of three languages lists the entry page of each one' );
+};
+
+subtest 'the language of the main element of a page' => sub {
+	# WEB-LANGUAGE-11. The main element takes the language of the
+	# value of the page. An index marks each part of its own, so its
+	# main element takes the language of the tree.
+	my $zh = site($LANGUAGES)->language('zh-Hans');
+	is( App::FuguWeb::Page::body_lang( { source => 'body', lang => 'en' }, $zh ),
+		'en', 'a body takes the language of its value' );
+	is( App::FuguWeb::Page::body_lang( { source => 'index', lang => 'en' }, $zh ),
+		'zh-Hans', 'and an index takes the language of the tree' );
+};
+
 subtest 'an absolute URL passes unchanged' => sub {
 	my $config = site( <<'RC' );
 site = Example

@@ -264,6 +264,11 @@ and it can give the heading no id. So the build finds that heading by its text.
   the id of WEB-OUTLINE-2. The build must find the heading of a link of the
   class `Sx` by the text of the link. It must find the heading of each other
   link by its old id. A link to a heading that takes no id stays as it stands.
+  This rule has a known limit. In a link, the author of a translation can mean
+  an id of the default language. That id can also be the old id of another
+  heading. The link then follows that other heading, per this rule. An example
+  is a link to `#build`, when lowdown(1) gives the id `build` to another heading
+  of the translation.
 
 <a id="web-status"></a>
 

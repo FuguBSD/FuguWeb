@@ -142,7 +142,7 @@ RC
 	# the stylesheet, and the assets. A body fragment is a source
 	# and never an asset, and so is the body of the index page.
 	# The description holds no 404 page, so the top level holds no
-	# copy of one.
+	# 404.html.
 	is_deeply(
 		[ $config->inventory ],
 		[ qw(en/index.html en/manuals.html en/tool.1.html index.html
@@ -156,7 +156,7 @@ RC
 		'and the top level holds the forward alone' );
 };
 
-subtest 'a 404 page adds a copy at the top level' => sub {
+subtest 'a 404 page adds a 404.html at the top level' => sub {
 	my ( $config, $reason ) = load_rc( <<'RC' );
 site = Example
 url  = https://example.org/
@@ -175,10 +175,10 @@ RC
 	is_deeply(
 		[ $config->inventory ],
 		[qw(en/index.html en/404.html index.html 404.html style.css)],
-		'the tree holds the page, and the top level its copy'
+		'the tree holds the page, and the top level one more'
 	);
 	is_deeply( [ $config->top_pages ], [qw(index.html 404.html)],
-		'the top level holds the forward and the copy' );
+		'the top level holds the forward and the 404.html' );
 };
 
 subtest 'the navigation keeps its file order' => sub {

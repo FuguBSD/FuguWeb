@@ -195,7 +195,7 @@ subtest 'the build makes the site and nothing else' => sub {
 	ok( !-e $absent, 'and writes nothing' );
 
 	# The pages of the description and one page per manual, in the
-	# tree of en. The forward, the copy of the 404 page, the base
+	# tree of en. The forward, the top-level 404.html, the base
 	# stylesheet, and the assets at the top level.
 	my @expected = qw(
 	    404.html en/404.html en/Thing::Depot.3p.html en/index.html
@@ -226,7 +226,8 @@ subtest 'the top level holds the forward and the 404 page' => sub {
 	my $forward = do { local $/; <$fh> };
 	close $fh;
 
-	# One meta refresh, one link, and nothing loaded.
+	# WEB-TOP-1 and WEB-TOP-2. One meta refresh, the links of
+	# WEB-CHROME-6, one link with the site name, and nothing loaded.
 	is( $forward, <<'HTML', 'the forward is byte for byte its shape' );
 <!DOCTYPE html>
 <html lang="en">
@@ -234,6 +235,9 @@ subtest 'the top level holds the forward and the 404 page' => sub {
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="0; url=en/index.html">
 <title>Example</title>
+<link rel="canonical" href="https://example.org/">
+<link rel="alternate" hreflang="en" href="https://example.org/en/index.html">
+<link rel="alternate" hreflang="x-default" href="https://example.org/">
 </head>
 <body>
 <p><a href="en/index.html">Example</a></p>
@@ -241,13 +245,14 @@ subtest 'the top level holds the forward and the 404 page' => sub {
 </html>
 HTML
 
-	# The copy is the page of the default language, with its base,
-	# and its chrome links the default tree from the top level.
+	# The top-level 404.html is a page of the default language, with
+	# its base, and its chrome links the default tree from the top
+	# level.
 	open $fh, '<', "$OUT/404.html" or die "Cannot read: $!";
 	my $copy = do { local $/; <$fh> };
 	close $fh;
 
-	like( $copy, qr{<html lang="en">}, 'the copy is a page of en' );
+	like( $copy, qr{<html lang="en">}, 'the top-level 404.html is a page of en' );
 	like( $copy, qr{<base href="/">\n<title>Not found },
 		'with its base before the title' );
 	like( $copy, qr{<link rel="stylesheet" href="style\.css">},
@@ -257,8 +262,9 @@ HTML
 	like( $copy,
 		qr{<nav>\n<ul>\n<li><a href="en/index\.html">Home</a></li>\n</ul>\n</nav>},
 		'and the nav link' );
-	like( $copy, qr{<p><a href="index\.html">Home</a></p>},
-		'the body fragment as it stands' );
+	like( $copy,
+		qr{<main>\n<section>\n<h1>Not found</h1>\n<p><a href="en/index\.html">Home</a></p>\n</section>\n</main>},
+		'the body of en in its section, with each link from the root' );
 	unlike( $copy, qr/<footer>/, 'and no footer' );
 
 	open $fh, '<', "$OUT/en/404.html" or die "Cannot read: $!";
@@ -468,9 +474,15 @@ subtest 'a site of two languages builds one tree for each' => sub {
 		qr{<li><a href="\.\./en/Thing::Depot\.3p\.html" hreflang="en" lang="en">English</a></li>\n<li><a href="\./Thing::Depot\.3p\.html" hreflang="de" lang="de" aria-current="page">Deutsch</a></li>},
 		'a page of de links its page of en, and itself'
 	);
-	unlike( read_page("$out/$_"), qr/hreflang/,
-		"the top-level $_ carries no language link" )
-	    for qw(index.html 404.html);
+
+	# WEB-TOP-2 and WEB-TOP-4. A page of the top level lists each
+	# language, with a link to the entry page of each one, and no
+	# current link.
+	like(
+		read_page("$out/$_"),
+		qr{<ul>\n<li><a href="en/index\.html" hreflang="en" lang="en">English</a></li>\n<li><a href="de/index\.html" hreflang="de" lang="de">Deutsch</a></li>\n</ul>\n},
+		"the top-level $_ lists the entry page of each language"
+	) for qw(index.html 404.html);
 
 	# WEB-LANGUAGE-3. A tree takes the footer of its language.
 	like( $index, qr{<footer>\n<p>ISC-Lizenz\.</p>\n</footer>},
@@ -479,7 +491,7 @@ subtest 'a site of two languages builds one tree for each' => sub {
 		qr{<footer>\n<p>ISC\.</p>\n</footer>},
 		'and a page of en the footer of the description' );
 	unlike( read_page("$out/404.html"), qr{<footer>},
-		'and the top-level copy of the 404 page none' );
+		'and the top-level 404.html none' );
 
 	# A source of a translation is no asset.
 	ok( !-e "$out/de/index.body.html" && !-e "$out/index.body.html",
@@ -492,7 +504,7 @@ subtest 'a site of two languages builds one tree for each' => sub {
 	close $fh;
 
 	my $top = read_page("$out/404.html")
-	    =~ s{</a>\n</header>}{</a>\n<ul>\n<li><a href="de/404.html" hreflang="de" lang="de">Deutsch</a></li>\n</ul>\n</header>}r;
+	    =~ s{<li><a href="de/index\.html"[^\n]*\n}{}r;
 	open $fh, '>', "$out/404.html" or die "Cannot write: $!";
 	print {$fh} $top;
 	close $fh;
@@ -501,8 +513,8 @@ subtest 'a site of two languages builds one tree for each' => sub {
 	like( $joined, qr{^de/readme\.html: does not link the page in en$}m,
 		'the check reports a missing language link' );
 	like( $joined,
-		qr{^404\.html: carries 1 language links, and the page takes 0$}m,
-		'and a language link on a page of the top level' );
+		qr{^404\.html: carries 1 language links, and the page takes 2$}m,
+		'and a missing language link on a page of the top level' );
 };
 
 subtest 'an index page marks each part of the default source' => sub {
@@ -809,9 +821,125 @@ subtest 'a site of three languages builds each tree below its path' => sub {
 	ok( !-e $out, 'and the directory is gone' );
 };
 
+subtest 'the top level of a site of three languages' => sub {
+	# The 404 page of zh-Hans takes its own body. Its heading takes
+	# the id of en, per WEB-OUTLINE-2, and its link to the heading
+	# follows, per WEB-OUTLINE-4. The tree of ar takes the body of
+	# en. A body links an asset from its tree.
+	my $root = three(
+		'web/404.body.html' => qq{<h1 id="lost">Not found</h1>\n}
+		    . qq{<p><a href="index.html">Home</a> <a href="#lost">Up</a>}
+		    . qq{ <img src="../logo.png" alt=""></p>\n},
+		'web/zh-hans/404.body.html' =>
+		    qq{<h1 id="section">\xe6\x9c\xaa\xe6\x89\xbe\xe5\x88\xb0</h1>\n}
+		    . qq{<p><a href="index.html">\xe9\xa6\x96\xe9\xa1\xb5</a>}
+		    . qq{ <a href="#section">\xe4\xb8\x8a</a></p>\n},
+		'web/logo.png' => "PNG\n",
+	);
+	open my $fh, '>>', "$root/.fuguwebrc" or die "Cannot write: $!";
+	print {$fh} <<"RC";
+
+page zh-Hans "404.html" {
+	title = \xe6\x9c\xaa\xe6\x89\xbe\xe5\x88\xb0
+	body  = zh-hans/404.body.html
+}
+RC
+	close $fh;
+
+	my $out  = tempdir( CLEANUP => 1 ) . '/out';
+	my $site = site( $root, $out );
+	ok( $site->build, 'the build succeeds' );
+
+	# The check holds both pages to WEB-TOP.
+	my @problems =
+	    App::FuguWeb::Check->new( config => $site->config, out => $out )->run;
+	is( scalar @problems, 0, 'and the check finds no problem' )
+	    or diag join "\n", @problems;
+
+	# WEB-TOP-1 and WEB-TOP-2. The forward is a page of en. The
+	# links of its head name the bare url and the entry page of each
+	# language, and its body lists each language.
+	is( read_page("$out/index.html"), <<"HTML", 'the forward is byte for byte its shape' );
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=en/index.html">
+<title>voil\xc3\xa0</title>
+<link rel="canonical" href="https://example.org/">
+<link rel="alternate" hreflang="en" href="https://example.org/en/index.html">
+<link rel="alternate" hreflang="zh-Hans" href="https://example.org/zh-hans/index.html">
+<link rel="alternate" hreflang="ar" href="https://example.org/ar/index.html">
+<link rel="alternate" hreflang="x-default" href="https://example.org/">
+</head>
+<body>
+<ul>
+<li><a href="en/index.html" hreflang="en" lang="en">English</a></li>
+<li><a href="zh-hans/index.html" hreflang="zh-Hans" lang="zh-Hans">\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87</a></li>
+<li><a href="ar/index.html" hreflang="ar" lang="ar" dir="rtl">\xd8\xa7\xd9\x84\xd8\xb9\xd8\xb1\xd8\xa8\xd9\x8a\xd8\xa9</a></li>
+</ul>
+</body>
+</html>
+HTML
+
+	# WEB-TOP-3 and WEB-TOP-4. The top-level 404.html is a page of en,
+	# with the base, the title of en/404.html, the list of the
+	# languages and the nav of en.
+	my $top = read_page("$out/404.html");
+	like(
+		$top,
+		qr{\A<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" [^\n]*\n<base href="/">\n<title>Not found \xe2\x80\x94 voil\xc3\xa0</title>\n<link rel="stylesheet" href="style\.css">\n</head>\n},
+		'its head holds five parts, the base before the title'
+	);
+	like(
+		$top,
+		qr{<header>\n<a href="en/index\.html">voil\xc3\xa0</a>\n<ul>\n<li><a href="en/index\.html" hreflang="en" lang="en">English</a></li>\n<li><a href="zh-hans/index\.html" hreflang="zh-Hans" lang="zh-Hans">[^<]+</a></li>\n<li><a href="ar/index\.html" hreflang="ar" lang="ar" dir="rtl">[^<]+</a></li>\n</ul>\n</header>\n<nav>\n<ul>\n<li><a href="en/index\.html">Home</a></li>\n<li><a href="en/manuals\.html">Manuals</a></li>\n</ul>\n</nav>\n},
+		'its header lists the entry page of each language, and its nav links en'
+	);
+
+	# WEB-TOP-5 and WEB-TOP-6. The body of each language, in its own
+	# section, with no id, and with each link from the site root. The
+	# body of zh-Hans carries its marks, and ar takes the body of en.
+	is( main_of($top), <<"HTML" =~ s/\n\z//r, 'its main holds the body of each language' );
+<main>
+<section>
+<h1>Not found</h1>
+<p><a href="en/index.html">Home</a> <a href="en/404.html#lost">Up</a> <img src="logo.png" alt=""></p>
+</section>
+<section lang="zh-Hans">
+<h1>\xe6\x9c\xaa\xe6\x89\xbe\xe5\x88\xb0</h1>
+<p><a href="zh-hans/index.html">\xe9\xa6\x96\xe9\xa1\xb5</a> <a href="zh-hans/404.html#lost">\xe4\xb8\x8a</a></p>
+</section>
+<section>
+<h1>Not found</h1>
+<p><a href="ar/index.html">Home</a> <a href="ar/404.html#lost">Up</a> <img src="logo.png" alt=""></p>
+</section>
+</main>
+HTML
+
+	# The tree of zh-Hans holds the id of en, and the link to it.
+	like( read_page("$out/zh-hans/404.html"),
+		qr{<h1 id="lost">\xe6\x9c\xaa.*<a href="#lost">}s,
+		'the 404 page of zh-Hans takes the id of en' );
+
+	# The check holds each section to the body of its tree.
+	my $broken = $top =~ s{<section lang="zh-Hans">}{<section>}r;
+	open $fh, '>', "$out/404.html" or die "Cannot write: $!";
+	print {$fh} $broken;
+	close $fh;
+	is_deeply(
+		[ App::FuguWeb::Check->new( config => $site->config, out => $out )->run ],
+		[
+			'404.html: the section for zh-hans/404.html does not'
+			    . ' open as <section lang="zh-Hans">'
+		],
+		'the check reports a section with no marks'
+	);
+};
+
 subtest 'the default language need not be en' => sub {
 	# D-05. The first language is the default. The forward and the
-	# copy of the 404 page are pages of it, and they lead into its
+	# top-level 404.html are pages of it, and they lead into its
 	# tree.
 	my ($ar) = $THREE =~ m/(language ar \{\n[^\}]*\}\n\n)/;
 	my $rc = $THREE =~ s/\Q$ar\E//r;
@@ -839,7 +967,8 @@ subtest 'the default language need not be en' => sub {
 		'and it leads into the tree of ar' );
 
 	my $copy = read_page("$out/404.html");
-	like( $copy, qr{<html lang="ar" dir="rtl">\n}, 'so is the 404 copy' );
+	like( $copy, qr{<html lang="ar" dir="rtl">\n},
+		'so is the top-level 404.html' );
 	like( $copy, qr{<header>\n<a href="ar/index\.html">voil\xc3\xa0</a>},
 		'and its chrome links the tree of ar' );
 	like( read_page("$out/en/index.html"), qr{<html lang="en">\n},

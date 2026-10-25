@@ -20,12 +20,15 @@ WEB-MANUALS to `done`. WEB-LANGUAGE stays `partial`, with WEB-LANGUAGE-11 as the
 one absent rule. `not_found` of Fragment.pm holds the fit of WEB-TOP-6, and work
 package 3 calls it.
 
-Work packages 3 and 6 can land now. Each work package lands as one pull request.
-It trims the `Implements:` citation of each unit that it sets to `done`. The
-work package that lands last deletes this plan directory.
+Work package 3 landed, with the top-level pages. It set WEB-TOP and WEB-LANGUAGE
+to `done`. Check.pm reads each attribute through the reader of `App::FuguWeb`,
+as Fragment.pm does. WEB-OUTLINE-4 states the known limit of a link to an id of
+the default language.
 
-- Implements: WEB-LANGUAGE.
-- Implements: WEB-TOP.
+Work package 6 can land now. Each work package lands as one pull request. It
+trims the `Implements:` citation of each unit that it sets to `done`. The work
+package that lands last deletes this plan directory.
+
 - Implements: WEB-STYLE.
 
 ## Purpose

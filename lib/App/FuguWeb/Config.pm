@@ -504,7 +504,7 @@ sub page_names ($self)
 
 # $self->top_pages:
 #	The pages of the top level, which a host serves: the forward
-#	to the default tree, and the copy of the 404 page when the
+#	to the default tree, and the top-level 404.html when the
 #	description holds that page.
 sub top_pages ($self)
 {

@@ -29,12 +29,11 @@ Each function reads text and returns text, and holds no state.
 L<App::FuguWeb::Site> fits each fragment, and L<App::FuguWeb::Check>
 reads the outline through the same function, so the two agree.
 
-An attribute can take its value in double quotes, in single quotes, or
-with no quotes. Each function reads the three forms. It reads the
-attributes of a tag in order, from the first one, and it steps over each
-value as a whole. So the text of a value, such as C<title="see id=x">,
-is no attribute. An id or a link that a function writes takes double
-quotes, and a double quote in the value becomes C<&quot;>.
+Each function reads an attribute through
+L<App::FuguWeb/edit_attributes>, the one reader of the namespace. So
+the text of a value, such as C<title="see id=x">, is no attribute. An
+id or a link that a function writes takes double quotes, and a double
+quote in the value becomes C<&quot;>.
 
 =head1 FUNCTIONS
 
@@ -66,6 +65,8 @@ no tag, and with each run of white space as one space. Each other link
 names the heading of its old id. A link to a heading that takes no id
 stays as it stands.
 
+WEB-OUTLINE-4 states the known limit of the fit.
+
 The function returns C<undef> when the two outlines differ, per
 WEB-OUTLINE-1. C<$at> then holds the position of the first heading that
 differs, from 1. A heading differs when its level is another one, when
@@ -95,8 +96,9 @@ WEB-MANUALS-9.
 Each section heading becomes an C<h2>, and each subsection heading an
 C<h3>. The fit reads the class C<Sh> or C<Ss> of the heading, and not
 its level: mandoc 1.14.6 writes an C<h1> and an C<h2>, and the mandoc of
-OpenBSD an C<h2> and an C<h3>. A heading loses the link to itself, and
-it keeps its text and its id.
+OpenBSD an C<h2> and an C<h3>. A class in the text of another value is
+no class. A heading loses the link to itself, and it keeps its text and
+its id.
 
 =item *
 

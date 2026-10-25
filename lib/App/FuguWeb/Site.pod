@@ -102,9 +102,11 @@ write the key directory, when the description names one;
 =item 9.
 
 render each C<page> block into each language tree, from the values of
-that language, then the pages of the top level: the copy of
+that language, then the pages of the top level: the top-level
 F<404.html> when the description holds that page, and the forward
-F<index.html>;
+F<index.html>. The top-level F<404.html> holds the body of the
+F<404.html> of each tree, as L<App::FuguWeb::Fragment/not_found> fits
+it;
 
 =item 10.
 

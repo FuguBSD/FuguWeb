@@ -32,8 +32,9 @@ package App::FuguWeb;
 # This file holds what more than one module in the namespace needs:
 # the name of the configuration file, the name of the stylesheet in
 # the output, the decode and the encode at each edge, the fold of a
-# name, the escapes that guard a value on its way into HTML, the
-# directory listing, the prefix test, and the reader of a reference.
+# name, the escapes that guard a value on its way into HTML, the reader
+# of an attribute, the directory listing, the prefix test, and the
+# reader of a reference.
 #
 # Text is UTF-8 at each edge, and characters inside. The build decodes
 # the description, each source and each output of a renderer, and it
@@ -53,8 +54,9 @@ use constant CONFIG_FILE => '.fuguwebrc';
 use constant STYLESHEET => 'style.css';
 
 # The two pages of the top level, which a host serves. The forward
-# sends a visitor of the root into the default tree. The copy of the
-# 404 page answers each path that no file answers.
+# sends a visitor of the root into the default tree. The top-level
+# 404.html holds the body of the 404.html of each tree, and it answers
+# each path that no file answers.
 use constant {
 	FORWARD_PAGE   => 'index.html',
 	NOT_FOUND_PAGE => '404.html',
@@ -160,6 +162,52 @@ sub escape_attr ($text)
 	$escaped =~ s/"/&quot;/g;
 
 	return $escaped;
+}
+
+# The value of an attribute, in each of its three forms: in double
+# quotes, in single quotes, and with no quotes.
+my $VALUE = qr{"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)}a;
+
+# One attribute of a start tag, from the end of the attribute before
+# it: the attribute as it stands, its name, and its value. The walk
+# starts at the first attribute and steps over each value as a whole.
+# So the text of a value, such as title="see id=x", is never an
+# attribute. The space in front of the name keeps a name such as
+# data-id out.
+#
+# HTML separates two attributes with ASCII white space alone, so \s
+# takes the ASCII rule. A page that the check reads is bytes, and
+# without the rule the last byte 0xA0 of a character such as U+00E0
+# would end a value with no quotes.
+my $ATTRIBUTE = qr{\G(\s+([^\s"'>/=]+)(?:\s*=\s*(?:$VALUE))?)}a;
+
+# edit_attributes($attributes, $edit):
+#	The attributes of a start tag, each one as the function returns
+#	it. The function takes the attribute as it stands, its name, and
+#	its value, or undef when it has none. A text after the last
+#	attribute, such as a slash, stays. The fit of a fragment and the
+#	check read each attribute here, so the two agree.
+sub edit_attributes ( $attributes, $edit )
+{
+	return $attributes =~
+	    s{$ATTRIBUTE}{ $edit->( $1, $2, $3 // $4 // $5 ) }ger;
+}
+
+# attribute($attributes, $name):
+#	The value of the first attribute of the name in a start tag, or
+#	undef when no attribute of the name has a value. The name is in
+#	lowercase, and the name of the attribute compares in lowercase.
+sub attribute ( $attributes, $name )
+{
+	my $value;
+	edit_attributes(
+		$attributes,
+		sub ( $attribute, $has, $of ) {
+			$value //= $of if lc $has eq $name;
+			return $attribute;
+		} );
+
+	return $value;
 }
 
 # list_dir($dir):

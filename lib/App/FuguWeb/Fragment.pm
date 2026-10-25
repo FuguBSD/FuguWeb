@@ -32,19 +32,8 @@ use App::FuguWeb;
 #
 # Each function reads text and returns text, and holds no state. The
 # build and the check read the outline through the same function, so
-# the two agree.
-
-# The value of an attribute, in each of its three forms: in double
-# quotes, in single quotes, and with no quotes.
-my $VALUE = qr{"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)};
-
-# One attribute of a start tag, from the end of the attribute before
-# it: the attribute as it stands, its name, and its value. The walk
-# starts at the first attribute and steps over each value as a whole.
-# So the text of a value, such as title="see id=x", is never an
-# attribute. The space in front of the name keeps a name such as
-# data-id out.
-my $ATTRIBUTE = qr{\G(\s+([^\s"'>/=]+)(?:\s*=\s*(?:$VALUE))?)};
+# the two agree. Each function reads an attribute through the one
+# reader of App::FuguWeb, so the text of a value is never an attribute.
 
 # A link that the fit of a 404 body keeps as it stands: a link with a
 # scheme, and a link from the root, which the check refuses, per
@@ -145,9 +134,13 @@ sub manual ( $html, $title )
 	$body =~ s{<(table|div) class="(?:head|foot)"[^>]*>.*?</\1>\n?}{}gs;
 	$body =~ s{<main( class="manual-text">.*)</main>}{<div$1</div>}s;
 
-	$body =~ s{<h[1-6]\b([^>]*\sclass="(Sh|Ss)"[^>]*)>(.*?)</h[1-6]>}{
-		my ( $attributes, $level ) = ( $1, $LEVEL{$2} );
-		"<h$level$attributes>" . _unlinked($3) . "</h$level>"
+	$body =~ s{(<h[1-6]\b([^>]*)>(.*?)</h[1-6]>)}{
+		my ( $heading, $attributes, $text ) = ( $1, $2, $3 );
+		my $level =
+		    $LEVEL{ App::FuguWeb::attribute( $attributes, 'class' ) // '' };
+		defined $level
+		    ? "<h$level$attributes>" . _unlinked($text) . "</h$level>"
+		    : $heading
 	}gse;
 
 	$body =~ s{&#x([0-9A-Fa-f]+);}{
@@ -178,7 +171,7 @@ sub not_found ( $html, $tree )
 	my $page = "$tree/" . App::FuguWeb::NOT_FOUND_PAGE;
 
 	return $html =~ s{(<[A-Za-z][^\s/>]*)([^>]*)>}{
-		$1 . _attributes( $2, sub ( $attribute, $name, $value ) {
+		$1 . App::FuguWeb::edit_attributes( $2, sub ( $attribute, $name, $value ) {
 			return $attribute unless defined $value;
 			return '' if lc $name eq 'id';
 			return $attribute unless lc($name) =~ m{\A(?:href|src)\z};
@@ -214,8 +207,8 @@ sub _relinked ( $html, $by_id, $by_text )
 {
 	return $html =~ s{(<[aA]\b)([^>]*)>(?=(.*?)</[aA]\s*>|)}{
 		my ( $open, $attributes, $text ) = ( $1, $2, $3 // '' );
-		my $sx = ( _value( $attributes, 'class' ) // '' ) =~ m{(?:\A|\s)Sx(?:\s|\z)};
-		$open . _attributes( $attributes, sub ( $attribute, $name, $value ) {
+		my $sx = ( App::FuguWeb::attribute( $attributes, 'class' ) // '' ) =~ m{(?:\A|\s)Sx(?:\s|\z)};
+		$open . App::FuguWeb::edit_attributes( $attributes, sub ( $attribute, $name, $value ) {
 			return $attribute
 			    unless lc $name eq 'href'
 			    && defined $value
@@ -227,38 +220,11 @@ sub _relinked ( $html, $by_id, $by_text )
 	}gser;
 }
 
-# _attributes($attributes, $edit):
-#	The attributes of a start tag, each one as the function returns
-#	it. The function takes the attribute as it stands, its name, and
-#	its value, or undef when it has none. A text after the last
-#	attribute, such as a slash, stays.
-sub _attributes ( $attributes, $edit )
-{
-	return $attributes =~
-	    s{$ATTRIBUTE}{ $edit->( $1, $2, $3 // $4 // $5 ) }ger;
-}
-
-# _value($attributes, $name):
-#	The value of the first attribute of the name in a start tag, or
-#	undef when no attribute of the name has a value.
-sub _value ( $attributes, $name )
-{
-	my $value;
-	_attributes(
-		$attributes,
-		sub ( $attribute, $has, $of ) {
-			$value //= $of if lc $has eq $name;
-			return $attribute;
-		} );
-
-	return $value;
-}
-
 # _id($attributes):
 #	The id of a start tag, or undef when it carries none.
 sub _id ($attributes)
 {
-	my $id = _value( $attributes, 'id' ) // return;
+	my $id = App::FuguWeb::attribute( $attributes, 'id' ) // return;
 
 	return _quoted($id);
 }
@@ -272,7 +238,7 @@ sub _with_id ( $attributes, $id )
 {
 	my $new    = defined $id ? qq{ id="$id"} : '';
 	my $held   = 0;
-	my $fitted = _attributes(
+	my $fitted = App::FuguWeb::edit_attributes(
 		$attributes,
 		sub ( $attribute, $name, $value ) {
 			return $attribute

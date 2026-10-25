@@ -1019,10 +1019,12 @@ sub _write_out ( $self, $path, $bytes )
 #	values of that language, and then the pages of the top level.
 #	The default language comes first, and each page of another
 #	language follows the outline of its namesake, per WEB-OUTLINE.
+#	The body of the 404.html of each tree, as the tree holds it,
+#	goes to the top-level 404.html too.
 sub _render_pages ($self)
 {
 	my $config = $self->{config};
-	my %outline;
+	my ( %outline, @not_found );
 
 	for my $language ( $config->languages ) {
 		my $page = $self->_page($language) // return;
@@ -1034,27 +1036,28 @@ sub _render_pages ($self)
 				\%outline,      $language,
 				$entry->{file}, $fragment
 			) // return;
+			my $lang =
+			    App::FuguWeb::Page::body_lang( $entry, $language );
 
-			# WEB-LANGUAGE-11. The index marks each part of its
-			# own, so the element that holds it takes the
-			# language of the tree.
+			push @not_found, [ $language, $lang, $fragment ]
+			    if $entry->{file} eq App::FuguWeb::NOT_FOUND_PAGE;
+
 			$page->write(
 				$self->{out},
 				$language->path . "/$entry->{file}",
 				$entry->{title},
 				$fragment,
-				body_lang => $entry->{source} eq 'index'
-				? $language->tag
-				: $entry->{lang},
+				body_lang => $lang,
 			) or return;
 		}
 	}
 
-	$self->_write_not_found or return;
+	my $top = App::FuguWeb::Page->new( config => $config );
+	$self->_write_not_found( $top, @not_found ) or return;
 
 	return Fugu::File->write(
 		$self->{out} . '/' . App::FuguWeb::FORWARD_PAGE,
-		App::FuguWeb::encode( $self->_forward ) );
+		App::FuguWeb::encode( $top->forward ) );
 }
 
 # $self->_page($language):
@@ -1109,59 +1112,36 @@ sub _fragment ( $self, $entry, $language )
 	);
 }
 
-# $self->_write_not_found:
-#	Write the top-level copy of the 404 page, when the description
-#	holds that page. The copy is the page of the default language
-#	at the top level. Its base makes each relative link resolve
-#	from the site root, and not from the missing path that the host
-#	serves it at.
-sub _write_not_found ($self)
+# $self->_write_not_found($top, @bodies):
+#	Write the top-level 404.html through the page of the top level,
+#	when the description holds that page, per WEB-TOP-3. Each body
+#	is an array reference of the language of its tree, the tag of
+#	the language of its text, and the body as the tree holds it.
+#
+#	The page is a page of the default language, with its title, per
+#	WEB-TOP-4. Its main holds the body of each language in its own
+#	section, per WEB-TOP-5. App::FuguWeb::Fragment fits each body:
+#	each id goes, and each relative link resolves against the
+#	404.html of its tree, per WEB-TOP-6. The base of the page then
+#	resolves each link from the site root.
+sub _write_not_found ( $self, $top, @bodies )
 {
-	my $config    = $self->{config};
-	my $default   = $config->default_language;
+	return 1 unless @bodies;
+
 	my $not_found = App::FuguWeb::NOT_FOUND_PAGE;
+	my ($entry) = grep { $_->{file} eq $not_found } $self->{config}->pages;
 
-	my ($entry) = grep { $_->{file} eq $not_found } $config->pages;
-	return 1 unless $entry;
+	my @sections = map {
+		my ( $language, $lang, $body ) = @$_;
+		[
+			$lang,
+			App::FuguWeb::Fragment::not_found(
+				$body, $language->path
+			) ]
+	} @bodies;
 
-	my $fragment = $self->_fragment( $entry, $default ) // return;
-
-	return App::FuguWeb::Page->new( config => $config )
-	    ->write( $self->{out}, $not_found, $entry->{title}, $fragment,
-		body_lang => $entry->{lang} );
-}
-
-# $self->_forward:
-#	The top-level index.html, which forwards to the entry page of
-#	the default tree. It holds a meta refresh and one link to that
-#	page, for a reader that follows no refresh. It loads nothing,
-#	per D-01: no stylesheet and no script. It is a page of the
-#	default language, and the site name of that language is the
-#	one word of the page, so the renderer writes no prose of its
-#	own.
-sub _forward ($self)
-{
-	my $config  = $self->{config};
-	my $default = $config->default_language;
-
-	my $html = $default->attributes;
-	my $site = App::FuguWeb::escape_html( $default->site );
-	my $to   = App::FuguWeb::escape_attr( $default->path . '/'
-		    . App::FuguWeb::as_text( $config->entry ) );
-
-	return <<"HTML";
-<!DOCTYPE html>
-<html$html>
-<head>
-<meta charset="utf-8">
-<meta http-equiv="refresh" content="0; url=$to">
-<title>$site</title>
-</head>
-<body>
-<p><a href="$to">$site</a></p>
-</body>
-</html>
-HTML
+	return $top->write( $self->{out}, $not_found, $entry->{title},
+		$top->sections(@sections) );
 }
 
 # $self->_render_manuals:
