@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 # ex:ts=8 sw=4:
-# App::FuguWeb::Render: the probe, the lint, the mandoc options, and the
-# Markdown render.
+# App::FuguWeb::Render: the probe, the lint, the mandoc options, the
+# Markdown render, and the arguments of pod2man.
 #
 # The test builds its sources in a File::Temp directory. It never reads
 # the repository, so a change under man/ cannot break it.
@@ -75,26 +75,26 @@ subtest 'the probe names the first tool that is absent' => sub {
 	is( $render->probe, undef, 'three programs that exist pass' );
 };
 
-subtest 'the mandoc options carry the configured OS and manual URL' => sub {
+subtest 'the mandoc options carry the manual URL' => sub {
 	my $render = App::FuguWeb::Render->new( config => config( <<'RC' ) );
-site      = Example
-url       = https://example.org/
-mandoc_os = Example OS
-man_url   = https://man.example.org/
+site    = Example
+url     = https://example.org/
+man_url = https://man.example.org/
 RC
 
-	my @options = $render->html_options;
-	my $joined  = join ' ', @options;
-
-	# -I os= pins the footer. Without it the page would name the
-	# operating system of the machine that built the site.
-	like( $joined, qr/\Qos=Example OS\E/, 'the OS is pinned' );
-
 	# The './' matters: a browser reads a relative URL whose first
-	# segment holds a colon as a scheme.
-	like( $joined, qr{\Qman=./%N.%S.html;https://man.example.org/%N.%S\E},
-		'a local link stays local and a remote one leaves' );
-	like( $joined, qr/fragment/, 'the output is a body fragment' );
+	# segment holds a colon as a scheme. The fit of
+	# App::FuguWeb::Fragment removes the foot, so no option names the
+	# operating system that the foot shows.
+	is_deeply(
+		[ $render->html_options ],
+		[
+			'-Thtml', '-O',
+			'fragment,man=./%N.%S.html;https://man.example.org/%N.%S'
+		],
+		'a body fragment, where a local link stays local and a remote'
+		    . ' one leaves'
+	);
 };
 
 SKIP: {
@@ -242,11 +242,13 @@ subtest 'each output decodes, and one that is not UTF-8 fails' => sub {
 		'and the message names the renderer and the source' );
 };
 
-subtest 'pod2man writes each character as UTF-8' => sub {
+subtest 'pod2man takes --utf8 and the sidecar alone' => sub {
 	# WEB-SITE-5. Without --utf8, podlators 4.14 of perl 5.36 writes
-	# X or a roff escape for each character outside ASCII. A stub
-	# pod2man records its arguments, and a stub mandoc passes its
-	# input through.
+	# X or a roff escape for each character outside ASCII. The name,
+	# the section, the date, the center text and the release go to
+	# the head and the foot alone, which the fit removes, per D-07.
+	# A stub pod2man records its arguments, and a stub mandoc passes
+	# its input through.
 	my $dir = tempdir( CLEANUP => 1 );
 	my %script = (
 		pod2man => q{printf '%s\n' "$@" > "$0.args"; echo page},
@@ -265,14 +267,14 @@ subtest 'pod2man writes each character as UTF-8' => sub {
 		mandoc  => "$dir/mandoc",
 		pod2man => "$dir/pod2man",
 	);
-	is( $render->pod( 'Foo.pod', 'Foo', '2026-10-25' ),
-		"page\n", 'the sidecar renders' );
+	is( $render->pod('Foo.pod'), "page\n", 'the sidecar renders' );
 
 	open my $fh, '<', "$dir/pod2man.args" or die "Cannot read: $!";
 	my @args = <$fh>;
 	close $fh;
 	chomp @args;
-	ok( ( grep { $_ eq '--utf8' } @args ), 'and pod2man takes --utf8' );
+	is_deeply( \@args, [ '--utf8', 'Foo.pod' ],
+		'and pod2man takes --utf8 and the sidecar, and no other argument' );
 };
 
 done_testing();

@@ -20,6 +20,7 @@ use v5.36;
 package App::FuguWeb::Site;
 
 use App::FuguWeb;
+use App::FuguWeb::Fragment;
 use App::FuguWeb::Index;
 use App::FuguWeb::Keys;
 use App::FuguWeb::Page;
@@ -29,7 +30,6 @@ use File::Path qw(remove_tree);
 use File::Spec;
 use Fugu::File;
 use Fugu::Log;
-use Fugu::Process;
 use POSIX ();
 
 # App::FuguWeb::Site - the whole build.
@@ -37,8 +37,9 @@ use POSIX ();
 # One method renders the site: probe the renderers, refuse an output
 # directory that no build may own, hold every source to UTF-8, lint
 # every manual source, stage the mdoc sources, copy the assets, render
-# every page of each language tree and the pages of the top level,
-# remove the staging, and remove what the site no longer holds. Each
+# every page of each language tree and the pages of the top level, fit
+# each fragment to its page through App::FuguWeb::Fragment, remove the
+# staging, and remove what the site no longer holds. Each
 # step reports its own failure and stops the build. A site that is
 # half rendered must not look like a success.
 #
@@ -643,25 +644,6 @@ sub _absolute ($path)
 	return @parts ? '/' . join '/', @parts : '/';
 }
 
-# $self->pod_date:
-#	The date that every POD page carries: the date of the last
-#	commit, and today when git does not answer. git does not
-#	preserve file times, so a build that read one would give
-#	different bytes on every checkout.
-sub pod_date ($self)
-{
-	my $result = Fugu::Process->run(
-		cmd => [
-			'git', '-C', $self->{config}->root,
-			'log', '-1', '--format=%cs'
-		],
-	);
-	my $date = $result->{success} ? $result->{stdout} : '';
-	$date =~ s/\s+//g;
-
-	return length $date ? $date : POSIX::strftime( '%Y-%m-%d', localtime );
-}
-
 # $self->_mdoc_manuals($language):
 #	Every mdoc manual of one language, in group order.
 sub _mdoc_manuals ( $self, $language )
@@ -1035,9 +1017,12 @@ sub _write_out ( $self, $path, $bytes )
 # $self->_render_pages:
 #	Render every page block into each language tree, from the
 #	values of that language, and then the pages of the top level.
+#	The default language comes first, and each page of another
+#	language follows the outline of its namesake, per WEB-OUTLINE.
 sub _render_pages ($self)
 {
 	my $config = $self->{config};
+	my %outline;
 
 	for my $language ( $config->languages ) {
 		my $page = $self->_page($language) // return;
@@ -1045,6 +1030,10 @@ sub _render_pages ($self)
 		for my $entry ( $config->pages( $language->tag ) ) {
 			my $fragment = $self->_fragment( $entry, $language )
 			    // return;
+			$fragment = $self->_follow(
+				\%outline,      $language,
+				$entry->{file}, $fragment
+			) // return;
 
 			# WEB-LANGUAGE-11. The index marks each part of its
 			# own, so the element that holds it takes the
@@ -1180,10 +1169,15 @@ HTML
 #	language tree, from the source of that language. mandoc runs in
 #	the staging directory of the language, so a cross-reference
 #	links a page of the same tree.
+#
+#	The fit of App::FuguWeb::Fragment removes the frame of mandoc,
+#	and opens the page with its title, per WEB-MANUALS-9. Each
+#	manual of another language then follows the outline of its
+#	namesake, per WEB-OUTLINE.
 sub _render_manuals ($self)
 {
 	my $config = $self->{config};
-	my $date   = $self->pod_date;
+	my %outline;
 
 	for my $language ( $config->languages ) {
 		my $page = $self->_page($language) // return;
@@ -1191,22 +1185,27 @@ sub _render_manuals ($self)
 		for my $manual ( map { $_->manuals( $language->tag ) }
 			$config->groups )
 		{
-			my $fragment =
+			my $html =
 			      $manual->is_pod
-			    ? $self->{render}
-			    ->pod( $manual->path, $manual->name, $date )
+			    ? $self->{render}->pod( $manual->path )
 			    : $self->{render}->mdoc(
 				$manual->staged_name,
 				$self->staging($language) );
-			return unless defined $fragment;
+			return unless defined $html;
+
+			my $title = App::FuguWeb::as_text(
+				$manual->name . '(' . $manual->section . ')' );
+			my $fragment = $self->_follow(
+				\%outline,
+				$language,
+				$manual->page,
+				App::FuguWeb::Fragment::manual( $html, $title )
+			) // return;
 
 			$page->write(
 				$self->{out},
 				$language->path . '/' . $manual->page,
-				App::FuguWeb::as_text(
-					      $manual->name . '('
-					    . $manual->section . ')'
-				),
+				$title,
 				$fragment,
 				body_lang => $manual->lang,
 			) or return;
@@ -1214,6 +1213,37 @@ sub _render_manuals ($self)
 	}
 
 	return 1;
+}
+
+# $self->_follow($outlines, $language, $name, $fragment):
+#	The fragment of the page of one name in the tree of one
+#	language, or undef with a message in the log. The order of the
+#	languages puts the default first, per D-05. Its page records
+#	its outline under the name, and the fragment returns as it
+#	stands. The page of each other language follows that outline,
+#	and takes its ids, per WEB-OUTLINE-1 and WEB-OUTLINE-2. Each
+#	link of the page to one of its headings names the new id, per
+#	WEB-OUTLINE-4.
+#
+#	The message names the page, the language, and the position of
+#	the first heading that differs.
+sub _follow ( $self, $outlines, $language, $name, $fragment )
+{
+	my $default = $self->{config}->default_language;
+	if ( $language->tag eq $default->tag ) {
+		$outlines->{$name} = App::FuguWeb::Fragment::outline($fragment);
+		return $fragment;
+	}
+
+	my $fitted = App::FuguWeb::Fragment::follow( $fragment,
+		$outlines->{$name}, \my $at );
+	return $fitted if defined $fitted;
+
+	$self->{log}
+	    ->error( '%s/%s: the outline of %s differs from %s at heading %d',
+		$language->path, $name, $language->tag, $default->tag, $at );
+
+	return;
 }
 
 1;

@@ -286,7 +286,7 @@ The project root, and the F<.fuguwebrc> that this object read.
 
 The source directory, or one file in it.
 
-=head2 site, url, out_dir, source_dir, entry, module_root, mandoc_os, man_url, stylesheet
+=head2 site, url, out_dir, source_dir, entry, module_root, man_url, stylesheet
 
 The settings. C<site> and C<url> are the ones a project must give.
 
@@ -302,7 +302,6 @@ The settings. C<site> and C<url> are the ones a project must give.
                                 header link
     module_root     lib         the prefix a module name drops
                                 (a trailing slash is dropped)
-    mandoc_os       OpenBSD     the mandoc -I os=, which pins the footer
     man_url         https://man.openbsd.org/   where a remote .Xr goes
     stylesheet      (searched)  the base stylesheet
 
@@ -312,10 +311,6 @@ answer the site name and the footer of each language.
 C<stylesheet> overrides the search that L<Fugu::File/share_path> does.
 The search finds the sheet in a checkout and in an installed
 App-FuguWeb distribution alike, so most projects never set it.
-
-The C<pod2man> C<--center> and C<--release> values are not settings.
-They are constants of L<App::FuguWeb::Render>: they pin the C<pod2man>
-output so the site does not vary with the build host.
 
 =head2 url_path
 

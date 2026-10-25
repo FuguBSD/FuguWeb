@@ -158,6 +158,10 @@ top level: the copy of
 when the description holds that page, and the forward
 .Pa index.html .
 Next it writes one page for each manual into each tree.
+A page of another language than the default holds the outline of its
+page in the default tree, and takes the id of each heading of it.
+See
+.Sx LANGUAGES .
 It reads each body fragment and each footer as UTF-8, and each output
 of a renderer.
 A file that is not UTF-8 fails the build, and the message names it.
@@ -222,6 +226,10 @@ The forward
 .Pa index.html
 holds a meta refresh to the entry page of the default tree.
 Its one reference is a link to that page, and it holds no navigation.
+.It
+Each heading of a tree page of another language than the default takes
+the id of the heading at the same position of the page in the default
+tree, and no id when that heading has none.
 .It
 Every local link, manual cross-reference, and fragment resolves to a
 file of the site.
@@ -469,10 +477,6 @@ The default is
 The prefix that a module name drops.
 The default is
 .Pa lib .
-.It Ic mandoc_os
-The operating system name in the footer of every rendered manual.
-The default is
-.Ql OpenBSD .
 .It Ic man_url
 The manual host for a cross-reference to a manual outside the site.
 The default is
@@ -723,6 +727,20 @@ A
 translation mirrors the umbrella sidecar as well.
 A manual keeps the page name of its default source in every language.
 .Pp
+A page of another language than the default must hold the outline of
+its page in the default tree: the same count of headings, at the same
+levels, in the same order.
+Each heading then takes the id of the heading at the same position of
+that page, or no id when that heading has none.
+Each link of the page to one of its headings names the new id.
+A section reference of a manual,
+.Ql \&.Sx ,
+finds its heading by its text, and each other link by its old id.
+A link to a heading that takes no id stays as it stands.
+A link to a fragment of a page then works in each language.
+A page whose outline differs fails the build, and the message names the
+page, the language and the position of the first heading that differs.
+.Pp
 The load fails when a tag has another shape, or when two blocks declare
 one tag.
 It fails when a
@@ -907,6 +925,32 @@ Any other cross-reference links to the
 .Ic man_url
 host.
 .Pp
+The build removes the head and the foot that
+.Xr mandoc 1
+writes around a manual, so each word of the page comes from the
+source.
+The base
+.Xr mandoc 1
+of
+.Ox
+also writes a
+.Ql <main>
+element around the text, and the build replaces it with a
+.Ql <div> ,
+so a page holds one
+.Ql <main> .
+The page opens with one
+.Ql <h1>
+that holds the name and the section, such as
+.Ql fuguweb(1) .
+Each section heading is an
+.Ql <h2>
+and each subsection heading an
+.Ql <h3> ,
+and a heading holds no link to itself.
+The page holds each character outside ASCII as the character, and not
+as a character reference.
+.Pp
 A
 .Ic modules
 group finds every
@@ -927,8 +971,6 @@ The build renders each sidecar with
 and then
 .Xr mandoc 1 ,
 so a module page carries the same layout as a hand-written manual.
-The page date is the date of the last commit, from
-.Xr git 1 .
 A
 .Ql L<>
 reference renders as text, not as a link.

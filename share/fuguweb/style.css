@@ -194,56 +194,19 @@ footer {
 }
 
 
-/* Manual pages: mandoc(1) emits its own class names. */
+/* Manual pages: mandoc(1) emits its own class names. A section
+   heading takes no rule, and it sits flush with the banner. */
 
-table.head,
-table.foot {
-	font-size: 0.85em;
-	width: 100%;
-	color: var(--muted);
-}
-
-table.head {
-	margin-bottom: 1em;
-}
-
-table.foot {
-	margin-top: 1.5em;
-}
-
-table.head td {
-	border-bottom: 1px solid var(--highlight);
-	box-shadow: inset 0 -1px var(--shadow);
-}
-
-table.foot td {
-	border-top: 1px solid var(--shadow);
-	box-shadow: inset 0 1px var(--highlight);
-}
-
-td.head-vol,
-td.foot-date {
-	text-align: center;
-}
-
-td.head-rtitle,
-td.foot-os {
-	text-align: right;
-}
-
-h2.Ss {
+h2.Sh {
 	border: 0;
 	box-shadow: none;
-	padding: 0;
-}
-
-h1.Sh {
 	font-size: 1.2em;
 	margin-left: calc(-3.5em / 1.2);
 	margin-top: 1.6em;
+	padding: 0;
 }
 
-h2.Ss {
+h3.Ss {
 	font-size: 1.05em;
 	margin-left: calc(-1.75em / 1.05);
 }
@@ -290,5 +253,5 @@ table.Nm td:first-child {
 
 @media (max-width: 40em) {
 	.manual-text { margin-left: 0; }
-	h1.Sh, h2.Ss { margin-left: 0; }
+	h2.Sh, h3.Ss { margin-left: 0; }
 }

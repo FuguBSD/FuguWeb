@@ -109,7 +109,9 @@ F<index.html>;
 =item 10.
 
 render one page for each manual in each group, into each language
-tree, from the source of that language;
+tree, from the source of that language. L<App::FuguWeb::Fragment/manual>
+removes the head and the foot of C<mandoc>, and opens the page with its
+title, per WEB-MANUALS-9;
 
 =item 11.
 
@@ -126,6 +128,18 @@ directory, so it owns the removal too.
 The build reads each body fragment and each footer through
 L<App::FuguWeb/decode>, and it writes each page through
 L<App::FuguWeb/encode>, per WEB-SITE-5.
+
+The default language comes first in the order of the languages, per
+D-05, so each page of the default tree renders before its namesakes.
+The build keeps the outline of each page of the default tree. Each page
+of another language must hold that outline, and it takes the id of each
+heading through L<App::FuguWeb::Fragment/follow>, per WEB-OUTLINE-1 and
+WEB-OUTLINE-2. Each link of the page to one of its headings then names
+the new id, per WEB-OUTLINE-4. A link of the class C<Sx> of mandoc(1)
+finds its heading by its text, and each other link by its old id. A
+page whose outline differs fails the build. The message
+names the page, the language and the position of the first heading that
+differs.
 
 The build owns a plain file at the top level of the output, and a plain
 file directly in the tree of a declared language, per WEB-OUTPUT-1.
@@ -241,12 +255,6 @@ C<File::Spec-E<gt>canonpath> leaves it alone by design, and a guard that
 compared the uncollapsed form would let C<< <project>/.. >> through as a
 directory it had never seen.
 
-=head2 pod_date
-
-The date that every POD page carries: the date of the last commit, and
-today when git does not answer. git does not preserve file times, so a
-build that read one would give different bytes on every checkout.
-
 =head1 THE STAGING DIRECTORY
 
 C<mandoc> decides between a local link and a link to the manual host by
@@ -300,7 +308,7 @@ site with no stylesheet must not look like a success.
 =head1 SEE ALSO
 
 L<App::FuguWeb>, L<App::FuguWeb::Config>, L<App::FuguWeb::Keys>, L<App::FuguWeb::Render>,
-L<App::FuguWeb::Page>, L<App::FuguWeb::Index>, L<Fugu::File>
+L<App::FuguWeb::Fragment>, L<App::FuguWeb::Page>, L<App::FuguWeb::Index>, L<Fugu::File>
 
 =head1 AUTHOR
 

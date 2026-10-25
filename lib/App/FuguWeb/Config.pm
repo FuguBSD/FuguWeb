@@ -47,7 +47,6 @@ use constant {
 	DEFAULT_SOURCE_DIR  => 'web',
 	DEFAULT_ENTRY       => 'index.html',
 	DEFAULT_MODULE_ROOT => 'lib',
-	DEFAULT_MANDOC_OS   => 'OpenBSD',
 	DEFAULT_MAN_URL     => 'https://man.openbsd.org/',
 };
 
@@ -61,8 +60,8 @@ my @PATH_SETTINGS = qw(out_dir source_dir module_root stylesheet footer);
 # typo, and a typo that the parser swallows is a setting that
 # silently does not apply. An old setting fails the same way.
 my %SETTING = map { $_ => 1 } qw(
-    site url footer out_dir source_dir entry module_root mandoc_os
-    man_url stylesheet
+    site url footer out_dir source_dir entry module_root man_url
+    stylesheet
 );
 
 # The block types of the description, and the settings of each
@@ -301,7 +300,6 @@ sub out_dir     ($self) { return $self->{out_dir}; }
 sub source_dir  ($self) { return $self->{source_dir}; }
 sub entry       ($self) { return $self->{entry}; }
 sub module_root ($self) { return $self->{module_root}; }
-sub mandoc_os   ($self) { return $self->{mandoc_os}; }
 sub man_url     ($self) { return $self->{man_url}; }
 sub stylesheet  ($self) { return $self->{stylesheet}; }
 
@@ -665,8 +663,7 @@ sub _apply_settings ( $self, $reason )
 	# A trailing slash would survive into the prefix that a module
 	# name drops, and the name would then keep the whole path.
 	$self->{module_root} =~ s{/+$}{};
-	$self->{mandoc_os}  = $file->get( 'mandoc_os', DEFAULT_MANDOC_OS );
-	$self->{man_url}    = $file->get( 'man_url',   DEFAULT_MAN_URL );
+	$self->{man_url}    = $file->get( 'man_url', DEFAULT_MAN_URL );
 	$self->{stylesheet} = $file->get('stylesheet');
 
 	return $self;

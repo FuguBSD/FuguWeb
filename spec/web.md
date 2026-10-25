@@ -246,7 +246,9 @@ page therefore goes to the default tree.
 
 The outline of a page is the list of its headings, with the level of each. A
 heading id is the target of a link from outside the page, so the id must not
-change with the language, per D-06.
+change with the language, per D-06. A link inside the page follows its heading
+to the new id. mandoc(1) makes a link to a section from the text of the link,
+and it can give the heading no id. So the build finds that heading by its text.
 
 - **WEB-OUTLINE-1** — The body of a tree page of another language must hold the
   outline of its namesake in the default tree. The two outlines must hold the
@@ -258,6 +260,10 @@ change with the language, per D-06.
   heading has none.
 - **WEB-OUTLINE-3** — The check must compare each heading id of a tree page of
   another language with the id of WEB-OUTLINE-2.
+- **WEB-OUTLINE-4** — Each link of such a page to one of its headings must name
+  the id of WEB-OUTLINE-2. The build must find the heading of a link of the
+  class `Sx` by the text of the link. It must find the heading of each other
+  link by its old id. A link to a heading that takes no id stays as it stands.
 
 <a id="web-status"></a>
 
@@ -334,7 +340,9 @@ the status of each language with one verb, and the build stays silent.
   write no opening of its own, per WEB-LANGUAGE-12.
 - **WEB-MANUALS-9** — The body of a manual page must open with one `h1`, which
   holds the name and the section, as in `fuguweb(1)`. The build must remove the
-  head and the foot that mandoc(1) writes, per D-07.
+  head and the foot that mandoc(1) writes, per D-07. The base mandoc(1) of
+  OpenBSD also writes a `main` element around the text. The build must replace
+  that element with a `div`, so a page holds one `main`.
 - **WEB-MANUALS-10** — Each section heading of a manual page must be an `h2`,
   and each subsection heading an `h3`. A heading must hold its text, and no link
   to itself.

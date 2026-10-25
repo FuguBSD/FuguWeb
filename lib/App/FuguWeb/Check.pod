@@ -154,6 +154,15 @@ every fragment resolves to an C<id> on the target page;
 
 =item *
 
+each heading of the C<main> element of a tree page of another language
+than the default takes the id of the heading at the same position of
+its namesake in the default tree, per WEB-OUTLINE-3. It takes no id
+when that heading has none, and the page holds the same count of
+headings. The check reads each outline through
+L<App::FuguWeb::Fragment/outline>, as the build does;
+
+=item *
+
 no relative href reads as a URL scheme, so every local link keeps its
 C<./>;
 
@@ -182,8 +191,8 @@ The external links that the last C<run> collected, sorted.
 
 =head1 SEE ALSO
 
-L<App::FuguWeb>, L<App::FuguWeb::Config>, L<App::FuguWeb::Keys>,
-L<App::FuguWeb::Site>, L<fuguweb(1)>
+L<App::FuguWeb>, L<App::FuguWeb::Config>, L<App::FuguWeb::Fragment>,
+L<App::FuguWeb::Keys>, L<App::FuguWeb::Site>, L<fuguweb(1)>
 
 =head1 AUTHOR
 

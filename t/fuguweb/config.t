@@ -55,7 +55,6 @@ subtest 'the defaults' => sub {
 	is( $config->source_dir,  'web',       'source_dir' );
 	is( $config->entry,       'index.html', 'entry' );
 	is( $config->module_root, 'lib',        'module_root' );
-	is( $config->mandoc_os,   'OpenBSD',    'mandoc_os' );
 	is( $config->man_url, 'https://man.openbsd.org/', 'man_url' );
 	is( $config->stylesheet,  undef, 'stylesheet is searched for' );
 	is( scalar $config->nav,   0, 'no navigation' );
@@ -71,7 +70,6 @@ out_dir     = out
 source_dir  = site
 entry       = home.html
 module_root = code
-mandoc_os   = Example OS
 man_url     = https://man.example.org/
 stylesheet  = site/base.css
 RC
@@ -84,7 +82,6 @@ RC
 	is( $config->source_dir,  'site',              'source_dir' );
 	is( $config->entry,       'home.html',         'entry' );
 	is( $config->module_root, 'code',              'module_root' );
-	is( $config->mandoc_os,   'Example OS',        'mandoc_os' );
 	is( $config->man_url, 'https://man.example.org/', 'man_url' );
 	is( $config->stylesheet,  'site/base.css',     'stylesheet' );
 };
@@ -1115,6 +1112,10 @@ subtest 'a word that fuguweb(1) does not document fails the load' => sub {
 		'a setting' => [
 			"colour = red\n",
 			qr/: the description names the unknown setting colour\z/
+		],
+		'the old mandoc_os' => [
+			"mandoc_os = OpenBSD\n",
+			qr/: the description names the unknown setting mandoc_os\z/
 		],
 		'a block type' => [
 			qq{widget "box" {\n\tsize = 1\n}\n},

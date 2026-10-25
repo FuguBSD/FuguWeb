@@ -44,6 +44,12 @@ pages, and the manual groups.
 One declared language: its tag, its name, its direction, and the path
 of its tree.
 
+=item L<App::FuguWeb::Fragment>
+
+The fit of a body fragment to its page: the outline, the heading ids of
+a translation and the links to them, and the fit of the fragment of each
+renderer.
+
 =item L<App::FuguWeb::Page>
 
 The chrome around one body fragment.
