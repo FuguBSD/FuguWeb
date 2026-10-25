@@ -68,6 +68,11 @@ The whole build.
 
 The checks over a built site.
 
+=item L<App::FuguWeb::Status>
+
+The record of the translations, and each part of a translation that
+does not follow its source.
+
 =item L<App::FuguWeb::CLI>
 
 Subcommand dispatch over L<Fugu::CLI>.
@@ -253,6 +258,15 @@ one level would serve one directory.
 Report whether C<$path> is C<$root> or lies below it. A trailing slash
 on either does not change the answer. Both paths must be of the same
 kind: both absolute, or both relative to the same directory.
+
+=head2 canonical_path
+
+    my $path = App::FuguWeb::canonical_path('./web//zh-hans/');  # web/zh-hans
+
+The one form of a path from the project root: no C<.> step, no empty
+step, and no final solidus. The record of the translations names each
+file in this form, per WEB-STATUS-1. The form of the project root is
+the empty string.
 
 =head2 ref_parts
 

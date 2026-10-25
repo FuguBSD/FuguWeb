@@ -42,6 +42,9 @@ holds the words of one other language, per WEB-LANGUAGE.
   manual or a footer fragment, of any language. The message must name the path.
   The record of WEB-STATUS-1 takes the manifest form of `Fugu::Signify`, which
   holds neither.
+- **WEB-SITE-7** — The renderer must reject a `source_dir` that names the
+  project root, such as `.` or `./`. The build publishes each plain file of the
+  source directory, so it would publish the record of WEB-STATUS-1.
 
 <a id="web-language"></a>
 
@@ -269,13 +272,17 @@ the status of each language with one verb, and the build stays silent.
   build publishes each plain file as an asset. It must hold one line for each
   translated file, in the form of a SHA256 manifest:
   `SHA256 (<path>) = <digest>`. The path names the translated file from the
-  project root, in UTF-8 bytes. The digest is the SHA-256 of its default source
-  at the time of the translation.
+  project root, in UTF-8 bytes. It holds no `.` step, no empty step and no final
+  solidus. The digest is the SHA-256 of its default source at the time of the
+  translation. A record that is absent or empty holds no line.
 - **WEB-STATUS-2** — `fuguweb translated <file>...` must write the line of each
   file into the record, with the digest of the default source of that file. It
-  must reject a file that translates no source of the description. A file that
-  translates a source has a path that the record can hold, per WEB-SITE-6. It
-  must keep each other line, and it must sort the lines by path.
+  must change each file to the path form of WEB-STATUS-1, so `./web/a.html` and
+  `web/a.html` name one file. It must reject a file that translates no source of
+  the description, and must exit 1. A file that translates a source has a path
+  that the record can hold, per WEB-SITE-6. It must keep each other line, and it
+  must sort the lines by path. It must exit 3 when it cannot read the record or
+  a source.
 - **WEB-STATUS-3** — `fuguweb status` must print one line for each part of a
   language other than the default that does not follow its source. The parts are
   each page source, each manual, the footer, and each value of WEB-LANGUAGE-8. A
@@ -287,8 +294,15 @@ the status of each language with one verb, and the build stays silent.
   record is `unrecorded`. A translated file is `stale` when its line names a
   digest other than the one that its default source has now.
 - **WEB-STATUS-5** — `fuguweb status` must print nothing and exit 0 when each
-  part follows its source. It must exit 1 when it prints a line.
+  part follows its source. It must exit 1 when it prints a line. It must exit 3
+  when it cannot read the record or a source, as for a description that does not
+  load.
 - **WEB-STATUS-6** — The build and the check must not read the record.
+- **WEB-STATUS-7** — Two parts that name one translated file must name one
+  default source, because the record holds one digest for each file.
+  `fuguweb status` and `fuguweb translated` must refuse a description that does
+  not obey this rule, and must exit 3. The message must name the file and the
+  two sources.
 
 <a id="web-manuals"></a>
 

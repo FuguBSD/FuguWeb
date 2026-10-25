@@ -69,6 +69,11 @@
 .Op Fl Fl bind Ar stem Ns = Ns Ar path
 .Op Fl Fl dir Ar name
 .Nm fuguweb
+.Cm status
+.Nm fuguweb
+.Cm translated
+.Ar file ...
+.Nm fuguweb
 .Cm help
 .Op Ar command
 .Sh DESCRIPTION
@@ -382,6 +387,21 @@ Make the
 key of a purpose current, and retire the key that was current.
 See
 .Sx KEY ROTATION .
+.It Cm status
+Print one line for each part of a translation that does not follow its
+source, and exit with status 1.
+Print nothing and exit with status 0 when each part follows its source.
+See
+.Sx TRANSLATION STATUS .
+.It Cm translated Ar file ...
+Record that each
+.Ar file
+follows its default source now.
+Each
+.Ar file
+is a path from the project root.
+See
+.Sx TRANSLATION STATUS .
 .It Cm help Op Ar command
 Print the usage of the tool, or of one command.
 .El
@@ -433,6 +453,13 @@ The default is
 The source directory.
 The default is
 .Pa web .
+It must not name the project root, such as
+.Pa \&.
+or
+.Pa ./ .
+The project root holds the record of
+.Sx TRANSLATION STATUS ,
+and the build publishes each plain file of the source directory.
 .It Ic entry
 The front page of each language tree, and the target of the banner
 link.
@@ -1493,10 +1520,115 @@ file.
 .Pp
 The command reaches no network and holds no token.
 The caller stores the private key and commits the public one.
+.Sh TRANSLATION STATUS
+A translation follows its source, and a source changes.
+The record
+.Pa TRANSLATIONS
+at the project root names the version of the default source that each
+translated file follows.
+The build and the check do not read the record.
+.Pp
+The record holds one line for each translated file, in the form of a
+SHA256 manifest:
+.Bd -literal -offset indent
+SHA256 (web/zh-hans/index.body.html) = <digest>
+.Ed
+.Pp
+The path names the translated file from the project root.
+It holds no
+.Pa \&./
+step, no empty step and no final solidus, so a path setting of
+.Pa ./web
+or
+.Pa web/
+gives the path
+.Pa web/zh-hans/index.body.html .
+The digest is the SHA-256 of its default source at the time of the
+translation.
+The lines sort by path.
+A record that is absent or empty holds no line.
+.Pp
+.Cm translated
+writes the line of each
+.Ar file ,
+with the digest that the default source of that file has now.
+It changes each
+.Ar file
+to the form of a path of the record, so
+.Pa ./web/a.html
+and
+.Pa web/a.html
+name one file.
+It keeps each other line of the record.
+It refuses a file that translates no source of the description, such as
+a default source, and then it writes nothing.
+.Pp
+Two parts that name one translated file must name one default source,
+because the record holds one digest for each file.
+.Cm status
+and
+.Cm translated
+refuse a description that does not obey this rule, and name the file
+and the two sources.
+.Pp
+.Cm status
+prints one line for each part of a language other than the default
+that does not follow its source.
+A line holds four fields, with one tab between two fields: the tag of
+the language, the state, the kind of the part, and its name.
+The lines follow the order of the languages, and then the order of the
+description.
+.Pp
+The states are as follows:
+.Bl -tag -width "unrecorded" -offset indent
+.It Cm fallback
+The part comes from the default language.
+.It Cm unrecorded
+The language translates the file, and the record holds no line for it.
+.It Cm stale
+The line of the file names a digest other than the one that its
+default source has now.
+.El
+.Pp
+The kinds of part, and the name of each, are as follows:
+.Bl -tag -width "heading" -offset indent
+.It Cm site
+The site name.
+Its name is the tag of the language.
+.It Cm label
+The label of a
+.Ic nav
+entry.
+Its name is the href of the entry.
+.It Cm title
+The title of a page.
+Its name is the name of the page.
+.It Cm page
+The source of a page.
+Its name is the name of the page.
+.It Cm heading
+The heading of a group.
+Its name is the name of the group.
+.It Cm manual
+The source of a manual.
+Its name is the page of the manual.
+.It Cm footer
+The footer fragment.
+Its name is the tag of the language.
+.El
+.Pp
+The site name, a label, a title and a heading are values of the
+description, and a value is
+.Cm fallback
+or follows its source.
+A file part follows no source when the default language names none for
+it, and it then takes no line.
 .Sh FILES
 .Bl -tag -width "share/fuguweb/style.css" -compact
 .It Pa .fuguwebrc
 The site description, at the project root.
+.It Pa TRANSLATIONS
+The record of the translations, at the project root.
 .It Pa share/fuguweb/style.css
 The base stylesheet, which ships with the tool.
 .It Pa web/build/.man
@@ -1510,13 +1642,22 @@ exits with one of the following values:
 .It 0
 Success.
 .It 1
-General error.
+General error, or a part of a translation that does not follow its
+source, from
+.Cm status ,
+or a file that translates no source, from
+.Cm translated .
 .It 2
 Invalid arguments.
 .It 3
 Configuration error, or no
 .Pa .fuguwebrc
 found.
+.Cm status
+and
+.Cm translated
+also exit with this value when they cannot read the record or a source,
+or when two parts name one translated file over two default sources.
 .It 4
 The build failed: a renderer failed, or a manual source is malformed.
 .It 5
@@ -1602,6 +1743,16 @@ $ fuguweb mint-key --purpose root --dir project --bootstrap \e
 $ fuguweb mint-key --purpose release --dir project \e
 	--secret ~/keys/project-release-1.sec \e
 	--signer ~/keys/project-root-1.sec
+.Ed
+.Pp
+Find a translation that no longer follows its source, update it, and
+record it:
+.Bd -literal -offset indent
+$ fuguweb status
+zh-Hans	stale	page	index.html
+$ vi web/zh-hans/index.body.html
+$ fuguweb translated web/zh-hans/index.body.html
+$ fuguweb status
 .Ed
 .Sh SEE ALSO
 .Xr gpg 1 ,
