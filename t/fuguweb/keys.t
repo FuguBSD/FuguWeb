@@ -903,7 +903,7 @@ subtest 'the policy file names the site' => sub {
 	);
 	like(
 		$generated->{'keys/index.html'},
-		qr{<header><a href="\.\./en/index\.html">voil\xc3\xa0</a></header>},
+		qr{<header>\n<a href="\.\./en/index\.html">voil\xc3\xa0</a>\n</header>},
 		'and so does the human page'
 	);
 
@@ -929,7 +929,7 @@ subtest 'the policy file names the site' => sub {
 	);
 	like(
 		$generated->{'keys/index.html'},
-		qr{<header><a href="\.\./en/index\.html">Exemplo</a></header>},
+		qr{<header>\n<a href="\.\./en/index\.html">Exemplo</a>\n</header>},
 		'as the human page does'
 	);
 };
@@ -1159,10 +1159,11 @@ subtest 'the generated files' => sub {
 		'and an OpenPGP row holds its fingerprint'
 	);
 
-	like( $page, qr{<title>Keys },     'the index page has a title' );
+	like( $page, qr{<title>Keys</title>},
+		'the index page has the English title alone' );
 	like( $page, qr{href="\.\./style\.css"},
 		'and it steps back to the stylesheet of the root' );
-	like( $page, qr{<header><a href="\.\./en/index\.html">},
+	like( $page, qr{<header>\n<a href="\.\./en/index\.html">},
 		'and into the entry page of the default tree' );
 	like( $page, qr{<html lang="en">}, 'it is a page of en' );
 	unlike( $page, qr{<footer>}, 'and it carries no footer' );
@@ -3108,7 +3109,7 @@ RC
 		'an absolute navigation href keeps its own form' );
 	unlike( $page, qr{href="\.\./(?:en/)?https://},
 		'and takes no step in front of it' );
-	like( $page, qr{<a href="\.\./en/index\.html">Home</a>},
+	like( $page, qr{<li><a href="\.\./en/index\.html">Home</a></li>},
 		'a relative one takes the step into the default tree' );
 	like( $page, qr{<link rel="stylesheet" href="\.\./style\.css">},
 		'and the stylesheet takes the step back to the top level' );
@@ -3133,6 +3134,93 @@ RC
 	    ->generated_pages;
 	is_deeply( \@generated, ['keys/index.html'],
 		'the checks hold the generated page' );
+};
+
+subtest 'the key page of a site of three languages' => sub {
+	# WEB-CHROME-8. The key page takes the chrome of the default
+	# tree, and each link of it comes from its own path. The keys are
+	# signify keys alone, so the whole check runs with no gpg(1).
+	my $root = project(
+		keys => {
+			'fugubsd-1-root.pub'                       => $ROOT,
+			'fugubsd-1-release.pub'                    => $SIGNIFY,
+			'fugubsd-1-root.pub.fugubsd-1-release.sig' => $BINDING,
+		},
+		rc => <<"RC",
+language en {
+	name = English
+}
+
+language zh-Hans {
+	name = \xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87
+}
+
+language ar {
+	name = Arabic
+	dir  = rtl
+}
+
+keys "keys" {
+	org = fugubsd
+}
+
+key "fugubsd-1-root" {
+	status = current
+	since  = 2026-09-07
+}
+
+key "fugubsd-1-release" {
+	status = current
+	since  = 2026-09-07
+}
+RC
+	);
+
+	my ( $config, $reason ) = load($root);
+	ok( $config, 'the description loads' ) or diag $reason;
+
+	my $out = tempdir( CLEANUP => 1 ) . '/out';
+	ok( site( $config, $out )->build, 'the build succeeds' );
+
+	my @problems =
+	    App::FuguWeb::Check->new( config => $config, out => $out )->run;
+	is( scalar @problems, 0, 'and the check finds no problem' )
+	    or diag join "\n", @problems;
+
+	my $page = slurp("$out/keys/index.html");
+	like( $page, qr{<html lang="en">\n}, 'the key page is a page of en' );
+	like(
+		$page,
+		qr{<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keys</title>
+<link rel="stylesheet" href="\.\./style\.css">
+</head>},
+		'its head holds four parts, and names no page'
+	);
+	like(
+		$page,
+		qr{<header>
+<a href="\.\./en/index\.html">Example</a>
+</header>
+<nav>
+<ul>
+<li><a href="\.\./en/index\.html">Home</a></li>
+</ul>
+</nav>
+<main>},
+		'its header holds the site link alone, and its nav the default tree'
+	);
+	unlike( $page, qr{hreflang|aria-current|<footer},
+		'it lists no language, marks no entry, and carries no footer' );
+
+	# A tree page of the same site lists each language.
+	like(
+		slurp("$out/zh-hans/index.html"),
+		qr{<li><a href="index\.html" hreflang="zh-Hans" lang="zh-Hans" aria-current="page">},
+		'a tree page of the site lists its own language as the current one'
+	);
 };
 
 subtest 'the generated page carries no footer' => sub {

@@ -254,6 +254,23 @@ Report whether C<$path> is C<$root> or lies below it. A trailing slash
 on either does not change the answer. Both paths must be of the same
 kind: both absolute, or both relative to the same directory.
 
+=head2 ref_parts
+
+    my ($path, $fragment) = App::FuguWeb::ref_parts($ref);
+
+The path and the fragment of one reference. A query is no part of the
+name of a file, so the path holds none, per WEB-LINKS-3. The chrome
+and the check read each reference here, so the two agree.
+
+=head2 resolve_ref
+
+    my $path = App::FuguWeb::resolve_ref($dir, $ref);
+
+One relative reference, as a path below the site root. The reference
+is relative to C<$dir>, which is a path below the site root. The
+function returns C<undef> when the reference steps above the site root,
+or names the site root.
+
 =head1 CONSTANTS
 
 =head2 CONFIG_FILE

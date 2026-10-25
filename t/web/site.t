@@ -192,14 +192,30 @@ sub value ( $text, $selector, $property )
 is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
     'the light ground is the gray of NCSA Mosaic' );
 
-# WEB-STYLE-5 draws the rule of 1994, a dark line over a light line.
-# WEB-STYLE-6 gives a visited link its own color, and WEB-STYLE-8
-# sets a pre block as a terminal in a sunken well.
+# WEB-STYLE-5 draws the rule of 1994, a dark line over a light line,
+# above the main part, the footer and each h2. A body fragment can
+# hold an hr, and it takes the same rule. WEB-STYLE-6 gives a visited
+# link its own color, and WEB-STYLE-8 sets a pre block as a terminal
+# in a sunken well. WEB-STYLE-9 sets each list of the chrome on one
+# line, draws the separator between two items, and shows the current
+# link with no underline.
 my @declarations = (
+	[ 'main',          'border-top',    '1px solid var(--shadow)' ],
+	[ 'main',          'box-shadow',    'inset 0 1px var(--highlight)' ],
+	[ 'footer',        'border-top',    '1px solid var(--shadow)' ],
+	[ 'footer',        'box-shadow',    'inset 0 1px var(--highlight)' ],
 	[ 'hr',            'border-top',    '1px solid var(--shadow)' ],
 	[ 'hr',            'border-bottom', '1px solid var(--highlight)' ],
 	[ 'h2',            'border-top',    '1px solid var(--shadow)' ],
 	[ 'h2',            'box-shadow',    'inset 0 1px var(--highlight)' ],
+	[ 'body > header ul', 'list-style', 'none' ],
+	[ 'nav ul',           'list-style', 'none' ],
+	[ 'body > header li', 'display',    'inline' ],
+	[ 'nav li',           'display',    'inline' ],
+	[ 'body > header li + li::before', 'content', '"\\00b7"' ],
+	[ 'nav li + li::before',           'content', '"\\00b7"' ],
+	[ 'a[aria-current="page"]:link',    'text-decoration', 'none' ],
+	[ 'a[aria-current="page"]:visited', 'text-decoration', 'none' ],
 	[ 'table.head td', 'box-shadow',    'inset 0 -1px var(--shadow)' ],
 	[ 'table.head td', 'border-bottom', '1px solid var(--highlight)' ],
 	[ 'table.foot td', 'border-top',    '1px solid var(--shadow)' ],
@@ -277,9 +293,15 @@ for my $root ( $sheet =~ /:root\s*\{([^}]*)\}/g ) {
 	}
 }
 
+# WEB-STYLE-9 reaches each list of the chrome by element name and
+# attribute alone, so the chrome writes the elements that the sheet
+# names, and no class.
 my $index = Fugu::File->read("$out/en/index.html") // '';
 like( $index, qr/<header>/, 'the chrome writes a bare header' );
-unlike( $index, qr/class="banner"/, 'and no banner class' );
+like( $index, qr{<nav>\n<ul>\n<li><a href="index\.html" aria-current="page">},
+	'and a nav list, with the current page' );
+unlike( $index, qr/<hr>/,   'and no rule' );
+unlike( $index, qr/class=/, 'and no class' );
 
 ok( site()->build, 'a second build succeeds over the same tree' );
 

@@ -211,12 +211,13 @@ subtest 'the build makes the site and nothing else' => sub {
 	is_deeply( App::FuguWeb::list_tree($OUT), \@expected,
 		'the output holds the site only' );
 
-	# A site of one language links no other.
+	# A site of one language carries no list of the languages.
 	for my $name ( grep { /\.html\z/ } @expected ) {
 		open my $fh, '<', "$OUT/$name" or die "Cannot read: $!";
 		my $html = do { local $/; <$fh> };
 		close $fh;
-		unlike( $html, qr/hreflang/, "$name carries no language link" );
+		unlike( $html, qr/<a [^>]*hreflang/,
+			"$name carries no language link" );
 	}
 };
 
@@ -241,7 +242,7 @@ subtest 'the top level holds the forward and the 404 page' => sub {
 HTML
 
 	# The copy is the page of the default language, with its base,
-	# and its chrome links the default tree.
+	# and its chrome links the default tree from the top level.
 	open $fh, '<', "$OUT/404.html" or die "Cannot read: $!";
 	my $copy = do { local $/; <$fh> };
 	close $fh;
@@ -251,9 +252,10 @@ HTML
 		'with its base before the title' );
 	like( $copy, qr{<link rel="stylesheet" href="style\.css">},
 		'the stylesheet beside it' );
-	like( $copy, qr{<header><a href="en/index\.html">Example</a>},
+	like( $copy, qr{<header>\n<a href="en/index\.html">Example</a>},
 		'the header link into the default tree' );
-	like( $copy, qr{<nav>\n<a href="en/index\.html">Home</a>\n</nav>},
+	like( $copy,
+		qr{<nav>\n<ul>\n<li><a href="en/index\.html">Home</a></li>\n</ul>\n</nav>},
 		'and the nav link' );
 	like( $copy, qr{<p><a href="index\.html">Home</a></p>},
 		'the body fragment as it stands' );
@@ -291,8 +293,8 @@ subtest 'each source reaches its page' => sub {
 	like( $module, qr{<html lang="en">}, 'the page is a page of en' );
 	like( $module, qr{<link rel="stylesheet" href="\.\./style\.css">},
 		'it links the stylesheet one step up' );
-	like( $module, qr{<header><a href="index\.html">Example</a>},
-		'and the entry page of its tree by name' );
+	like( $module, qr{<header>\n<a href="index\.html">Example</a>},
+		'and the entry page of its tree from its directory' );
 	like( $module, qr{<footer>\n<p>ISC\.</p>\n</footer>},
 		'and it carries the footer' );
 };
@@ -415,10 +417,11 @@ subtest 'a site of two languages builds one tree for each' => sub {
 	like( $index, qr{<title>Start \xe2\x80\x94 Example</title>},
 		'with the title of de' );
 	like( $index, qr{<main>\n<h1>Start</h1>}, 'and the body of de' );
-	like( $index, qr{<a href="index\.html">Start</a>}, 'and the nav of de' );
+	like( $index, qr{<a href="index\.html" aria-current="page">Start</a>},
+		'and the nav of de, with the page as the current entry' );
 	like( $index, qr{<a href="readme\.html" lang="en">Readme</a>},
 		'and a label of en, with its mark' );
-	like( $index, qr{<header><a href="index\.html" lang="en">Example</a>},
+	like( $index, qr{<header>\n<a href="index\.html" lang="en">Example</a>},
 		'and the site name of en, with its mark' );
 
 	my $readme = read_page("$out/de/readme.html");
@@ -453,14 +456,18 @@ subtest 'a site of two languages builds one tree for each' => sub {
 	like( read_page("$out/en/tool.1.html"),
 		qr{<main>\n.*Words\.}s, 'the manual of en stays' );
 
-	# Each tree page links the same page in the other language, and
-	# a page of the top level links none.
-	like( read_page("$out/en/tool.1.html"),
-		qr{<a href="\.\./de/tool\.1\.html" hreflang="de">de</a>},
-		'a page of en links its page of de' );
-	like( read_page("$out/de/Thing::Depot.3p.html"),
-		qr{<a href="\.\./en/Thing::Depot\.3p\.html" hreflang="en">en</a>},
-		'a page of de links its page of en' );
+	# Each tree page links the same page in each language, and a
+	# page of the top level links none.
+	like(
+		read_page("$out/en/tool.1.html"),
+		qr{<li><a href="\.\./de/tool\.1\.html" hreflang="de" lang="de">Deutsch</a></li>},
+		'a page of en links its page of de'
+	);
+	like(
+		read_page("$out/de/Thing::Depot.3p.html"),
+		qr{<li><a href="\.\./en/Thing::Depot\.3p\.html" hreflang="en" lang="en">English</a></li>\n<li><a href="\./Thing::Depot\.3p\.html" hreflang="de" lang="de" aria-current="page">Deutsch</a></li>},
+		'a page of de links its page of en, and itself'
+	);
 	unlike( read_page("$out/$_"), qr/hreflang/,
 		"the top-level $_ carries no language link" )
 	    for qw(index.html 404.html);
@@ -479,13 +486,13 @@ subtest 'a site of two languages builds one tree for each' => sub {
 		'the body of de is not published' );
 
 	# The check holds each language link.
-	my $broken = $readme =~ s{<a href="\.\./en/readme\.html" hreflang="en">en</a>}{}r;
+	my $broken = $readme =~ s{<li><a href="\.\./en/readme\.html"[^\n]*\n}{}r;
 	open my $fh, '>', "$out/de/readme.html" or die "Cannot write: $!";
 	print {$fh} $broken;
 	close $fh;
 
 	my $top = read_page("$out/404.html")
-	    =~ s{</nav>}{<a href="de/404.html" hreflang="de">de</a>\n</nav>}r;
+	    =~ s{</a>\n</header>}{</a>\n<ul>\n<li><a href="de/404.html" hreflang="de" lang="de">Deutsch</a></li>\n</ul>\n</header>}r;
 	open $fh, '>', "$out/404.html" or die "Cannot write: $!";
 	print {$fh} $top;
 	close $fh;
@@ -711,7 +718,7 @@ subtest 'a site of three languages builds each tree below its path' => sub {
 	my $en = read_page("$out/en/index.html");
 	like( $en, qr{<title>Home \xe2\x80\x94 voil\xc3\xa0</title>},
 		'the site name of en reaches the title byte for byte' );
-	like( $en, qr{<header><a href="index\.html">voil\xc3\xa0</a></header>},
+	like( $en, qr{<header>\n<a href="index\.html">voil\xc3\xa0</a>\n},
 		'and the site link' );
 	like( read_page("$out/index.html"), qr{<title>voil\xc3\xa0</title>},
 		'and the forward' );
@@ -719,10 +726,13 @@ subtest 'a site of three languages builds each tree below its path' => sub {
 	# WEB-LANGUAGE-11. The tree of zh-Hans takes its own site name,
 	# label, body and footer, and marks each part of en.
 	my $zh = read_page("$out/zh-hans/index.html");
-	like( $zh, qr{<header><a href="index\.html">\xe7\xa4\xba\xe4\xbe\x8b</a></header>},
+	like( $zh, qr{<header>\n<a href="index\.html">\xe7\xa4\xba\xe4\xbe\x8b</a>\n},
 		'zh-Hans takes its own site name' );
-	like( $zh, qr{<a href="index\.html">\xe9\xa6\x96\xe9\xa1\xb5</a>},
-		'and its own label' );
+	like(
+		$zh,
+		qr{<a href="index\.html" aria-current="page">\xe9\xa6\x96\xe9\xa1\xb5</a>},
+		'and its own label'
+	);
 	like( $zh, qr{<a href="manuals\.html" lang="en">Manuals</a>},
 		'and marks a label of en' );
 	like( $zh, qr{<main>\n<h1>\xe9\xa6\x96\xe9\xa1\xb5</h1>},
@@ -730,11 +740,16 @@ subtest 'a site of three languages builds each tree below its path' => sub {
 	like( $zh,
 		qr{<footer>\n<p>ISC \xe8\xae\xb8\xe5\x8f\xaf\xe3\x80\x82</p>\n</footer>},
 		'and its own footer' );
-	like( $zh, qr{<a href="\.\./ar/index\.html" hreflang="ar">ar</a>},
-		'and links the page of ar' );
-	like( read_page("$out/en/index.html"),
-		qr{<a href="\.\./zh-hans/index\.html" hreflang="zh-Hans">zh-Hans</a>},
-		'a page of en links the tree of zh-Hans' );
+	like(
+		$zh,
+		qr{<a href="\.\./ar/index\.html" hreflang="ar" lang="ar" dir="rtl">\xd8\xa7\xd9\x84\xd8\xb9\xd8\xb1\xd8\xa8\xd9\x8a\xd8\xa9</a>},
+		'and links the page of ar, with its direction'
+	);
+	like(
+		read_page("$out/en/index.html"),
+		qr{<a href="\.\./zh-hans/index\.html" hreflang="zh-Hans" lang="zh-Hans">\xe7\xae\x80\xe4\xbd\x93\xe4\xb8\xad\xe6\x96\x87</a>},
+		'a page of en links the tree of zh-Hans'
+	);
 
 	my $manuals = read_page("$out/zh-hans/manuals.html");
 	like( $manuals, qr{<h1 lang="en">Manuals</h1>},
@@ -746,12 +761,30 @@ subtest 'a site of three languages builds each tree below its path' => sub {
 	# the direction of en, which differs from that of the page.
 	my $ar = read_page("$out/ar/index.html");
 	like( $ar,
-		qr{<header><a href="index\.html" lang="en" dir="ltr">voil\xc3\xa0</a></header>},
+		qr{<header>\n<a href="index\.html" lang="en" dir="ltr">voil\xc3\xa0</a>\n},
 		'the site name of en carries its marks on a page of ar' );
-	like( $ar, qr{<a href="index\.html" lang="en" dir="ltr">Home</a>},
-		'and so does a label' );
+	like(
+		$ar,
+		qr{<a href="index\.html" lang="en" dir="ltr" aria-current="page">Home</a>},
+		'and so does a label'
+	);
 	like( $ar, qr{<main lang="en" dir="ltr">\n<h1>Home</h1>},
 		'and the body' );
+
+	# WEB-CHROME-1 and WEB-CHROME-6. The head names the page in each
+	# language below the url, and the bare url for the forward page.
+	like(
+		$ar,
+		qr{<title>Home \xe2\x80\x94 voil\xc3\xa0</title>
+<link rel="canonical" href="https://example\.org/ar/index\.html">
+<link rel="alternate" hreflang="en" href="https://example\.org/en/index\.html">
+<link rel="alternate" hreflang="zh-Hans" href="https://example\.org/zh-hans/index\.html">
+<link rel="alternate" hreflang="ar" href="https://example\.org/ar/index\.html">
+<link rel="alternate" hreflang="x-default" href="https://example\.org/">
+<link rel="stylesheet" href="\.\./style\.css">
+</head>},
+		'the head of a page of ar names it in each language'
+	);
 	like( $ar, qr{<footer lang="en" dir="ltr">\n<p>ISC\.</p>\n</footer>},
 		'and the footer' );
 
@@ -807,7 +840,7 @@ subtest 'the default language need not be en' => sub {
 
 	my $copy = read_page("$out/404.html");
 	like( $copy, qr{<html lang="ar" dir="rtl">\n}, 'so is the 404 copy' );
-	like( $copy, qr{<header><a href="ar/index\.html">voil\xc3\xa0</a>},
+	like( $copy, qr{<header>\n<a href="ar/index\.html">voil\xc3\xa0</a>},
 		'and its chrome links the tree of ar' );
 	like( read_page("$out/en/index.html"), qr{<html lang="en">\n},
 		'and en is one more tree' );

@@ -129,8 +129,9 @@ and the chrome carries no class, per D-04.
   WEB-CHROME-6, and the stylesheet link. The title must be the page title, an em
   dash, and the site name of the language.
 - **WEB-CHROME-2** — The `header` must hold a link to the entry page of the
-  tree, with the site name of the language as its text. On a site of more than
-  one language, the list of the languages must follow the link.
+  tree, with the site name of the language as its text. The link must carry no
+  `aria-current`. On a site of more than one language, the list of the languages
+  must follow the link.
 - **WEB-CHROME-3** — The list of the languages must be one `ul`, with one item
   for each language, in the order of the declaration. The link of each item must
   go to the same page in that language. Its text must be the `name` of the
@@ -179,11 +180,12 @@ place then takes one link rule, and a reader can browse the output from a disk.
   It must be the path from the directory of the page to that file. The build
   must compute it from the two paths alone.
 - **WEB-LINKS-2** — A relative nav `href` of the description must name a page of
-  the tree. An absolute URL and a fragment must pass unchanged.
+  each tree, as it resolves from the path of that tree. An absolute URL must
+  pass unchanged.
 - **WEB-LINKS-3** — The check must resolve each relative `href` and `src` of a
   page against the directory of the page. It must resolve against the `base` of
-  the page when the page holds one. The result must name a file of the
-  inventory, and a fragment must name an `id` of the target page.
+  the page when the page holds one. The path of the result, with no query, must
+  name a file of the inventory. A fragment must name an `id` of the target page.
 - **WEB-LINKS-4** — The check must reject a root-absolute href. The `base` href
   of WEB-TOP-3 is the one exception.
 - **WEB-LINKS-5** — Each absolute href of WEB-CHROME-6 must be the `url` of

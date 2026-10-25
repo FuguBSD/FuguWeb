@@ -23,160 +23,197 @@ use App::FuguWeb;
 use App::FuguWeb::Language;
 use Fugu::File;
 
-# App::FuguWeb::Page - the shared chrome around one body fragment.
+# App::FuguWeb::Page - the one chrome around one body fragment.
 #
 # Every source format is reduced to one HTML body fragment, and this
 # module wraps it: the head, the header, the navigation, the fragment,
-# and the footer. The layout is fixed. What a project decides is the
-# site name, the languages, the navigation, and the footer prose.
+# and the footer, per WEB-CHROME. The layout is fixed. What a project
+# decides is the site name, the languages, the navigation, and the
+# footer prose.
+#
+# A page takes its path below the site root, and relative() makes each
+# link of the chrome from that path, per WEB-LINKS-1. The place of the
+# path decides the rest: a page of a tree, a page of the top level, or
+# the human page of a key directory.
 #
 # The module builds the document as characters, with string operations
 # and not with a substitution over a template. A title may therefore
 # hold any character. The write encodes the document to UTF-8.
 
-# The two separators that are not ASCII: an em dash between the page
-# title and the site name, and a middle dot between navigation
-# entries.
-use constant {
-	EM_DASH    => "\x{2014}",
-	MIDDLE_DOT => "\x{b7}",
-};
+# The em dash between the page title and the site name. It is not
+# ASCII, so it is a character, and the encode writes its bytes.
+use constant EM_DASH => "\x{2014}";
 
-# The kinds of page. The up value is the step from the page to the top
-# level of the site, where the stylesheet sits. A page in a tree links
-# each page of its own tree by name, and carries the footer. Another
-# page takes the up step and the path of the default tree in front of
-# each link, and carries no footer, per WEB-KEYS-32.
+# A link of the description that passes unchanged, per WEB-LINKS-2: an
+# absolute URL, and a root-absolute path, which the check refuses, per
+# WEB-LINKS-4.
+my $UNCHANGED = qr{\A(?:[A-Za-z][A-Za-z0-9.+-]*:|/)};
+
+# relative($from, $to):
+#	The link from the page at the path $from to the file at the
+#	path $to, per WEB-LINKS-1. Each path names a file below the
+#	site root. The link steps up out of each directory of $from that
+#	$to does not share, then down into $to. A query or a fragment of
+#	$to stays at the end of the link.
 #
-#	tree	a page of a language tree, <path>/<page>
-#	keys	the human page of a key directory, <dir>/index.html
-#	top	the copy of the 404 page at the top level
-my %KIND = (
-	tree => { up => '../', in_tree => 1 },
-	keys => { up => '../', in_tree => 0 },
-	top  => { up => '',    in_tree => 0 },
-);
+#	A browser reads a link whose first segment holds a colon as a
+#	URL scheme, so such a link takes ./ in front of it. A module
+#	page such as Fugu::Daemon.3p.html needs it.
+sub relative ( $from, $to )
+{
+	my ( $path, $suffix ) = $to =~ m{\A([^?#]*)(.*)\z}s;
+
+	my @up = split m{/}, $from;
+	pop @up;
+	my @down = split m{/}, $path, -1;
+	my $file = pop @down;
+
+	while ( @up && @down && $up[0] eq $down[0] ) {
+		shift @up;
+		shift @down;
+	}
+
+	my $link = join '/', ( ('..') x @up ), @down, $file;
+	$link = "./$link" if $link =~ m{\A[^/]*:};
+
+	return $link . $suffix;
+}
 
 # App::FuguWeb::Page->new(%args):
 #	config   => $config	the site description (required)
-#	language => $language	the language of a tree page
-#				(default: the default language)
-#	kind     => $kind	tree, keys or top (default: tree)
-#	footer   => $html	the footer fragment of the language, as
+#	language => $language	the language of the tree whose words
+#				the chrome takes (default: the default
+#				language)
+#	footer   => $html	the footer fragment of that language, as
 #				characters (default: none)
-#
-#	A tree page is a page of its language, and its chrome takes
-#	the words of that language. It links each page of its own tree
-#	by its name, and the stylesheet one level up.
-#
-#	The key page and the top-level copy of the 404 page link the
-#	default tree, and their chrome takes the words of the default
-#	language. The copy of the 404 page is a page of the default
-#	language. The key page is a page of en, because its own words
-#	are English, per WEB-CHROME-8.
 sub new ( $class, %args )
 {
 	my $config = $args{config};
 	die 'config parameter required'
 	    unless defined $config;
 
-	my $kind = $args{kind} // 'tree';
-	die "unknown kind of page: $kind"
-	    unless $KIND{$kind};
-
-	my $tree =
-	      $kind eq 'tree'
-	    ? $args{language} // $config->default_language
-	    : $config->default_language;
-	my $lang =
-	    $kind eq 'keys'
-	    ? App::FuguWeb::Language->new(
-		tag => App::FuguWeb::Language::ENGLISH )
-	    : $tree;
-
 	return bless {
 		config => $config,
-		kind   => $kind,
-		tree   => $tree,
-		lang   => $lang,
+		tree   => $args{language} // $config->default_language,
 		footer => $args{footer},
 	}, $class;
 }
 
-# $self->write($path, $title, $fragment, %page):
-#	Write the whole page: the chrome around the fragment, encoded
-#	to UTF-8. The fragment goes in unchanged: it is already HTML,
-#	from a renderer or from the project's own source directory.
-#	The method returns true on success, and undef with a message
-#	in the log otherwise. The page arguments are those of
-#	document.
-sub write ( $self, $path, $title, $fragment, %page )
+# $self->write($out, $path, $title, $fragment, %page):
+#	Write the whole page to the path below the output directory:
+#	the chrome around the fragment, encoded to UTF-8. The fragment
+#	goes in unchanged: it is already HTML, from a renderer or from
+#	the project's own source directory. The method returns true on
+#	success, and undef with a message in the log otherwise. The
+#	page arguments are those of document.
+sub write ( $self, $out, $path, $title, $fragment, %page )
 {
 	return Fugu::File->write(
-		$path,
+		"$out/$path",
 		App::FuguWeb::encode(
-			$self->document( $title, $fragment, %page ) ) );
+			$self->document( $path, $title, $fragment, %page ) ) );
 }
 
-# $self->document($title, $fragment, %page):
-#	name      => $file	the name of the page in its tree
+# $self->document($path, $title, $fragment, %page):
 #	body_lang => $tag	the language of the fragment
 #				(default: the language of the page)
 #
-#	The whole page as characters. A caller that writes the file
-#	itself, or that holds the page beside other generated bytes,
-#	reads the document here and never repeats the chrome.
+#	The whole page at the path below the site root, as characters.
+#	A caller that writes the file itself, or that holds the page
+#	beside other generated bytes, reads the document here and never
+#	repeats the chrome.
 #
-#	A tree page of a site of more than one language needs its
-#	name, because its chrome links the same page in each other
-#	language. A fragment of another language than the page carries
-#	that language on the element that holds it, per
-#	WEB-LANGUAGE-11.
-sub document ( $self, $title, $fragment, %page )
+#	A page in the tree of the language is a tree page, and it takes
+#	the whole chrome. A page of the top level takes the base of
+#	WEB-TOP-3. The human page of a key directory is a page of en,
+#	per WEB-CHROME-8. A fragment of another language than the page
+#	carries that language on the main element, per WEB-LANGUAGE-11.
+sub document ( $self, $path, $title, $fragment, %page )
 {
-	my $body = $page{body_lang} // $self->{lang}->tag;
+	my ( $dir, $name ) = $path =~ m{\A(?:([^/]+)/)?([^/]+)\z}
+	    or die "not the path of a page: $path";
+	my $tree = $self->{tree};
+
+	my $at = {
+		path    => $path,
+		name    => $name,
+		in_tree => defined $dir && $dir eq $tree->path,
+		top     => !defined $dir,
+	};
+	$at->{lang} =
+	      $at->{in_tree} || $at->{top}
+	    ? $tree
+	    : App::FuguWeb::Language->new(
+		tag => App::FuguWeb::Language::ENGLISH );
+
+	my $body = $page{body_lang} // $at->{lang}->tag;
 
 	return
-	      $self->_head($title)
-	    . $self->_nav( $page{name} )
-	    . "<hr>\n" . '<main'
-	    . $self->_marks($body) . ">\n"
+	      $self->_head( $at, $title )
+	    . "<body>\n"
+	    . $self->_header($at)
+	    . $self->_nav($at) . '<main'
+	    . $self->_marks( $at, $body ) . ">\n"
 	    . ( $fragment // '' )
-	    . $self->_foot;
+	    . "</main>\n"
+	    . $self->_footer($at)
+	    . "</body>\n</html>\n";
 }
 
-# $self->_marks($tag):
+# $self->_marks($at, $tag):
 #	The marks of an element whose text comes from the language of
 #	the tag, per WEB-LANGUAGE-11. Text of the language of the page
 #	takes none. The key page is a page of en, which a site need not
 #	declare, so the test of the tag comes before the search.
-sub _marks ( $self, $tag )
+sub _marks ( $self, $at, $tag )
 {
-	return '' if $tag eq $self->{lang}->tag;
+	return '' if $tag eq $at->{lang}->tag;
 
-	return $self->{lang}->marks( $self->{config}->language($tag) );
+	return $at->{lang}->marks( $self->{config}->language($tag) );
 }
 
-# $self->_head($title):
-#	Everything before the navigation: the head and the banner.
-#	Every value is escaped before the heredoc reads it, so nothing
-#	raw reaches the markup.
-sub _head ( $self, $title )
+# $self->_href($at, $href):
+#	One href of the chrome, escaped. A relative href names a page
+#	of the tree, so the link goes from the page to that page. Any
+#	other href passes unchanged, per WEB-LINKS-2.
+sub _href ( $self, $at, $href )
+{
+	my $link =
+	      $href =~ $UNCHANGED
+	    ? $href
+	    : relative( $at->{path}, $self->{tree}->path . "/$href" );
+
+	return App::FuguWeb::escape_attr( App::FuguWeb::as_text($link) );
+}
+
+# $self->_head($at, $title):
+#	The head of the page, per WEB-CHROME-1. Every value is escaped
+#	before the heredoc reads it, so nothing raw reaches the markup.
+sub _head ( $self, $at, $title )
 {
 	my $tree = $self->{tree};
+	my $html = $at->{lang}->attributes;
 
-	my $html  = $self->{lang}->attributes;
-	my $site  = App::FuguWeb::escape_html( $tree->site );
-	my $marks = $self->_marks( $tree->site_lang );
-	my $entry = $self->_link( $self->{config}->entry );
-	my $full = App::FuguWeb::escape_html($title) . ' ' . EM_DASH . " $site";
-	my $sheet = $KIND{ $self->{kind} }{up} . App::FuguWeb::STYLESHEET;
+	# WEB-CHROME-8. The site name is of the default language, so
+	# the title of the key page holds its own English words alone.
+	my $full = App::FuguWeb::escape_html($title);
+	$full .= ' ' . EM_DASH . ' ' . App::FuguWeb::escape_html( $tree->site )
+	    if $at->{in_tree} || $at->{top};
 
-	# A host serves the top-level copy of the 404 page at each path
-	# that no file answers. The base makes each relative link of
-	# the page resolve from the root of the origin, and not from
-	# the missing path.
-	my $base = $self->{kind} eq 'top' ? qq{<base href="/">\n} : '';
+	# A host serves a page of the top level at each path that no
+	# file answers. The base makes each relative link of the page
+	# resolve from the site root, and not from the missing path.
+	my $base =
+	    $at->{top}
+	    ? '<base href="'
+	    . App::FuguWeb::escape_attr(
+		App::FuguWeb::as_text( $self->{config}->url_path ) )
+	    . qq{">\n}
+	    : '';
+
+	my $links = $at->{in_tree} ? $self->_alternates($at) : '';
+	my $sheet = App::FuguWeb::escape_attr(
+		relative( $at->{path}, App::FuguWeb::STYLESHEET ) );
 
 	return <<"HTML";
 <!DOCTYPE html>
@@ -185,108 +222,153 @@ sub _head ( $self, $title )
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 $base<title>$full</title>
-<link rel="stylesheet" href="$sheet">
+$links<link rel="stylesheet" href="$sheet">
 </head>
-<body>
-<header><a href="$entry"$marks>$site</a></header>
 HTML
 }
 
-# $self->_nav($name):
-#	The navigation: each nav entry in the language of the tree,
-#	then each language link. The separator joins the entries, so
-#	the row does not end in a dangling dot. A label of another
-#	language than the page carries its marks on its link.
-sub _nav ( $self, $name )
+# $self->_alternates($at):
+#	The links of WEB-CHROME-6: the page itself, the same page in
+#	each language, its own included, and the forward page of the
+#	top level. Each href is the url of the site, then the path of
+#	the target page. The forward page is the bare url.
+sub _alternates ( $self, $at )
 {
-	my @links = map {
-		      '<a href="'
-		    . $self->_link( $_->{href} ) . '"'
-		    . $self->_marks( $_->{label_lang} ) . '>'
-		    . App::FuguWeb::escape_html( $_->{label} ) . '</a>'
-	} $self->{config}->nav( $self->{tree}->tag );
-	push @links, $self->_languages($name);
+	my $config = $self->{config};
+	my $url    = sub ($path) {
+		return App::FuguWeb::escape_attr(
+			App::FuguWeb::as_text( $config->url . $path ) );
+	};
 
-	return "" unless @links;
+	my $links =
+	    '<link rel="canonical" href="' . $url->( $at->{path} ) . qq{">\n};
+	for my $language ( $config->languages ) {
+		$links .=
+		      '<link rel="alternate" hreflang="'
+		    . App::FuguWeb::escape_attr( $language->tag )
+		    . '" href="'
+		    . $url->( $language->path . "/$at->{name}" )
+		    . qq{">\n};
+	}
+	$links .=
+	      '<link rel="alternate" hreflang="x-default" href="'
+	    . $url->('')
+	    . qq{">\n};
+
+	return $links;
+}
+
+# $self->_header($at):
+#	The banner: the link to the entry page of the tree, with the
+#	site name as its text, per WEB-CHROME-2. A site name of another
+#	language than the page carries its marks on the link.
+sub _header ( $self, $at )
+{
+	my $tree = $self->{tree};
 
 	return
-	      "<nav>\n"
-	    . join( ' ' . MIDDLE_DOT . "\n", @links )
-	    . "\n</nav>\n";
+	      "<header>\n"
+	    . '<a href="'
+	    . $self->_href( $at, $self->{config}->entry ) . '"'
+	    . $self->_marks( $at, $tree->site_lang ) . '>'
+	    . App::FuguWeb::escape_html( $tree->site )
+	    . "</a>\n"
+	    . $self->_languages($at)
+	    . "</header>\n";
 }
 
-# $self->_languages($name):
-#	The link to the same page in each other language of the site.
-#	The link goes to the tree of that language, and the tag is its
-#	text and its hreflang. A page outside every tree carries none,
-#	and so does each page of a site of one language.
-sub _languages ( $self, $name )
+# $self->_languages($at):
+#	The list of the languages of WEB-CHROME-3, on a tree page of a
+#	site of more than one language. Each link goes to the same page
+#	in that language, with the name of the language as its text.
+#	The tag is its lang and its hreflang, and its direction is its
+#	dir when the two directions differ. The link of the language of
+#	the page is the current one.
+sub _languages ( $self, $at )
 {
-	return () unless $KIND{ $self->{kind} }{in_tree};
+	my @languages = $self->{config}->languages;
+	return '' unless $at->{in_tree} && @languages > 1;
 
-	my @others =
-	    grep { $_->tag ne $self->{tree}->tag } $self->{config}->languages;
-	return () unless @others;
+	my $own   = $self->{tree};
+	my $items = '';
+	for my $language (@languages) {
+		my $tag  = App::FuguWeb::escape_attr( $language->tag );
+		my $href = App::FuguWeb::escape_attr(
+			App::FuguWeb::as_text(
+				relative(
+					$at->{path},
+					$language->path . "/$at->{name}"
+				) ) );
+		my $dir =
+		    $language->dir eq $own->dir
+		    ? ''
+		    : ' dir="' . $language->dir . '"';
+		my $current =
+		    $language->tag eq $own->tag ? ' aria-current="page"' : '';
 
-	die 'name parameter required' unless defined $name;
-	my $page = App::FuguWeb::escape_attr( App::FuguWeb::as_text($name) );
-
-	return map {
-		my $tag  = App::FuguWeb::escape_attr( $_->tag );
-		my $path = App::FuguWeb::escape_attr( $_->path );
-		qq{<a href="../$path/$page" hreflang="$tag">$tag</a>}
-	} @others;
-}
-
-# $self->_link($href):
-#	One href of the chrome, escaped, with the step to the default
-#	tree in front of it. A tree page takes no step, the key page
-#	takes ../ and the path of the default tree, and the top-level
-#	copy of the 404 page takes the path of the default tree.
-#
-#	The step goes in front of a relative name only. An absolute
-#	URL, a root-absolute path and a fragment each name a place of
-#	their own. A step in front of one would name a page that the
-#	site does not hold.
-sub _link ( $self, $href )
-{
-	my $written = App::FuguWeb::escape_attr( App::FuguWeb::as_text($href) );
-
-	return $written if $href =~ m{\A(?:[A-Za-z][A-Za-z0-9.+-]*:|/|\#)};
-
-	my $kind = $KIND{ $self->{kind} };
-	return $written if $kind->{in_tree};
-
-	return
-	      $kind->{up}
-	    . App::FuguWeb::escape_attr( $self->{tree}->path )
-	    . "/$written";
-}
-
-# $self->_foot:
-#	Everything after the fragment. A project with no footer
-#	fragment gets no footer element and no rule before it: an
-#	empty footer is not chrome, it is a gap.
-sub _foot ($self)
-{
-	my $html = "</main>\n";
-
-	# A tree page carries the footer, and no other page does. The
-	# fragment is the prose of the project, and this class copies
-	# it in unchanged. A relative link of it resolves against the
-	# directory of the page. Inside a tree that link names a page
-	# of the tree. On the key page it would name a file of the key
-	# directory, and on the top-level copy of the 404 page a file
-	# of the root. The writer of the fragment named neither.
-	my $footer = $self->{footer};
-	if ( defined $footer && $KIND{ $self->{kind} }{in_tree} ) {
-		my $marks = $self->_marks( $self->{tree}->footer_lang );
-		$html .= "<hr>\n<footer$marks>\n$footer</footer>\n";
+		$items .=
+qq{<li><a href="$href" hreflang="$tag" lang="$tag"$dir$current>}
+		    . App::FuguWeb::escape_html( $language->name )
+		    . "</a></li>\n";
 	}
 
-	$html .= "</body>\n</html>\n";
+	return "<ul>\n$items</ul>\n";
+}
 
-	return $html;
+# $self->_nav($at):
+#	The navigation of WEB-CHROME-4: one list of the nav entries of
+#	the tree, in the order of the description. A label of another
+#	language than the page carries its marks on its link. The entry
+#	whose path, with no query, resolves from the tree to the page
+#	is the current one. A site with no nav entry gets no nav.
+sub _nav ( $self, $at )
+{
+	my @entries = $self->{config}->nav( $self->{tree}->tag );
+	return '' unless @entries;
+
+	my $items = '';
+	for my $entry (@entries) {
+		my ($path) = App::FuguWeb::ref_parts( $entry->{href} );
+		my $names =
+		    App::FuguWeb::resolve_ref( $self->{tree}->path, $path )
+		    // '';
+		my $current =
+		    $at->{in_tree} && $names eq $at->{path}
+		    ? ' aria-current="page"'
+		    : '';
+
+		$items .=
+		      '<li><a href="'
+		    . $self->_href( $at, $entry->{href} ) . '"'
+		    . $self->_marks( $at, $entry->{label_lang} )
+		    . $current . '>'
+		    . App::FuguWeb::escape_html( $entry->{label} )
+		    . "</a></li>\n";
+	}
+
+	return "<nav>\n<ul>\n$items</ul>\n</nav>\n";
+}
+
+# $self->_footer($at):
+#	The footer of WEB-CHROME-7. A tree page carries the footer
+#	fragment of its language, and no other page does. A project
+#	with no footer fragment gets no footer element: an empty
+#	footer is not chrome, it is a gap.
+#
+#	The fragment is the prose of the project, and this class
+#	copies it in unchanged. A relative link of it resolves against
+#	the directory of the page. Inside a tree that link names a page
+#	of the tree. On the key page it would name a file of the key
+#	directory, per WEB-KEYS-32, and on a page of the top level a
+#	file of the root. The writer of the fragment named neither.
+sub _footer ( $self, $at )
+{
+	my $footer = $self->{footer};
+	return '' unless defined $footer && $at->{in_tree};
+
+	my $marks = $self->_marks( $at, $self->{tree}->footer_lang );
+
+	return "<footer$marks>\n$footer</footer>\n";
 }
 
 1;

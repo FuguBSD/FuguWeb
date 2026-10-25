@@ -305,6 +305,16 @@ sub mandoc_os   ($self) { return $self->{mandoc_os}; }
 sub man_url     ($self) { return $self->{man_url}; }
 sub stylesheet  ($self) { return $self->{stylesheet}; }
 
+# $self->url_path:
+#	The path of the url: the part after the host, which starts and
+#	ends with a solidus. It is the base href of a page of the top
+#	level, per WEB-TOP-3, so each relative link of that page
+#	resolves from the site root.
+sub url_path ($self)
+{
+	return $self->{url} =~ s{\Ahttps?://[^/]+}{}r;
+}
+
 # $self->keys_dirs:
 #	The name of each key directory, in file order. The list is
 #	empty for a description that holds no keys block, so it is the

@@ -33,7 +33,7 @@ package App::FuguWeb;
 # the name of the configuration file, the name of the stylesheet in
 # the output, the decode and the encode at each edge, the fold of a
 # name, the escapes that guard a value on its way into HTML, the
-# directory listing, and the prefix test.
+# directory listing, the prefix test, and the reader of a reference.
 #
 # Text is UTF-8 at each edge, and characters inside. The build decodes
 # the description, each source and each output of a renderer, and it
@@ -231,6 +231,52 @@ sub path_below ( $path, $root )
 	return 1 if $one eq $two;
 
 	return index( $one, "$two/" ) == 0 ? 1 : 0;
+}
+
+# ref_parts($ref):
+#	The path and the fragment of one reference. A query is no part
+#	of the name of a file, so the path holds none, per WEB-LINKS-3.
+#	The chrome and the check read each reference here, so the two
+#	agree.
+sub ref_parts ($ref)
+{
+	my ( $path, $fragment ) = split /#/, $ref, 2;
+	$path = ( $path // '' ) =~ s{\?.*}{}sr;
+
+	return ( $path, $fragment );
+}
+
+# resolve_ref($dir, $ref):
+#	One relative reference, as a path below the output directory.
+#	The reference is relative to the directory, which is a path
+#	below the site root: a language tree, a key directory, or the
+#	empty path of the top level.
+sub resolve_ref ( $dir, $ref )
+{
+	my @parts = grep { length } split m{/}, $dir;
+
+	for my $step ( split m{/}, $ref, -1 ) {
+		next if $step eq '' || $step eq '.';
+		if ( $step eq '..' ) {
+
+			# A step above the site root names no file of
+			# the output. A pop of an empty list does
+			# nothing, so the reference would clamp to the
+			# root and read like a link that resolves.
+			return unless @parts;
+			pop @parts;
+			next;
+		}
+		push @parts, $step;
+	}
+
+	# A reference of './' names the directory of its own page, and
+	# a directory is no page of a site. An empty answer also reads
+	# as false in the walk of the reachability check. The walk
+	# would then stop at the first page that holds one.
+	return unless @parts;
+
+	return join '/', @parts;
 }
 
 1;
