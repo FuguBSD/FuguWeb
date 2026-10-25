@@ -5,95 +5,286 @@ renderer reads `.fuguwebrc` at the project root, runs `mandoc`, `lowdown`, and
 `pod2man`, and wraps each result in one shared chrome. The output is plain HTML
 and one stylesheet: no templating language and no JavaScript.
 
-The code predates the specification, so this document holds the units of the
-areas that a plan has changed and no more. Each future plan adds the units of
-the area that it changes. The conventions of [index.md](index.md) apply.
+A site is a matrix of languages and pages, and the description declares both
+axes. Each page of a language takes each value and each source from the language
+that holds it, and it records that language. A renderer reduces each source to
+one body fragment. The build fits the fragment to the page, and the chrome wraps
+it. A link inside the site names a path below the site root, and the writer
+makes it relative to the page that holds it. The check reads the same model as
+the build.
 
-<a id="web-lang"></a>
+This document holds the units of the areas that a plan has changed. The
+conventions of [index.md](index.md) apply.
+
+<a id="web-site"></a>
+
+## The description
+
+`.fuguwebrc` describes the site, in the grammar of `Fugu::Config`. The
+description holds the words of the default language. Each translation block
+holds the words of one other language, per WEB-LANGUAGE.
+
+- **WEB-SITE-1** — The description must take a `url`, which is the absolute URL
+  of the site root. The value must start with `https://` or `http://`, and it
+  must end in a solidus.
+- **WEB-SITE-2** — The description must take a `site`, which is the name of the
+  site in the default language.
+- **WEB-SITE-3** — The description can take a `footer`, which names the footer
+  fragment of the default language below the source directory.
+- **WEB-SITE-4** — The renderer must reject a block type and a setting that
+  fuguweb(1) does not document. The message must name the block and the word.
+- **WEB-SITE-5** — The description, each source and each output of a renderer
+  must be valid UTF-8. The build must reject one that is not, and the message
+  must name it.
+- **WEB-SITE-6** — The renderer must reject a source whose path from the project
+  root holds ASCII white space or a parenthesis. A source is a page source, a
+  manual or a footer fragment, of any language. The message must name the path.
+  The record of WEB-STATUS-1 takes the manifest form of `Fugu::Signify`, which
+  holds neither.
+
+<a id="web-language"></a>
 
 ## The languages
 
-Every page of the description renders in each language tree. The path of a tree
-starts with the language code, so the front page of the English tree is `/en/`.
-English is the default language, and the description holds no switch for this,
-per D-05. A translation is a block of the description with the language code in
-front of the block name. A page without a translation takes the source of the
-default language. The top level holds two files for the host, and the key
-directory and the well-known tree for a machine. Those sit outside every tree,
-because each one answers one fixed URL.
+A `language` block declares one language of the site. The block name is the tag
+of the language, and the order of the blocks is the order of the languages. The
+first language is the default, per D-05. A translation is a block with the tag
+in front of the block name. A page without a translation takes the source of the
+default language.
 
-- **WEB-LANG-1** — A language code must be two lowercase ASCII letters, per ISO
-  639-1. The code of the default language is `en`. The renderer must reject a
-  code of another shape, and must reject `en` on a translation block.
-- **WEB-LANG-2** — A translation block must take two arguments: the code, then
-  the name of the block that it translates. A block of one argument is the
-  default. A `page`, a `nav`, a `manuals` and a `modules` block can take a
-  translation. A `keys` block and a `key` block must not take one. The renderer
-  must reject a translation whose name no default block of its type holds. It
-  must reject a second translation of one name in one language.
-- **WEB-LANG-3** — The languages of a site are `en` and each code that a
-  translation block names. The build must write one tree for each language,
-  below `<code>/` of the output. Each tree must hold the same page names, and a
-  page name must not change with the language.
-- **WEB-LANG-4** — A translation of a `page` block can take `title`, `body` and
-  `markdown`. A translation of a `nav` block can take `label`. A translation of
-  a group block can take `heading` and `dir`. The renderer must reject any other
-  setting on a translation.
-- **WEB-LANG-5** — A page of a language must take each value from its
-  translation, and from the default block when the translation holds none. A
-  manual of a language must come from the `dir` of the translation. It must come
-  from the default `dir` when the translation holds no file of that name. A
-  translation `dir` must mirror the default `dir`, so the namesake of a file is
-  the file of the same relative path. A file of a translation `dir` with no
-  namesake is an error.
-- **WEB-LANG-6** — The `html` element of a page must carry the code of its tree
-  as `lang`. A page of another tree whose body comes from the default source
-  must carry `lang="en"` on the element that holds the body. An index page is
-  the exception, because its parts come from more than one source. The parts are
-  its title, the `body` that opens it, each group heading and each manual
-  description. On an index page of another tree, each part of the default
-  language must carry `lang="en"` on its own element. The element that holds the
-  body must carry no `lang`.
-- **WEB-LANG-7** — The chrome of a tree page must link the same page in each
-  other language of the site. Each link must carry the code as its text and as
-  its `hreflang`. A site of one language must carry no such link.
-- **WEB-LANG-8** — The build must write `index.html` at the top level. That page
-  must forward to the entry page of the default tree with a meta refresh, and
-  must hold one link to that page. It must load nothing, per D-01.
-- **WEB-LANG-9** — When the description holds the page `404.html`, the build
-  must write one more copy of it at the top level. The copy is the page of the
-  default language, and it carries `<base href="/">`. A host serves that path
-  for each path that no file answers. A relative link of the page would resolve
-  against the missing path. The `base` href makes each relative link of the page
-  resolve from the root of the origin. Each relative link of the chrome of the
-  copy must start with `en/`, and its stylesheet link must be `style.css`. The
-  page serves a site at the root of its origin.
-- **WEB-LANG-10** — The stylesheet, each asset, each key directory and the
-  well-known tree must sit at the top level, outside every tree. A tree page
-  must link the stylesheet with a relative path.
-- **WEB-LANG-11** — The human page of a key directory must be a page of the
-  default language. Its chrome must link the default tree. Each relative link of
-  the chrome must start with `../en/`, and its stylesheet link must be
-  `../style.css`. The page must carry no language link.
-- **WEB-LANG-12** — The footer fragment of a language is
-  `<code>/footer.body.html` below the source directory. A language without one
-  takes the default fragment. Every tree page must carry the footer, and the key
-  page and the top-level pages must carry none.
-- **WEB-LANG-13** — The renderer must write no prose of its own into a tree
-  page. Each word that a reader sees must come from the description, from a
-  source or from a fragment. The header line of a manual page is the one
-  exception: it names the manual set as man(1) prints it.
-- **WEB-LANG-14** — The check must hold each tree page to the language of its
-  tree. It must walk the reachability of each tree from its own entry page. The
-  top-level pages must take no reachability check, and the key page takes none
-  per WEB-KEYS-27.
-- **WEB-LANG-15** — The check must hold each relative link of the chrome to one
-  form for each kind of page. The header link and each nav link take this form,
-  and a language link follows WEB-LANG-7. An absolute URL and a fragment pass
-  unchanged. A tree page takes `<page>`. The key page takes `../en/<page>`. The
-  top-level `404.html` takes `en/<page>`. The check must accept the `base` href
-  of the top-level `404.html` as the one root-absolute href of the site. It must
-  hold the forward page to the shape of WEB-LANG-8, and to no nav.
+- **WEB-LANGUAGE-1** — A tag must be a BCP 47 tag of RFC 5646, in its canonical
+  case. The renderer must accept these subtags, in this order, and no other:
+
+  - a language subtag of two or three lowercase ASCII letters;
+  - an optional script subtag of four ASCII letters, the first one in uppercase;
+  - an optional region subtag of two uppercase ASCII letters or three digits.
+
+  `en`, `zh-Hans` and `pt-BR` are tags. The renderer must reject a tag that two
+  blocks declare.
+
+- **WEB-LANGUAGE-2** — A `language` block must take a `name`, which is the name
+  of the language in that language, for example `English` or `简体中文`. It can
+  take a `dir` of `ltr` or `rtl`, and the default is `ltr`.
+- **WEB-LANGUAGE-3** — A `language` block can take a `site` and a `footer`. In
+  that language, each one takes the place of the value of WEB-SITE-2 or
+  WEB-SITE-3.
+- **WEB-LANGUAGE-4** — A description with no `language` block must have the one
+  language `en`. A site of one language then needs no declaration.
+- **WEB-LANGUAGE-5** — The path of a tree is the tag in lowercase, so the tree
+  of `zh-Hans` is `zh-hans/`. The build must write one tree for each language,
+  below its path in the output. Each tree must hold the same page names.
+- **WEB-LANGUAGE-6** — A translation block must take two arguments: a declared
+  tag other than the default, then the name of the block that it translates. A
+  `page`, a `nav`, a `manuals` and a `modules` block can take a translation. The
+  renderer must reject a translation of any other tag. It must reject a
+  translation of a name that no default block of its type holds. It must reject
+  a second translation of one name in one language.
+- **WEB-LANGUAGE-7** — A translation of a `page` block can take `title`, `body`
+  and `markdown`. A translation of a `nav` block can take `label`. A translation
+  of a group block can take `heading` and `dir`. The renderer must reject any
+  other setting on a translation.
+- **WEB-LANGUAGE-8** — A tree page of a language must take each value from its
+  translation, and from the default block when the translation holds none. The
+  `site`, the `footer`, each nav label and each group heading follow the same
+  rule.
+- **WEB-LANGUAGE-9** — A manual of a language must come from the `dir` of the
+  translation. It must come from the default `dir` when the translation holds no
+  file of that name. A translation `dir` must mirror the default `dir`, so the
+  namesake of a file is the file of the same relative path. A file of a
+  translation `dir` with no namesake is an error.
+- **WEB-LANGUAGE-10** — The `html` element of a page must carry the tag of its
+  language as `lang`. It must carry `dir="rtl"` when that language is right to
+  left.
+- **WEB-LANGUAGE-11** — An element whose text comes from another language than
+  the page must carry the tag of that language as `lang`. It must carry `dir`
+  too when the two directions differ. The mark goes on the smallest element that
+  holds the text. That element is the `main` of a body, the site link of the
+  `header`, or the `footer`. It is also the link of a nav label, a part of an
+  index page, or a `section` of WEB-TOP-5. The parts of an index page are its
+  title, the `body` that opens it, each group heading and each manual
+  description. The `main` of an index page carries no mark.
+- **WEB-LANGUAGE-12** — The renderer must write no prose of its own into a tree
+  page or a top-level page. Each word that a reader sees there must come from
+  the description, from a source or from a fragment. The human page of a key
+  directory is the one exception. Its page title, its heading and the labels of
+  the fields of WEB-KEYS-13 are in English.
+- **WEB-LANGUAGE-13** — The check must hold each tree page to the `lang` and the
+  `dir` of its tree. It must walk the reachability of each tree from its own
+  entry page, and the walk must not leave the tree. A page that takes `unlinked`
+  takes no reachability check.
+
+<a id="web-chrome"></a>
+
+## The chrome
+
+The chrome is the part of a page around the body fragment. It is the same in
+each language, and only its words change. It holds four landmarks: the banner,
+the navigation, the main part and the footer. Each one is an element of HTML5,
+and the chrome carries no class, per D-04.
+
+- **WEB-CHROME-1** — The `head` of a tree page must hold five parts, in this
+  order. The parts are the charset, the viewport, the title, the links of
+  WEB-CHROME-6, and the stylesheet link. The title must be the page title, an em
+  dash, and the site name of the language.
+- **WEB-CHROME-2** — The `header` must hold a link to the entry page of the
+  tree, with the site name of the language as its text. On a site of more than
+  one language, the list of the languages must follow the link.
+- **WEB-CHROME-3** — The list of the languages must be one `ul`, with one item
+  for each language, in the order of the declaration. The link of each item must
+  go to the same page in that language. Its text must be the `name` of the
+  language, and it must carry the tag as `lang` and as `hreflang`. The link of
+  the language of the page must carry `aria-current="page"`.
+- **WEB-CHROME-4** — The `nav` must hold one `ul`, with one item for each nav
+  entry, in the order of the description. The link of the current page must
+  carry `aria-current="page"`. A description with no nav entry must write no
+  `nav`.
+- **WEB-CHROME-5** — The chrome must hold no text separator and no `hr`. The
+  sheet draws each rule, per WEB-STYLE-5, and each separator, per WEB-STYLE-9.
+- **WEB-CHROME-6** — Each tree page must carry one `rel="canonical"` link to
+  itself in its `head`. It must carry one `rel="alternate"` link for each
+  language, its own language included, with the tag as `hreflang`. The link of a
+  language must go to the same page in that language. The href of each of these
+  links must be the `url` of WEB-SITE-1, then the path of the target page. An
+  example is `https://example.org/en/index.html`. The page must carry one more
+  alternate link, with `hreflang="x-default"`, to the forward page of WEB-TOP-1.
+  Its href must be the bare `url`, which serves the forward page.
+- **WEB-CHROME-7** — The `footer` must hold the footer fragment of the language
+  of the page, unchanged. A tree page carries the footer, and no other page
+  does. A site with no footer fragment carries no `footer`.
+- **WEB-CHROME-8** — The human page of a key directory must be a page of the
+  language `en`, because its own words are English, per WEB-LANGUAGE-12. Its
+  `html` therefore carries `lang="en"`, per WEB-LANGUAGE-10. Its chrome must
+  take the site name and each nav label from the default language. When that
+  language is not `en`, the site link and each nav link carry the marks of
+  WEB-LANGUAGE-11. The `head` must hold four parts, in this order: the charset,
+  the viewport, the title, and the stylesheet link. The title must be the
+  English page title alone, so the `title` holds the words of one language. The
+  `head` carries no link of WEB-CHROME-6. Its `header` must hold the site link
+  of WEB-CHROME-2 alone, to the entry page of the default tree. The page must
+  carry the `nav` of the default tree, per WEB-CHROME-4. It carries no footer,
+  per WEB-KEYS-32.
+
+<a id="web-links"></a>
+
+## The links
+
+Each file of the site has one path below the site root, for example
+`zh-hans/manuals.html` or `keys/index.html`. A link inside the site names that
+path, and the writer makes it relative to the page that holds it. A page of any
+place then takes one link rule, and a reader can browse the output from a disk.
+
+- **WEB-LINKS-1** — A link of the chrome to a file of the site must be relative.
+  It must be the path from the directory of the page to that file. The build
+  must compute it from the two paths alone.
+- **WEB-LINKS-2** — A relative nav `href` of the description must name a page of
+  the tree. An absolute URL and a fragment must pass unchanged.
+- **WEB-LINKS-3** — The check must resolve each relative `href` and `src` of a
+  page against the directory of the page. It must resolve against the `base` of
+  the page when the page holds one. The result must name a file of the
+  inventory, and a fragment must name an `id` of the target page.
+- **WEB-LINKS-4** — The check must reject a root-absolute href. The `base` href
+  of WEB-TOP-3 is the one exception.
+- **WEB-LINKS-5** — Each absolute href of WEB-CHROME-6 must be the `url` of
+  WEB-SITE-1, then the path of a page of the inventory. The bare `url` is the
+  one other form. The check must hold each href to these forms.
+
+<a id="web-top"></a>
+
+## The top-level pages
+
+The top level of the output holds two pages for the host. A static host serves
+each one at a fixed path: the site root, and each path that no file answers.
+Neither page belongs to a tree, so each one links every tree. A static host
+cannot select a language for the reader, and D-01 bars a script. The forward
+page therefore goes to the default tree.
+
+- **WEB-TOP-1** — The build must write the forward page, `index.html` at the top
+  level. It must forward to the entry page of the default tree with a meta
+  refresh, and it must load nothing, per D-01. Its `head` must hold four parts
+  alone, in this order: the charset, the meta refresh, the title, and the links
+  of WEB-CHROME-6. It is a page of the default language, and its title must be
+  the site name of that language.
+- **WEB-TOP-2** — On a site of more than one language, the body of the forward
+  page must hold the list of WEB-CHROME-3. The list must carry no
+  `aria-current`, and each link must go to the entry page of its language. On a
+  site of one language, the body must hold one link to the entry page, with the
+  site name as its text. The canonical link of the page must be the bare `url`
+  of WEB-SITE-1. Each alternate link of a language must go to the entry page of
+  that language.
+- **WEB-TOP-3** — When the description holds the page `404.html`, the build must
+  write one more `404.html` at the top level. A host serves the page at each
+  path that no file answers. Its `head` must hold five parts, in this order: the
+  charset, the viewport, a `base`, the title, and the stylesheet link. The
+  `base` must come before each element that holds a URL. Its href is the path of
+  the `url` of WEB-SITE-1, so each relative link of the page resolves from the
+  site root. The `head` carries no link of WEB-CHROME-6.
+- **WEB-TOP-4** — The top-level `404.html` must be a page of the default
+  language. Its title must be the title of the `404.html` of the default tree.
+  Its `header` must hold the site link of WEB-CHROME-2, to the entry page of the
+  default tree. On a site of more than one language, the list of the languages
+  of WEB-TOP-2 must follow the link. The page must carry the `nav` of the
+  default tree, per WEB-CHROME-4.
+- **WEB-TOP-5** — The `main` of the top-level `404.html` must hold the body of
+  `404.html` of each language, in the order of the declaration. Each body must
+  sit in its own `section`, with the marks of WEB-LANGUAGE-11.
+- **WEB-TOP-6** — The build must remove each `id` from each body of the
+  top-level `404.html`, so the page holds no duplicate id. It must resolve each
+  relative link of a body against the `404.html` of the tree of that body. In
+  the body of `zh-Hans`, `index.html` then becomes `zh-hans/index.html`, and
+  `#x` becomes `zh-hans/404.html#x`.
+
+<a id="web-outline"></a>
+
+## The outline
+
+The outline of a page is the list of its headings, with the level of each. A
+heading id is the target of a link from outside the page, so the id must not
+change with the language, per D-06.
+
+- **WEB-OUTLINE-1** — The body of a tree page of another language must hold the
+  outline of its namesake in the default tree. The two outlines must hold the
+  same count of headings, at the same levels, in the same order. The build must
+  reject a page whose outline differs. The message must name the page, the
+  language and the position of the first heading that differs.
+- **WEB-OUTLINE-2** — Each heading of such a page must take the id of the
+  heading at the same position in the default page. It must take no id when that
+  heading has none.
+- **WEB-OUTLINE-3** — The check must compare each heading id of a tree page of
+  another language with the id of WEB-OUTLINE-2.
+
+<a id="web-status"></a>
+
+## The translation status
+
+A translation follows its source, and a source changes. The record of the site
+names the version of the source that each translation follows. The author reads
+the status of each language with one verb, and the build stays silent.
+
+- **WEB-STATUS-1** — The record is the file `TRANSLATIONS` at the project root,
+  beside `.fuguwebrc`. It must not sit below the source directory, where the
+  build publishes each plain file as an asset. It must hold one line for each
+  translated file, in the form of a SHA256 manifest:
+  `SHA256 (<path>) = <digest>`. The path names the translated file from the
+  project root, in UTF-8 bytes. The digest is the SHA-256 of its default source
+  at the time of the translation.
+- **WEB-STATUS-2** — `fuguweb translated <file>...` must write the line of each
+  file into the record, with the digest of the default source of that file. It
+  must reject a file that translates no source of the description. A file that
+  translates a source has a path that the record can hold, per WEB-SITE-6. It
+  must keep each other line, and it must sort the lines by path.
+- **WEB-STATUS-3** — `fuguweb status` must print one line for each part of a
+  language other than the default that does not follow its source. The parts are
+  each page source, each manual, the footer, and each value of WEB-LANGUAGE-8. A
+  line must name the tag, the state, the kind of the part and its name, with one
+  tab between two fields.
+- **WEB-STATUS-4** — The states are `fallback`, `unrecorded` and `stale`. A part
+  that comes from the default language is `fallback`, and a value of the
+  description takes this state alone. A translated file with no line in the
+  record is `unrecorded`. A translated file is `stale` when its line names a
+  digest other than the one that its default source has now.
+- **WEB-STATUS-5** — `fuguweb status` must print nothing and exit 0 when each
+  part follows its source. It must exit 1 when it prints a line.
+- **WEB-STATUS-6** — The build and the check must not read the record.
 
 <a id="web-manuals"></a>
 
@@ -119,12 +310,18 @@ because each one answers one fixed URL.
 - **WEB-MANUALS-7** — The block name of a group is the group name. A block name
   is an identifier, and the prose of each language goes in `heading`. A group
   name must be one word of lowercase letters, digits and hyphens. Two groups
-  must not share one, and each default group block must take a `heading`. The
-  renderer must reject an `anchor` setting, and the message must name the block
-  to write in its place.
+  must not share one, and each default group block must take a `heading`.
 - **WEB-MANUALS-8** — An `index` page can take a `body`, which opens the page
   below its heading. The heading of the index page is its title. The index must
-  write no opening of its own, per WEB-LANG-13.
+  write no opening of its own, per WEB-LANGUAGE-12.
+- **WEB-MANUALS-9** — The body of a manual page must open with one `h1`, which
+  holds the name and the section, as in `fuguweb(1)`. The build must remove the
+  head and the foot that mandoc(1) writes, per D-07.
+- **WEB-MANUALS-10** — Each section heading of a manual page must be an `h2`,
+  and each subsection heading an `h3`. A heading must hold its text, and no link
+  to itself.
+- **WEB-MANUALS-11** — A manual page must hold each character outside ASCII as
+  text, and not as a character reference.
 
 <a id="web-markdown"></a>
 
@@ -197,9 +394,9 @@ manifest parser. The renderer holds the wiring only.
 - **WEB-KEYS-30** — The renderer must reject a `keys` name that the inventory
   already holds, and one that a second `keys` block holds. Two such names would
   become one name in the output.
-- **WEB-KEYS-34** — The renderer must reject a `keys` name of two lowercase
-  ASCII letters. Such a name would take the place of a language tree, per
-  WEB-LANG-3.
+- **WEB-KEYS-34** — The renderer must reject a `keys` name that is the path of
+  the tree of a declared language. Such a name would take the place of that
+  tree, per WEB-LANGUAGE-5.
 - **WEB-KEYS-31** — A signify key file must hold an untrusted comment line and a
   key body of 56 base64 characters. The body must decode to 42 bytes that start
   with `Ed`.
@@ -594,19 +791,18 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   chrome must carry none. The classes that `mandoc` emits are the one exception.
 - **WEB-STYLE-2** — The sheet must name system fonts only, and must load no
   resource. A page loads itself and the sheet, and nothing else. The forward
-  page of WEB-LANG-8 loads no sheet.
+  page of WEB-TOP-1 loads no sheet.
 - **WEB-STYLE-3** — The sheet must give a light scheme and a dark scheme, and
   the system preference must select one. Each color must appear once, in a
   custom property. The light scheme must take the gray page ground of NCSA
   Mosaic.
-- **WEB-STYLE-4** — The body face must be Times, and the code face must be
-  Courier. The measure must not pass 42em, and the line height must sit between
-  1.5 and 1.6.
-- **WEB-STYLE-5** — The chrome `<hr>` must show the rule of 1994: a dark 1px
-  line over a light 1px line. Each second-level heading must show the same rule
-  above it. The head of a manual page must show the same rule below it, and the
-  foot must show it above it. A heading must carry no band, and no other
-  decoration. A heading that `mandoc` writes must take no rule.
+- **WEB-STYLE-4** — The Latin face must be Times, and the code face must be
+  Courier. The measure must not pass 42em. The line height of Latin text must
+  sit between 1.5 and 1.6.
+- **WEB-STYLE-5** — The `main` and the `footer` must each show the rule of 1994
+  above them: a dark 1px line over a light 1px line. Each second-level heading
+  must show the same rule above it. A heading must carry no band, and no other
+  decoration. A section heading of a manual page must take no rule.
 - **WEB-STYLE-6** — A link must take one color while unvisited, and a second
   color once visited. It must stay underlined. The underline must be one pixel,
   below the baseline.
@@ -618,6 +814,19 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   substitutes.
 - **WEB-STYLE-8** — A `pre` block must show as a 1994 terminal: light text on a
   dark ground, in a sunken well.
+- **WEB-STYLE-9** — The sheet must show the list of the languages and the nav
+  list each on one line. It must draw the separator between two items. The link
+  that carries `aria-current` must show as the current item, with no underline.
+  The sheet must reach each one by element name and attribute alone.
+- **WEB-STYLE-10** — Each script that the sheet supports must take a stack of
+  system fonts after the Latin face, so Latin text keeps its face. The sheet
+  must support Han text in its simplified and its traditional form. It must
+  reach each stack with `:lang()`.
+- **WEB-STYLE-11** — Han text must take no synthetic italic. The sheet must mark
+  emphasis in Han text with emphasis marks. The line height of Han text must sit
+  between 1.7 and 1.9.
+- **WEB-STYLE-12** — The sheet must use logical properties for each margin,
+  padding, border, float and alignment. A page of `dir="rtl"` then mirrors.
 
 <a id="web-output"></a>
 
@@ -635,24 +844,26 @@ states each one. A path of another shape belongs to whoever made it, so the
 build keeps it and the clean refuses the tree.
 
 - **WEB-OUTPUT-1** — The build must write a plain file. The file must sit at the
-  top level or in a language tree, or must take a shape of the key directory.
-  Rule WEB-OUTPUT-10 states each shape, and rule WEB-OUTPUT-14 states the one
-  exception.
+  top level or in the tree of a declared language. Otherwise, it must take a
+  shape of the key directory. Rule WEB-OUTPUT-10 states each shape, and rule
+  WEB-OUTPUT-14 states the one exception.
 - **WEB-OUTPUT-2** — The build must remove each file that the inventory does not
   name. Rule WEB-OUTPUT-1 states which file the build can remove.
 - **WEB-OUTPUT-3** — The build must remove each empty directory that it owns. It
   owns a directory that the site holds a name below, a directory of the key
-  tree, and a language tree. It must keep the output directory itself.
+  tree, and the tree of a declared language. It must keep the output directory
+  itself.
 - **WEB-OUTPUT-4** — The build must keep an entry that rule WEB-OUTPUT-1 does
   not let it write, and must report it. A directory that the description does
-  not name, and that is no language tree, holds the files of whoever made it.
+  not name, and that is no tree of a declared language, holds the files of
+  whoever made it. The tree of a language that the description dropped is one
+  such directory.
 - **WEB-OUTPUT-5** — The clean must remove a plain file of the top level. It
   must remove a file that the inventory names, and one that takes a shape of
   rule WEB-OUTPUT-10. It must remove a directory that holds a name of the site,
-  and a directory of the key tree. It must remove a directory of the top level
-  whose name has the shape of a language code. Rule WEB-OUTPUT-14 states what it
-  takes in the staging directory. It must refuse every other entry, and must
-  name it.
+  and a directory of the key tree. It must remove the tree of each declared
+  language. Rule WEB-OUTPUT-14 states what it takes in the staging directory. It
+  must refuse every other entry, and must name it.
 - **WEB-OUTPUT-6** — The build and the clean must read one predicate. The build
   must never remove an entry that the clean refuses. The rule holds for a
   directory as it holds for a file.
@@ -668,8 +879,8 @@ build keeps it and the clean refuses the tree.
   below. Each shape but the first needs a key directory that the description
   declares:
 
-  - a plain file one level below a directory of the top level whose name is a
-    language code, per WEB-LANG-1;
+  - a plain file one level below the tree of a declared language, per
+    WEB-LANGUAGE-5;
   - a generated name of a key directory: `SHA256`, `SHA256.sig`, `KEYS` or
     `index.html`;
   - a key file of a key directory, whose name matches rule WEB-KEYS-19. A
@@ -682,8 +893,9 @@ build keeps it and the clean refuses the tree.
     the z-base-32 alphabet.
 
   A stale page and a stale key file need this shape set. The inventory names
-  what the site holds today, so it cannot answer for a page, a language or a key
-  that the description dropped.
+  what the site holds today, so it cannot answer for a page or a key that the
+  description dropped. The tree of a dropped language takes no shape, per
+  WEB-OUTPUT-4.
 
 - **WEB-OUTPUT-11** — A `page` block name must be one path segment. Each
   language tree is one flat directory of pages. A name with a solidus writes
@@ -702,7 +914,7 @@ build keeps it and the clean refuses the tree.
   description that names neither directory takes the two defaults.
 - **WEB-OUTPUT-14** — The staging directory is the one part of the output that
   rule WEB-OUTPUT-1 does not reach. The build writes one flat directory of plain
-  files there for each language, under the code of the language. It removes the
+  files there for each language, under the path of its tree. It removes the
   whole staging directory at the end. The build must refuse a staging directory
   of another shape, and must not remove it. The clean must refuse the same one.
 - **WEB-OUTPUT-15** — The clean must refuse a target that holds no stylesheet,
@@ -710,3 +922,5 @@ build keeps it and the clean refuses the tree.
   target without it is the output of no build. The rule is a second guard, and
   rule WEB-OUTPUT-13 is the first. A directory that holds a stylesheet of its
   own defeats this one alone.
+- **WEB-OUTPUT-16** — The stylesheet, each asset, each key directory and the
+  well-known tree must sit at the top level, outside every tree.
