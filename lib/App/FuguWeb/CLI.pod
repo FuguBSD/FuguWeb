@@ -33,9 +33,11 @@ See L<fuguweb(1)> for the user documentation of the subcommands.
 The project root. Without it, the class walks up from the working
 directory to the first F<.fuguwebrc>.
 
-=item B<--quiet>
+=item B<-q>, B<--quiet>
 
-Suppress informational output.
+Set the level of the log to C<warning>. The log then stops each C<info>
+message, and it keeps each error and each warning. The option does not
+touch standard output.
 
 =back
 

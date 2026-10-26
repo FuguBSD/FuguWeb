@@ -115,7 +115,12 @@ Use
 .Ar dir
 as the project root, and do not search for one.
 .It Fl q , Fl Fl quiet
-Do not print informational messages.
+Do not print the informational messages, which carry the word
+.Li INFO .
+Errors, warnings and the problems that
+.Cm check
+finds still go to standard error.
+The standard output and the exit status do not change.
 .El
 .Pp
 The commands are as follows:

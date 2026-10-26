@@ -254,7 +254,7 @@ sub run ( $class, @argv )
 		options  => {
 			'project=s' =>
 			    'the project root (default: auto-discover)',
-			'quiet|q' => 'suppress informational output',
+			'quiet|q' => 'do not print informational messages',
 		},
 		epilogue => <<'EOF',
 Examples:
@@ -275,12 +275,10 @@ sub _prepare ( $self, $cli, $entry )
 {
 	$self->{project} = $cli->option('project');
 
-	if ( $cli->option('quiet') ) {
-		$self->{log} = Fugu::Log->new(
-			mode  => Fugu::Log::MODE_QUIET,
-			ident => 'fuguweb',
-		);
-	}
+	# The quiet option stops the informational messages alone. An
+	# error, a warning and a problem of the check still reach
+	# standard error, because an exit code does not name the fault.
+	$self->{log}->set_level('warning') if $cli->option('quiet');
 
 	return if $entry->{offline};
 

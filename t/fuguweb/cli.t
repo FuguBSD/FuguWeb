@@ -126,13 +126,21 @@ subtest 'a description that is absent or broken' => sub {
 	like( $err, qr/\.fuguwebrc:2:/, 'and carries the line number' );
 };
 
-subtest 'quiet keeps a diagnostic off standard error' => sub {
+# The quiet option stops the informational messages alone. An exit code
+# does not name the fault, so each error must still print. The end of
+# the file holds the quiet subtests of the other verbs.
+subtest 'quiet keeps the error of a description' => sub {
 	my $empty = tempdir( CLEANUP => 1 );
 
 	my ( $exit, $out, $err ) = run( '--quiet', '--project', $empty,
 		'check' );
-	is( $exit, 3,  'the exit code still reports the failure' );
-	is( $err,  '', 'and nothing is written' );
+	is( $exit, 3, 'no description gives EXIT_CONFIG_ERROR' );
+	like( $err, qr/\.fuguwebrc/, 'and names the file it looked for' );
+
+	my $root = project( '.fuguwebrc' => $RC . "colour = red\n" );
+	( $exit, $out, $err ) = run( '-q', '--project', $root, 'build' );
+	is( $exit, 3, 'an unknown setting gives EXIT_CONFIG_ERROR' );
+	like( $err, qr/unknown setting colour/, 'and names the setting' );
 };
 
 subtest 'init writes a starter, once' => sub {
@@ -512,6 +520,138 @@ SKIP: {
 		is( $exit, 0, 'and the check passes' ) or diag $err;
 
 		ok( !-e "$root/out/TRANSLATIONS", 'and the site holds no record' );
+	};
+}
+
+# The quiet option on each verb. Each error, each warning, each problem
+# of the check and each line of status must still print, with the exit
+# code that it has without the option. An informational message must
+# not print. A subtest that asserts the absence of a note first shows
+# the note without the option.
+
+subtest 'quiet keeps the error of init, and stops its note' => sub {
+	my $dir = tempdir( CLEANUP => 1 );
+
+	my ( $exit, $out, $err ) = run( 'init', $dir );
+	like( $err, qr/INFO: Wrote /, 'without quiet, init notes the file' );
+
+	$dir = tempdir( CLEANUP => 1 );
+	( $exit, $out, $err ) = run( '-q', 'init', $dir );
+	is( $exit, 0, 'init succeeds' );
+	ok( -s "$dir/.fuguwebrc", 'and writes the description' );
+	is( $err, '', 'and does not note the file' );
+
+	( $exit, $out, $err ) = run( '-q', 'init', $dir );
+	is( $exit, 1, 'a second init fails' );
+	like( $err, qr/Already exists/, 'and says why' );
+};
+
+subtest 'quiet keeps the refusal of clean' => sub {
+	my $root = tempdir( CLEANUP => 1 );
+	make_path("$root/victim/deep");
+	open my $fh, '>', "$root/victim/deep/keep.txt" or die "Cannot: $!";
+	print {$fh} "important\n";
+	close $fh;
+
+	my ( $exit, $out, $err ) =
+	    run( '-q', 'clean', '--out', "$root/victim" );
+	is( $exit, 1, 'clean fails' );
+	ok( -e "$root/victim/deep/keep.txt", 'and removes nothing' );
+	like( $err, qr/refusing to remove it/, 'and says why' );
+};
+
+subtest 'quiet keeps the lines of status and each fault' => sub {
+	my $root = zh_project();
+
+	# WEB-STATUS-3. The lines are the answer, not a note.
+	my ( $exit, $out, $err ) = run( '-q', '--project', $root, 'status' );
+	is( $exit, 1, 'a part that does not follow its source gives 1' );
+	is( $out, "zh-Hans\tunrecorded\tpage\tindex.html\n",
+		'and status prints its line' );
+
+	( $exit, $out, $err ) =
+	    run( '-q', '--project', $root, 'translated', 'web/index.body.html' );
+	is( $exit, 1, 'a default source gives EXIT_ERROR' );
+	like( $err, qr{web/index\.body\.html translates no source},
+		'and translated names the file' );
+
+	$root = zh_project( 'TRANSLATIONS' => "not a manifest\n" );
+	( $exit, $out, $err ) = run( '-q', '--project', $root, 'status' );
+	is( $exit, 3, 'a malformed record gives EXIT_CONFIG_ERROR' );
+	like( $err, qr{TRANSLATIONS: .*not a manifest}, 'and names the record' );
+};
+
+SKIP: {
+	skip 'a renderer is not installed', 3 unless $RENDERERS;
+
+	subtest 'quiet keeps each problem of the check' => sub {
+		my $root = project( 'web/index.body.html' =>
+			    qq{<h1>Home</h1>\n<a href="https://example.com/">Out</a>\n}
+		);
+		run( '--project', $root, 'build' );
+
+		open my $fh, '>>', "$root/out/en/index.html"
+		    or die "Cannot append: $!";
+		print {$fh} qq{<a href="./gone.html">Gone</a>\n};
+		close $fh;
+
+		my ( $exit, $out, $err ) =
+		    run( '--project', $root, 'check', '--verbose' );
+		like( $err, qr{INFO: external link: https://example\.com/},
+			'without quiet, the check notes the external link' );
+
+		( $exit, $out, $err ) =
+		    run( '-q', '--project', $root, 'check', '--verbose' );
+		is( $exit, 5, 'a dead link gives EXIT_CHECK_FAILED' );
+		like( $err, qr{gone\.html leads nowhere}, 'and names the link' );
+		unlike( $err, qr/external link/,
+			'and does not note the external link' );
+	};
+
+	subtest 'quiet keeps the warning of a kept entry' => sub {
+		my $root = project();
+		run( '--project', $root, 'build' );
+
+		# write_out($name):
+		#	Put one file into the output, as a stray maker does.
+		my $write_out = sub ($name) {
+			make_path( "$root/out/$name" =~ s{/[^/]+$}{}r );
+			open my $fh, '>', "$root/out/$name"
+			    or die "Cannot write: $!";
+			print {$fh} "<p>$name</p>\n";
+			close $fh;
+		};
+
+		$write_out->('en/old.html');
+		my ( $exit, $out, $err ) = run( '--project', $root, 'build' );
+		like( $err, qr{INFO: Removing en/old\.html},
+			'without quiet, the build notes a removal' );
+
+		# WEB-OUTPUT-4. The build keeps a directory that the site
+		# does not name, and must report it.
+		$write_out->($_) for qw(en/old.html mine/keep.txt);
+		( $exit, $out, $err ) = run( '--quiet', '--project', $root, 'build' );
+		is( $exit, 0, 'build succeeds' ) or diag $err;
+		ok( -e "$root/out/mine/keep.txt", 'and keeps the entry' );
+		like( $err, qr{WARNING: mine\S* is in the output},
+			'and reports it' );
+		ok( !-e "$root/out/en/old.html", 'and removes the stale page' );
+		unlike( $err, qr/Removing/, 'and does not note the removal' );
+	};
+
+	subtest 'quiet keeps the error of an outline that differs' => sub {
+		my $root =
+		    zh_project( 'web/zh-hans/index.body.html' => "<h2>$HOME</h2>\n" );
+
+		# WEB-OUTLINE-1. The message names the page, the language
+		# and the position.
+		my ( $exit, $out, $err ) = run( '-q', '--project', $root, 'build' );
+		is( $exit, 4, 'an outline that differs gives EXIT_RENDER_FAILED' );
+		like(
+			$err,
+			qr{zh-hans/index\.html: the outline of zh-Hans differs},
+			'and names the page'
+		);
 	};
 }
 
