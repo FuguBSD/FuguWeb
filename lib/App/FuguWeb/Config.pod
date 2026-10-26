@@ -309,8 +309,8 @@ L<App::FuguWeb::Language/site> and L<App::FuguWeb::Language/footer>
 answer the site name and the footer of each language.
 
 C<stylesheet> overrides the search that L<Fugu::File/share_path> does.
-The search finds the sheet in a checkout and in an installed
-App-FuguWeb distribution alike, so most projects never set it.
+The search finds the sheet that ships with the tool, so most projects
+never set it. L<App::FuguWeb::Site/THE STYLESHEET> states the search.
 
 =head2 url_path
 

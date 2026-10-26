@@ -316,8 +316,10 @@ maintainers. Neither belongs in the output as it stands.
 
 The base stylesheet ships with the tool, at F<share/fuguweb/style.css>,
 and L<Fugu::File/share_path> finds it: in a checkout through this
-module's location, and under the share tree of an installed App-FuguWeb
-distribution. The C<stylesheet> setting overrides the search.
+module's location, or under the share tree of an installed App-FuguWeb
+distribution. The search never reads the working directory, so a
+F<share/fuguweb/style.css> of the project does not replace the sheet.
+The C<stylesheet> setting overrides the search.
 
 A stylesheet that is not found fails the build and names the path. A
 site with no stylesheet must not look like a success.
