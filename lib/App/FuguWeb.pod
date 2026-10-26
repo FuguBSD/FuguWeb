@@ -225,6 +225,35 @@ double-quoted attribute: a value that holds a quote ends the attribute
 early, and everything after it becomes markup. L</escape_html> alone
 does not guard an attribute.
 
+=head2 edit_attributes
+
+    my $fitted = App::FuguWeb::edit_attributes($attributes,
+        sub ($attribute, $name, $value) { return $attribute });
+
+The attributes of a start tag, each one as the function returns it.
+The function takes the attribute as it stands, its name, and its value,
+or C<undef> when the attribute has none. A text after the last
+attribute, such as a slash, stays.
+
+This function and L</attribute> are the one reader of an attribute.
+L<App::FuguWeb::Fragment> and L<App::FuguWeb::Check> read each
+attribute here, so the two agree. An attribute can take its value in
+double quotes, in single quotes, or with no quotes. The reader reads
+the attributes of a tag in order, from the first one, and it steps over
+each value as a whole. So the text of a value, such as
+C<title="see id=x">, is no attribute, and a name such as C<data-id> is
+no C<id>. HTML separates two attributes with ASCII white space alone,
+so a character or a byte outside ASCII never ends a value.
+
+=head2 attribute
+
+    my $id = App::FuguWeb::attribute($attributes, 'id');
+
+The value of the first attribute of the name in a start tag, through
+L</edit_attributes>, or C<undef> when no attribute of the name has a
+value. The name is in lowercase, and the name of each attribute
+compares in lowercase.
+
 =head2 list_dir
 
     my $names = App::FuguWeb::list_dir($dir) or die "cannot read: $!";
@@ -318,8 +347,8 @@ the forward loads nothing.
 =head2 FORWARD_PAGE, NOT_FOUND_PAGE
 
 The two pages of the top level, F<index.html> and F<404.html>. The
-first forwards to the entry page of the default tree. The second is a
-copy of the 404 page of the default tree, for the host.
+first forwards to the entry page of the default tree. The second holds
+the body of the F<404.html> of each tree, for the host.
 
 =head1 SEE ALSO
 

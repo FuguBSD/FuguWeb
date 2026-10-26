@@ -13,8 +13,14 @@ App::FuguWeb::Page - the one chrome around one body fragment
 
     $page->write($out, 'zh-hans/install.html', 'Install', $fragment);
 
+    my $top = App::FuguWeb::Page->new(config => $config);
+    my $forward = $top->forward;
+    $top->write($out, '404.html', 'Not found',
+        $top->sections([en => $en], ['zh-Hans' => $zh]));
+
     my $link = App::FuguWeb::Page::relative('keys/index.html',
         'en/index.html');    # ../en/index.html
+    my $tag = App::FuguWeb::Page::body_lang($entry, $language);
 
 =head1 DESCRIPTION
 
@@ -32,6 +38,9 @@ decides the rest of the chrome:
     <tree>/<page>             a tree page of the language of the tree
     <page>                    a page of the top level, such as 404.html
     <dir>/index.html          the human page of a key directory
+
+The forward page of the top level, F<index.html>, takes a shape of its
+own, and L</forward> writes it.
 
 The class builds the document as characters, with string operations,
 not with a substitution over a template. A title may therefore hold any
@@ -62,6 +71,17 @@ at the end of the link.
 A browser reads a link whose first segment holds a colon as a URL
 scheme. Such a link takes F<./> in front of it, so the link to
 F<Fugu::Daemon.3p.html> from its own tree is F<./Fugu::Daemon.3p.html>.
+
+=head2 body_lang
+
+    my $tag = App::FuguWeb::Page::body_lang($entry, $language);
+
+The tag of the language of the C<< <main> >> element of the page of
+one entry of L<App::FuguWeb::Config/pages> in the tree of the language,
+per WEB-LANGUAGE-11. It is the language of the value of the entry. The
+index marks each part of its own, so the C<< <main> >> of an index page
+takes the language of the tree. L<App::FuguWeb::Site> and
+L<App::FuguWeb::Check> read the language here, so the two agree.
 
 =head1 METHODS
 
@@ -108,6 +128,57 @@ C<< <main> >> element. The parts of an index page come from more than
 one language, so L<App::FuguWeb::Site> passes the language of the tree
 for it. L<App::FuguWeb::Index/body> marks each part of another
 language.
+
+=head2 forward
+
+    my $html = $page->forward;
+
+The forward page of the top level, F<index.html>, as characters, per
+WEB-TOP-1 and WEB-TOP-2. It is a page of the language of the page
+object, so the caller makes the object with the default language. A
+meta refresh forwards to the entry page of the default tree, and the
+page loads nothing, per D-01:
+
+    <head>
+    <meta charset="utf-8">
+    <meta http-equiv="refresh" content="0; url=en/index.html">
+    <title>Example</title>
+    <link rel="canonical" href="https://example.org/">
+    <link rel="alternate" hreflang="en" href="https://example.org/en/index.html">
+    <link rel="alternate" hreflang="de" href="https://example.org/de/index.html">
+    <link rel="alternate" hreflang="x-default" href="https://example.org/">
+    </head>
+    <body>
+    <ul>
+    <li><a href="en/index.html" hreflang="en" lang="en">English</a></li>
+    <li><a href="de/index.html" hreflang="de" lang="de">Deutsch</a></li>
+    </ul>
+    </body>
+
+The title is the site name. The canonical link is the bare C<url>, and
+the link of each language goes to the entry page of that language. On
+a site of more than one language, the body holds the list of the
+languages. Each link goes to the entry page of its language, and no
+link is the current one. On a site of one language, the body holds one
+link to the entry page, with the site name as its text.
+
+=head2 sections
+
+    my $main = $page->sections([en => $en], ['zh-Hans' => $zh]);
+
+The C<< <main> >> part of the top-level F<404.html>, per WEB-TOP-5.
+Each body is an array reference of the tag of the language of its text,
+and the body. Each body sits in its own C<< <section> >>, in order,
+with the marks of its language, per WEB-LANGUAGE-11. The body goes in
+unchanged, so the caller fits it first with
+L<App::FuguWeb::Fragment/not_found>, per WEB-TOP-6.
+
+    <section>
+    <h1>Not found</h1>
+    </section>
+    <section lang="zh-Hans">
+    ...
+    </section>
 
 =head1 THE TREE PAGE
 
@@ -184,11 +255,14 @@ directory, as in F<../en/index.html>. The page carries no footer.
 A page of the top level is a page of the default language, and its
 chrome links the default tree, as in F<en/index.html>. Its head holds a
 C<< <base> >> before the title, and its href is
-L<App::FuguWeb::Config/url_path>. A host serves the copy of F<404.html>
-at each path that no file answers, and the base makes each relative link
-of the page resolve from the site root. The head names no page of
-WEB-CHROME-6, and the page carries no list of the languages and no
-footer.
+L<App::FuguWeb::Config/url_path>. A host serves the top-level
+F<404.html> at each path that no file answers, and the base makes each
+relative link of the page resolve from the site root. The head names no
+page of WEB-CHROME-6, and the page carries no footer.
+
+On a site of more than one language, the list of the languages follows
+the site link, per WEB-TOP-4. The page belongs to no tree, so each link
+goes to the entry page of its language, and no link is the current one.
 
 =head1 THE LANGUAGE OF EACH PART
 
@@ -200,8 +274,8 @@ A part of the chrome whose text comes from another language than the
 page carries the marks of that language, per WEB-LANGUAGE-11: the tag
 as C<lang>, and its direction as C<dir> when the two directions
 differ. The part is the site link of the header, the link of a
-navigation label, the C<< <main> >> of a body, or the
-C<< <footer> >>.
+navigation label, the C<< <main> >> of a body, the C<< <footer> >>, or
+a C<< <section> >> of the top-level F<404.html>.
 
     <a href="manuals.html" lang="en" dir="ltr">Manuals</a>
 
