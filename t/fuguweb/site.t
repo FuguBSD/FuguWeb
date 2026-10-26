@@ -13,6 +13,7 @@ use v5.36;
 use Test::More;
 use FindBin qw($RealBin);
 use lib "$RealBin/../../lib";
+use File::Find ();
 use File::Path qw(make_path);
 use File::Spec;
 use File::Temp qw(tempdir);
@@ -150,6 +151,56 @@ sub site ( $root, $out )
 		out    => $out,
 		log    => Fugu::Log->new( mode => Fugu::Log::MODE_QUIET() ),
 	);
+}
+
+# said($root, $out, $command):
+#	Run one command of a site over the project into the target, and
+#	return what the command returned and what its log said.
+sub said ( $root, $out, $command )
+{
+	my $config =
+	    App::FuguWeb::Config->load( root => $root, error => \my $reason );
+	die "$reason\n" unless $config;
+
+	my $said = '';
+	open my $saved, '>&', \*STDERR or die "Cannot save stderr: $!";
+	close STDERR;
+	open STDERR, '>', \$said or die 'Cannot capture stderr';
+
+	my $done =
+	    App::FuguWeb::Site->new( config => $config, out => $out )->$command;
+
+	close STDERR;
+	open STDERR, '>&', $saved or die "Cannot restore stderr: $!";
+
+	return ( $done, $said );
+}
+
+# tree($root):
+#	Each entry below the root, and the bytes of each file. A test
+#	compares two of them to prove that a command changed nothing.
+sub tree ($root)
+{
+	my %tree;
+	File::Find::find( {
+			no_chdir => 1,
+			wanted   => sub {
+				my $relative = substr $_, length $root;
+				if ( -d $_ ) {
+					$tree{"$relative/"} = 1;
+					return;
+				}
+
+				open my $fh, '<:raw', $_ or die "Cannot read $_: $!";
+				local $/;
+				$tree{$relative} = <$fh>;
+				close $fh;
+			},
+		},
+		$root
+	);
+
+	return \%tree;
 }
 
 my $ROOT = project();
@@ -1611,6 +1662,94 @@ subtest 'the exception reads the output directory as it stands' => sub {
 		'and the clean refuses it too' );
 	ok( site( $root, "$root/web/build" )->build,
 		'the build takes the output directory as it stands' );
+};
+
+subtest 'the build and the clean refuse a target that holds a source' => sub {
+	# WEB-OUTPUT-18. The prune removes each plain file of the top
+	# level that the site does not name, and the clean removes the
+	# whole target. Each one would remove a source that the target
+	# holds.
+	my $blocks = <<'RC';
+
+page "about.html" {
+	title    = About
+	markdown = doc/about.md
+}
+
+manuals demo {
+	heading = Demo
+	dir     = man/demo
+}
+RC
+	my %more = (
+		'doc/about.md'    => "# About\n\nWords.\n",
+		'theme/style.css' => "body{}\n",
+		'man/demo/demo.1' => <<'MDOC',
+.Dd $Mdocdate: July 27 2026 $
+.Dt DEMO 1
+.Os
+.Sh NAME
+.Nm demo
+.Nd a demo
+.Sh DESCRIPTION
+Words.
+MDOC
+	);
+
+	# The out_dir of the description, the target, and what the
+	# message says of the source that the target would lose. The
+	# source directory is the output directory of the first one,
+	# and the exception of WEB-OUTPUT-13 must not take it. DOC
+	# is doc on a file system without case, per WEB-OUTPUT-17.
+	my @cases = (
+		[ 'web', 'web',      'holds the source', 'web/footer.body.html' ],
+		[ 'doc', 'doc',      'holds the source', 'doc/about.md' ],
+		[ 'out', 'doc',      'holds the source', 'doc/about.md' ],
+		[ 'out', 'DOC',      'holds the source', 'doc/about.md' ],
+		[ 'out', 'theme',    'holds the source', 'theme/style.css' ],
+		[ 'out', 'man/demo', 'holds the source', 'man/demo/demo.1' ],
+		[ 'out', 'lib/Thing/build', 'is inside the source', 'lib/Thing' ],
+	);
+
+	for my $case (@cases) {
+		my ( $setting, $target, $relation, $source ) = @$case;
+
+		my $root = project(%more);
+		open my $fh, '>', "$root/.fuguwebrc" or die "Cannot write: $!";
+		print {$fh} "stylesheet = theme/style.css\n",
+		    $RC =~ s{^out_dir\s+= out$}{out_dir    = $setting}mr, $blocks;
+		close $fh;
+
+		my $before = tree($root);
+		for my $command (qw(build clean)) {
+			my ( $done, $said ) =
+			    said( $root, "$root/$target", $command );
+			ok( !$done,
+				"the $command refuses $target with out_dir $setting"
+			);
+			like(
+				$said,
+qr{The output directory \Q$root/$target\E \Q$relation\E \Q$root/$source\E\n},
+				'and the message names the source'
+			);
+			is_deeply( tree($root), $before,
+				'and the project is untouched' );
+		}
+	}
+
+	# The exception of WEB-OUTPUT-13 still takes a target inside the
+	# source directory that holds no source.
+	my $root = project();
+	open my $fh, '>', "$root/.fuguwebrc" or die "Cannot write: $!";
+	print {$fh} $RC =~ s{^out_dir\s+= out$}{out_dir    = web/build}mr;
+	close $fh;
+
+	ok( site( $root, "$root/web/build" )->build,
+		'the build takes the output directory inside the source' );
+	ok( -e "$root/web/index.body.html", 'and the source stays' );
+	ok( site( $root, "$root/web/build" )->clean,
+		'and the clean takes it too' );
+	ok( !-e "$root/web/build", 'which is gone' );
 };
 
 subtest 'clean takes the trees and the staging of a build' => sub {

@@ -3747,10 +3747,19 @@ subtest 'the clean refuses a directory of the source' => sub {
 	my ( $config, $reason ) = load($root);
 	ok( $config, 'the description loads' ) or diag $reason;
 
-	for my $target (qw(web web/keys web/keys/deep)) {
+	# The source directory holds a body, the key directory is a
+	# source, and a directory of it lies inside the source
+	# directory, per WEB-OUTPUT-13 and WEB-OUTPUT-18.
+	my %reason = (
+		'web'           => qr{ holds the source \S+/web/\S+$}m,
+		'web/keys'      => qr{ is the source \S+/web/keys$}m,
+		'web/keys/deep' => qr{ is inside the source \S+/web$}m,
+	);
+
+	for my $target ( sort keys %reason ) {
 		my ( $exit, $err ) = cli( $root, 'clean', '--out', $target );
 		isnt( $exit, 0, "the clean refuses $target" );
-		like( $err, qr{is the (?:source|key) directory},
+		like( $err, $reason{$target},
 			"and the target guard is the reason for $target" );
 	}
 
@@ -3857,7 +3866,7 @@ subtest 'a broken description guards its own directories' => sub {
 	for my $target (qw(web/keys web)) {
 		my ( $exit, $err ) = cli( $root, 'clean', '--out', $target );
 		isnt( $exit, 0, "the clean refuses $target" );
-		like( $err, qr{is the source directory},
+		like( $err, qr{ is the source \S+/\Q$target\E$}m,
 			"and the target guard is the reason for $target" );
 	}
 
@@ -3921,7 +3930,7 @@ RC
 	for my $target (qw(site site/pubkeys)) {
 		my ( $exit, $err ) = cli( $root, 'clean', '--out', $target );
 		isnt( $exit, 0, "the clean refuses $target" );
-		like( $err, qr{is the source directory},
+		like( $err, qr{ is the source \S+/\Q$target\E$}m,
 			"and the target guard is the reason for $target" );
 	}
 	ok( -e "$root/site/pubkeys/fugubsd-1-release.pub", 'the key survives' );

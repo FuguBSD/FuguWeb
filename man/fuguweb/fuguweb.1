@@ -1147,6 +1147,25 @@ They refuse the source directory and every directory below it.
 The output directory of the description is the one exception, because
 the default output directory sits inside the default source directory.
 .Pp
+Both commands also refuse a target that holds a source.
+The build removes each file of the top level that the site does not
+name, and
+.Cm clean
+removes the whole target, so either one would remove the source.
+A source is a body, a footer, a Markdown page, a manual or a POD
+sidecar of each language, or the
+.Ic stylesheet .
+The source directory, each key directory and the
+.Ic dir
+of each group in each language are sources too.
+Both commands also refuse a target inside a key directory or inside the
+.Ic dir
+of a group.
+The exception does not cover these refusals, and the message names the
+target and the source.
+A description that does not load names its source directory and its
+key directories alone.
+.Pp
 Each test that refuses a name, a target or a link because it meets
 another name compares the folds of the two: the NFD form of Unicode,
 then the full case fold.

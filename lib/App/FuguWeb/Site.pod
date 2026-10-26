@@ -67,7 +67,8 @@ not;
 
 =item 2.
 
-refuse an output directory that no build may own;
+refuse an output directory that no build may own, or that holds a
+source;
 
 =item 3.
 
@@ -214,10 +215,11 @@ A description that does not load still names four things: the source
 directory, the output directory, the tag of each C<language> block,
 and the name and org of its C<keys> block. L<Fugu::Config> keeps every
 setting and block that it read before the fault, so each guard answers
-for the real directories of that project. A fault above the C<keys>
-block hides it, and C<clean> then refuses the key tree of its own
-output. Remove that tree by hand. A fault above a C<language> block
-hides that tree the same way.
+for the real directories of that project. The source directory and the
+key directories are then the only sources that the target guard knows.
+A fault above the C<keys> block hides it, and C<clean> then refuses the
+key tree of its own output. Remove that tree by hand. A fault above a
+C<language> block hides that tree the same way.
 
 A description that drops its C<keys> block strands the published tree.
 The site names nothing there any more, so the build keeps it, C<clean>
@@ -248,6 +250,19 @@ The output directory is the one exception below the source, and it
 needs to be: the default output directory is F<web/build>, and it sits
 inside the default source directory F<web>. The description names that
 path, so a build owns it. Nothing else below the source is a build's.
+
+Both commands also refuse a target that holds a source, per
+WEB-OUTPUT-18. The prune removes each file of the top level that the
+site does not name, and C<clean> removes the whole target, so either
+one would remove the source. The list comes from C<sources> of
+L<App::FuguWeb::Config>: each body, footer, Markdown page, manual and
+POD sidecar of each language, and the C<stylesheet> that the
+description names. The source directory, each key directory and the
+C<dir> of each group in each language are sources too. A target inside
+a key directory or inside the C<dir> of a group is refused as well. The
+exception never covers these refusals. The message names the target
+and the first source that it meets, so a file comes before the
+directory that holds it.
 
 The rule is deliberately not "inside the project". The tests and the CI
 both build into a temporary directory outside it.

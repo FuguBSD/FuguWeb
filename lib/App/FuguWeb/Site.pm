@@ -35,13 +35,13 @@ use POSIX ();
 # App::FuguWeb::Site - the whole build.
 #
 # One method renders the site: probe the renderers, refuse an output
-# directory that no build may own, hold every source to UTF-8, lint
-# every manual source, stage the mdoc sources, copy the assets, render
-# every page of each language tree and the pages of the top level, fit
-# each fragment to its page through App::FuguWeb::Fragment, remove the
-# staging, and remove what the site no longer holds. Each
-# step reports its own failure and stops the build. A site that is
-# half rendered must not look like a success.
+# directory that no build may own or that holds a source, hold every
+# source to UTF-8, lint every manual source, stage the mdoc sources,
+# copy the assets, render every page of each language tree and the
+# pages of the top level, fit each fragment to its page through
+# App::FuguWeb::Fragment, remove the staging, and remove what the site
+# no longer holds. Each step reports its own failure and stops the
+# build. A site that is half rendered must not look like a success.
 #
 # The build reads each source through the decode of App::FuguWeb, and
 # writes each page through its encode, per WEB-SITE-5.
@@ -406,7 +406,8 @@ sub _holds ( $named, $dir )
 #	build into a temporary directory outside it. The rule is that
 #	the target may not be the root of the filesystem, the home
 #	directory, the project root, or any directory that holds the
-#	project.
+#	project, per WEB-OUTPUT-13. Nor may it meet a source of the
+#	site, per WEB-OUTPUT-18.
 sub _check_target ($self)
 {
 	my $out = $self->{out};
@@ -415,56 +416,91 @@ sub _check_target ($self)
 		return;
 	}
 
-	my $target = _absolute($out);
-	my $root   = _absolute( $self->{config}->root );
-	my $home   = defined $ENV{HOME} ? _absolute( $ENV{HOME} ) : undef;
-
-	# The source directory holds the files of the project, and a
-	# flat directory of files reads like a built site. A clean of
-	# it, or of any directory of it, would take the content of the
-	# project with it. The key directory is the worst case: its
-	# files are the trust anchor of every release.
-	#
-	# The output directory is the one exception, and it needs to
-	# be: the default output directory is web/build, which sits
-	# inside the default source directory web. The description
-	# names that path, so a build owns it. Nothing else below the
-	# source is a build's.
-	#
-	# A description that did not load names both directories all
-	# the same: App::FuguWeb::Config reads the two settings out of
-	# the file that failed. The clean is the command an operator
-	# reaches for when a description is broken, so the guard has
-	# to answer for the real directories of that project.
 	my $config = $self->{config};
 
-	my $source = _absolute( $config->source_path );
-	my $owned  = _absolute( "$root/" . $config->out_dir );
+	# The output directory of the description, which the exception
+	# of WEB-OUTPUT-13 reads as it stands.
+	my $stands = _absolute($out);
+	my $owned  = _absolute( $config->root . '/' . $config->out_dir );
 
 	# Each refusal folds each path, per WEB-OUTPUT-17. On a file
 	# system without case, --out WEB is the source directory web.
-	# The exception compares the paths as they stand, so the fold
-	# can only make the guard refuse more.
-	my $stands = $target;
-	( $target, $root, $home, $source ) =
-	    map { defined ? App::FuguWeb::fold_name($_) : undef }
-	    ( $target, $root, $home, $source );
+	my ( $target, $root, $home ) =
+	    map { defined ? App::FuguWeb::fold_name( _absolute($_) ) : undef }
+	    ( $out, $config->root, $ENV{HOME} );
 
 	my $why;
-	$why = 'the root of the filesystem' if $target eq '/';
-	$why = 'the home directory'
+	$why = 'is the root of the filesystem' if $target eq '/';
+	$why = 'is the home directory'
 	    if !$why && defined $home && $target eq $home;
-	$why = 'the project root' if !$why && $target eq $root;
-	$why = 'the source directory, or a directory of it'
-	    if !$why
-	    && App::FuguWeb::path_below( $target,  $source )
-	    && !App::FuguWeb::path_below( $stands, $owned );
-	$why = 'above the project'
+	$why = 'is the project root' if !$why && $target eq $root;
+	$why = 'is above the project'
 	    if !$why && App::FuguWeb::path_below( $root, $target );
+	$why //= $self->_meets_source( $target, $stands, $owned );
 
 	return 1 unless $why;
 
-	$self->{log}->error( 'The output directory %s is %s', $out, $why );
+	$self->{log}->error( 'The output directory %s %s', $out, $why );
+
+	return;
+}
+
+# $self->_meets_source($target, $stands, $owned):
+#	The reason to refuse a target that meets a source of the site,
+#	or undef. The target is folded, and the two other paths stand
+#	as they are.
+#
+#	The prune removes each plain file of the top level that the
+#	site does not name, and the clean removes the whole target. A
+#	target that holds a source would therefore lose it, per
+#	WEB-OUTPUT-18. A target inside a directory of sources would
+#	take the content of the project with it the same way. The key
+#	directory is the worst case: its files are the trust anchor of
+#	every release.
+#
+#	The output directory is the one exception, and it needs to be:
+#	the default output directory is web/build, which sits inside
+#	the default source directory web. The description names that
+#	path, so a build owns it. The exception takes a target inside
+#	the source directory alone, and never one that holds a source.
+#	It compares the paths as they stand, per WEB-OUTPUT-17, so the
+#	fold can only make the guard refuse more.
+#
+#	A description that did not load names its source directory and
+#	its key directories all the same: App::FuguWeb::Config reads
+#	those names out of the file that failed. The clean is the
+#	command an operator reaches for when a description is broken,
+#	so the guard has to answer for the real directories of that
+#	project.
+sub _meets_source ( $self, $target, $stands, $owned )
+{
+	my $config = $self->{config};
+
+	my $source =
+	    App::FuguWeb::fold_name( _absolute( $config->source_path ) );
+	my @sources = map {
+		my $path = _absolute($_);
+		[ $path, App::FuguWeb::fold_name($path) ]
+	} $config->sources;
+
+	for my $pair (@sources) {
+		my ( $path, $fold ) = @$pair;
+		next unless App::FuguWeb::path_below( $fold, $target );
+
+		return $fold eq $target
+		    ? "is the source $path"
+		    : "holds the source $path";
+	}
+
+	for my $pair (@sources) {
+		my ( $path, $fold ) = @$pair;
+		next unless App::FuguWeb::path_below( $target, $fold );
+		next
+		    if $fold eq $source
+		    && App::FuguWeb::path_below( $stands, $owned );
+
+		return "is inside the source $path";
+	}
 
 	return;
 }

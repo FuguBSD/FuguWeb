@@ -248,6 +248,7 @@ sub anonymous ( $class, $root )
 	my $self = bless {
 		root       => $root,
 		languages  => [ _english() ],
+		group      => [],
 		keys_order => [],
 		keys_block => {},
 	}, $class;
@@ -1709,6 +1710,23 @@ sub _check_pages ( $self, $reason )
 #	form of Fugu::Signify, which holds neither.
 sub _check_sources ( $self, $reason )
 {
+	for my $path ( $self->_source_files ) {
+		next unless $path =~ /[\s()]/a;
+
+		return $self->_fail( $reason,
+			      "the source $path holds ASCII white space or a"
+			    . ' parenthesis, and the record of the'
+			    . ' translations cannot name it' );
+	}
+
+	return $self;
+}
+
+# $self->_source_files:
+#	The path from the project root of each page source, each manual
+#	and each footer fragment, of each language.
+sub _source_files ($self)
+{
 	my $source = $self->{source_dir};
 
 	my @paths;
@@ -1730,16 +1748,30 @@ sub _check_sources ( $self, $reason )
 		    map { $_->manuals($tag) } $self->groups;
 	}
 
-	for my $path (@paths) {
-		next unless $path =~ /[\s()]/a;
+	return @paths;
+}
 
-		return $self->_fail( $reason,
-			      "the source $path holds ASCII white space or a"
-			    . ' parenthesis, and the record of the'
-			    . ' translations cannot name it' );
-	}
+# $self->sources:
+#	The path of each source that a build reads, below the project
+#	root, per WEB-OUTPUT-18. The files come first: each page source,
+#	each manual and each footer of each language, and the
+#	stylesheet. The directories follow: the source directory, each
+#	key directory, and the directory of each group in each
+#	language. The guard of the output directory names the first
+#	source that a target holds, so a file comes before the
+#	directory that holds it.
+#
+#	A description that did not load names its source directory and
+#	its key directories alone.
+sub sources ($self)
+{
+	my @files = $self->_source_files;
+	push @files, $self->{stylesheet} if defined $self->{stylesheet};
 
-	return $self;
+	return ( map { "$self->{root}/$_" } @files ),
+	    $self->source_path,
+	    ( map { $self->keys_path($_) } $self->keys_dirs ),
+	    ( map { $_->dirs } $self->groups );
 }
 
 # $self->_check_paths($reason):
@@ -1970,6 +2002,17 @@ sub translate ( $self, $tag, %args )
 	delete $self->{manuals}{$tag};
 
 	return $self;
+}
+
+# $self->dirs:
+#	The directory of the group in each language: the default dir,
+#	then the dir of each translation that names one, by tag.
+sub dirs ($self)
+{
+	my $translation = $self->{translation};
+
+	return $self->{dir}, grep { defined }
+	    map { $translation->{$_}{dir} } sort keys %$translation;
 }
 
 # $self->manuals($tag):

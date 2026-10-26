@@ -959,7 +959,8 @@ build keeps it and the clean refuses the tree.
   filesystem, the home directory, the project root, and any directory that holds
   the project. They must refuse the source directory, and each directory of it.
   The output directory of the description is the one exception, because the
-  default output directory sits inside the default source directory. A
+  default output directory sits inside the default source directory. The
+  exception does not cover a target that rule WEB-OUTPUT-18 refuses. A
   description that names neither directory takes the two defaults.
 - **WEB-OUTPUT-14** — The staging directory is the one part of the output that
   rule WEB-OUTPUT-1 does not reach. The build writes one flat directory of plain
@@ -969,8 +970,8 @@ build keeps it and the clean refuses the tree.
 - **WEB-OUTPUT-15** — The clean must refuse a target that holds no stylesheet,
   when the description does not load. Every build writes the stylesheet, so a
   target without it is the output of no build. The rule is a second guard, and
-  rule WEB-OUTPUT-13 is the first. A directory that holds a stylesheet of its
-  own defeats this one alone.
+  rules WEB-OUTPUT-13 and WEB-OUTPUT-18 are the first. A directory that holds a
+  stylesheet of its own defeats this one alone.
 - **WEB-OUTPUT-16** — The stylesheet, each asset, each key directory and the
   well-known tree must sit at the top level, outside every tree.
 - **WEB-OUTPUT-17** — A test that refuses a name, a target or a link because it
@@ -978,14 +979,27 @@ build keeps it and the clean refuses the tree.
   of Unicode, the canonical decomposition, and then the full case fold. A file
   system without case, such as APFS on Darwin, keeps two names of one fold as
   one entry. These are the tests of WEB-KEYS-1, WEB-KEYS-29, WEB-KEYS-30,
-  WEB-KEYS-34 and WEB-OUTPUT-8, and the refusals of WEB-OUTPUT-13. The renderer
-  must also refuse two `page` blocks whose names have one fold. It must refuse
-  two manuals whose pages have one fold, and a manual and a `page` block whose
-  pages have one fold. Each other test must compare the names as they stand, so
-  a fold can only make a test refuse more. The exception of WEB-OUTPUT-13 is
-  such a test. So is each test of the prune and the clean that decides which
-  entry the build owns. A fold there would let the build own more. The fold
-  reads the Unicode version of its Perl. A file system of an earlier version
-  joins fewer pairs, so a test refuses more, which is safe. A file system of a
-  later version can fold a character that the Perl does not know, and a test
-  then misses that pair.
+  WEB-KEYS-34 and WEB-OUTPUT-8, and the refusals of WEB-OUTPUT-13 and
+  WEB-OUTPUT-18. The renderer must also refuse two `page` blocks whose names
+  have one fold. It must refuse two manuals whose pages have one fold, and a
+  manual and a `page` block whose pages have one fold. Each other test must
+  compare the names as they stand, so a fold can only make a test refuse more.
+  The exception of WEB-OUTPUT-13 is such a test. So is each test of the prune
+  and the clean that decides which entry the build owns. A fold there would let
+  the build own more. The fold reads the Unicode version of its Perl. A file
+  system of an earlier version joins fewer pairs, so a test refuses more, which
+  is safe. A file system of a later version can fold a character that the Perl
+  does not know, and a test then misses that pair.
+- **WEB-OUTPUT-18** — The build and the clean must refuse an output directory
+  that holds a source. The message must name the target and the source. A target
+  holds a path that is the target or lies below it. The prune removes each file
+  of the top level that the site does not name. The clean removes the whole
+  target, so either one would remove the source. A source is a body, a footer, a
+  Markdown page, a manual or a POD sidecar of each language. The stylesheet that
+  the description names is a source too. The source directory, each key
+  directory and the directory of each `manuals` and `modules` group of each
+  language are also sources. The build and the clean must also refuse a target
+  inside a key directory or inside the directory of a group. Such a directory
+  holds the content of the project, as the source directory does. A description
+  that does not load names its source directory and its key directories alone,
+  and rule WEB-OUTPUT-15 guards the rest.

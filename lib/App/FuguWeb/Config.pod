@@ -483,6 +483,18 @@ The site holds one well-known tree, and each directory writes into it.
 The list therefore holds one entry for the policy file, and one for an
 address that two directories name.
 
+=head2 sources
+
+    my @paths = $config->sources;
+
+The path of each source that a build reads, below the project root,
+per WEB-OUTPUT-18. The files come first: each body, Markdown page,
+manual, POD sidecar and footer of each language, and the C<stylesheet>
+that the description names. The directories follow: the source
+directory, each key directory, and the C<dir> of each group in each
+language. L<App::FuguWeb::Site> refuses an output directory that holds
+one, and names the first one that it meets.
+
 =head1 GROUPS
 
 A C<manuals> or C<modules> block becomes one group. A group never holds
@@ -526,6 +538,14 @@ Give the group the heading and the directory of one language. A
 C<heading> of C<undef> keeps the default heading, and a C<dir> of
 C<undef> keeps the default sources for that language. The description
 calls it once for each translation of the block.
+
+=head2 dirs
+
+    my @dirs = $group->dirs;
+
+The directory of the group in each language: the default C<dir>, then
+the C<dir> of each translation that names one, in the order of the
+tags.
 
 =head2 manuals
 
