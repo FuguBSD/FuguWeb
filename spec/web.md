@@ -830,7 +830,9 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   Mosaic.
 - **WEB-STYLE-4** — The Latin face must be Times, and the code face must be
   Courier. The measure must not pass 42em. The line height of Latin text must
-  sit between 1.5 and 1.6.
+  sit between 1.5 and 1.6. A heading must take its own line height of 1.2, and a
+  `pre` block must take 1.4. The line height of the body text does not hold
+  there.
 - **WEB-STYLE-5** — The `main` and the `footer` must each show the rule of 1994
   above them: a dark 1px line over a light 1px line. Each second-level heading
   must show the same rule above it. A heading must carry no band, and no other
@@ -853,10 +855,25 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
 - **WEB-STYLE-10** — Each script that the sheet supports must take a stack of
   system fonts after the Latin face, so Latin text keeps its face. The sheet
   must support Han text in its simplified and its traditional form. It must
-  reach each stack with `:lang()`.
+  reach each stack with `:lang()`. A tag of `zh` must take the traditional form
+  when its script is `Hant`. A tag of `zh` with no script must take it when its
+  region is `TW`, `HK` or `MO`. A tag of `zh` must take the simplified form when
+  its script is `Hans`. A tag of `zh` with no such region must take it when it
+  has no script, or a script other than `Hant` and `Latn`. A tag of `zh` with
+  the script `Latn` holds Latin text. It must take the Latin face and the line
+  height of Latin text, per WEB-STYLE-4, in each region. Each tag above must
+  take its face and its line height whether the engine matches a range by basic
+  or by extended filtering. In the region `TW`, `HK` or `MO`, a tag of `zh` with
+  a script other than `Hans`, `Hant` and `Latn` can take either form. The two
+  filterings give it different forms.
 - **WEB-STYLE-11** — Han text must take no synthetic italic. The sheet must mark
-  emphasis in Han text with emphasis marks. The line height of Han text must sit
-  between 1.7 and 1.9.
+  emphasis in Han text with emphasis marks and no italic, on an `em` and on the
+  `Em` class of `mandoc`. A bare `i` must take the emphasis marks and keep its
+  italic, because it marks what the reader substitutes, per WEB-STYLE-7. Each of
+  the three must keep its italic and take no marks in a tag of `zh` with the
+  script `Latn`, per WEB-STYLE-10. The line height of Han text must sit between
+  1.7 and 1.9. A heading and a `pre` block take their own line height, per
+  WEB-STYLE-4.
 - **WEB-STYLE-12** — The sheet must use logical properties for each margin,
   padding, border, float and alignment. A page of `dir="rtl"` then mirrors.
 
