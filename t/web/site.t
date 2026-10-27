@@ -211,7 +211,10 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 # link with no underline and no bold. WEB-STYLE-4 gives a heading and
 # a pre block their own line height, and the code face 13/16 of the
 # size of the text around it. A code element in a code element keeps
-# the size of its parent, so the size does not shrink twice.
+# the face and the size of its parent, so the size does not shrink
+# twice. WEB-STYLE-7 gives a display of a pre block no indent.
+# WEB-STYLE-8 gives a pre block the face of xterm, and the internal
+# border of 2px of xterm under the title bar of 20px and its border.
 my @declarations = (
 	[ 'main',   'border-block-start', '1px solid var(--shadow)' ],
 	[ 'main',   'box-shadow',         'inset 0 1px var(--highlight)' ],
@@ -261,10 +264,16 @@ my @declarations = (
 	[ 'pre::selection',  'background-color', 'var(--term-fg)' ],
 	[ 'pre ::selection', 'color',            'var(--term-bg)' ],
 	( map { [ $_, 'line-height', '1.2' ] } qw(h1 h2 h3 h4 h5 h6) ),
-	[ 'pre', 'line-height', '1.4' ],
+	[ 'pre', 'line-height', '1.2' ],
 	( map { [ $_, 'font-size', '0.8125em' ] } qw(code pre tt kbd samp var .Pa) ),
 	[ ':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)',
 	    'font-size', '1em' ],
+	[ ':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)',
+	    'font-family', 'inherit' ],
+	[ '.Bd-indent:has(> pre)', 'margin-inline-start', '0' ],
+	[ 'pre', 'font-family',    'var(--term-face)' ],
+	[ 'pre', 'padding-block',  'calc(22px + 2px) 2px' ],
+	[ 'pre', 'padding-inline', '2px' ],
 );
 for (@declarations) {
 	my ( $selector, $property, $want ) = @$_;
@@ -287,6 +296,9 @@ for ( sort keys %twm ) {
 }
 is( value( $plain, ':root', '--wm-face' ),
 	'Helvetica, Arial, sans-serif', 'the title face is Helvetica' );
+is( value( $plain, ':root', '--term-face' ),
+	'Menlo, "Lucida Console", "DejaVu Sans Mono", monospace',
+	'the face of xterm is a sans-serif monospace' );
 
 # The title bar takes the iconify dot in its box, then the title
 # ground. The bar under it takes the resize button, two nested corners
@@ -563,15 +575,18 @@ is_deeply( \@upright, [], 'no rule sets a bare i of zh upright' )
 # The language rules carry the face and the line height of WEB-STYLE-4,
 # WEB-STYLE-10 and WEB-STYLE-11. A rule of an element outranks a rule
 # in :where(), so a face or a line height in another rule hides them.
-# Four rules keep their own: the code face of WEB-STYLE-4, which also
-# takes a path of mandoc(1), the line height of a heading and of a pre
-# block of WEB-STYLE-4, and the title face of twm of WEB-STYLE-8. The
+# Five rules keep their own: the code face of WEB-STYLE-4, which also
+# takes a path of mandoc(1), the face of a code element in a code
+# element, the line height of a heading, the face of xterm and the line
+# height of a pre block, and the title face of twm of WEB-STYLE-8. The
 # font shorthand sets the face and the line height, so no rule takes it.
 my %typeset = (
-	'code, pre, tt, kbd, samp, var, .Pa' => 'font-family',
-	'h1, h2, h3, h4, h5, h6'             => 'line-height',
-	'pre'                                => 'line-height',
-	'pre::before'                        => 'font-family',
+	'code, pre, tt, kbd, samp, var, .Pa' => ['font-family'],
+	':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)'
+	    => ['font-family'],
+	'h1, h2, h3, h4, h5, h6' => ['line-height'],
+	'pre'                    => [ 'font-family', 'line-height' ],
+	'pre::before'            => ['font-family'],
 );
 my @typeset;
 while ( $sheet =~ /([^{}]+)\{([^{}]*)\}/g ) {
@@ -582,7 +597,7 @@ while ( $sheet =~ /([^{}]+)\{([^{}]*)\}/g ) {
 		my ($property) = /^\s*([\w-]+)\s*:/ or next;
 		push @typeset, "$list { $property }"
 		    if $property =~ /^(?:font|font-family|line-height)$/
-		    && ( $typeset{$list} // '' ) ne $property;
+		    && !grep { $_ eq $property } @{ $typeset{$list} // [] };
 	}
 }
 is_deeply( \@typeset, [], 'no other rule sets a face or a line height' )

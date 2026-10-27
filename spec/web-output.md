@@ -29,14 +29,15 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   custom property. The light scheme must take the gray page ground of NCSA
   Mosaic.
 - **WEB-STYLE-4** — The Latin face must be Times, and the code face must be
-  Courier. Courier is wider than Times, so at one size it looks larger. The code
-  face must take 13/16 of the size of the text around it, as the default fixed
-  font of a browser does. A code element in a code element must keep the size of
-  its parent. The measure must not pass 42em. The line height of Latin text must
-  sit between 1.5 and 1.6. A heading must take its own line height of 1.2, and a
-  `pre` block must take 1.4. The line height of the body text does not hold
-  there. Text must take no kerning and no common ligatures, as the bitmap fonts
-  of X11. It must keep its contextual forms, because some scripts need them.
+  Courier. A `pre` block takes the face of WEB-STYLE-8. Courier is wider than
+  Times, so at one size it looks larger. The code face must take 13/16 of the
+  size of the text around it, as the default fixed font of a browser does. A
+  code element in a code element must keep the face and the size of its parent.
+  The measure must not pass 42em. The line height of Latin text must sit between
+  1.5 and 1.6. A heading and a `pre` block must each take their own line height
+  of 1.2. The line height of the body text does not hold there. Text must take
+  no kerning and no common ligatures, as the bitmap fonts of X11. It must keep
+  its contextual forms, because some scripts need them.
 - **WEB-STYLE-5** — The `main` and the `footer` must each show the rule of 1994
   above them: a dark 1px line over a light 1px line. Each second-level heading
   must show the same rule above it. A heading must carry no band, and no other
@@ -52,7 +53,8 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   than 40em. A narrower viewport can drop both the indent and the heading
   offset. An inline code element of the manual body must take no background.
   Bold alone marks what the reader types, and italic marks what the reader
-  substitutes.
+  substitutes. A display that holds a `pre` block must take no indent. The frame
+  of the xterm marks the block, and a line of the block then holds more columns.
 - **WEB-STYLE-8** — A `pre` block must show as an xterm in the default window
   frame of twm, the window manager of X11R6. The light scheme must show the
   black text on white of the default xterm. The dark scheme must show light text
@@ -62,7 +64,9 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   resize button. A screen reader must not read the title. A selection in the
   block must show in reverse video. A long line must wrap at the edge of the
   window, as in xterm. The block then does not scroll, and the title bar stays
-  in view.
+  in view. The text must take a sans-serif monospace face, as the default font
+  `fixed` of xterm. The text must sit 2px inside the frame, as the default
+  internal border of xterm.
 - **WEB-STYLE-9** — The sheet must show the list of the languages and the nav
   list each on one line. It must set the list of the languages at the end of the
   line of the banner link. A narrow viewport can put the list below the link. It
