@@ -158,14 +158,17 @@ ok( defined $offset && $offset > 0, 'and it sits below the baseline' )
 # declarations($text, $selector):
 #	The declarations of each rule in the text that has a selector the
 #	pattern matches, in the order of the sheet. A selector list splits
-#	at each comma.
+#	at each comma outside a pair of parentheses, so the list of an
+#	:is() stays whole.
 sub declarations ( $text, $selector )
 {
 	my $found = '';
 	while ( $text =~ /([^{}]+)\{([^{}]*)\}/g ) {
 		my ( $list, $body ) = ( $1, $2 );
+		$list =~ s/(\((?:[^()]++|(?1))*\))/$1 =~ tr{,}{\0}r/ge;
 		$found .= "$body;"
-		    if grep {/$selector/} map { s/^\s+|\s+$//gr } split /,/, $list;
+		    if grep {/$selector/}
+		    map { tr{\0}{,}r =~ s/^\s+|\s+$//gr } split /,/, $list;
 	}
 	return $found;
 }
@@ -206,7 +209,9 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 # one word space. A space after a hex escape is part of the escape,
 # so \20 writes the space after the dot. The sheet shows the current
 # link with no underline and no bold. WEB-STYLE-4 gives a heading and
-# a pre block their own line height.
+# a pre block their own line height, and the code face 13/16 of the
+# size of the text around it. A code element in a code element keeps
+# the size of its parent, so the size does not shrink twice.
 my @declarations = (
 	[ 'main',   'border-block-start', '1px solid var(--shadow)' ],
 	[ 'main',   'box-shadow',         'inset 0 1px var(--highlight)' ],
@@ -257,6 +262,9 @@ my @declarations = (
 	[ 'pre ::selection', 'color',            'var(--term-bg)' ],
 	( map { [ $_, 'line-height', '1.2' ] } qw(h1 h2 h3 h4 h5 h6) ),
 	[ 'pre', 'line-height', '1.4' ],
+	( map { [ $_, 'font-size', '0.8125em' ] } qw(code pre tt kbd samp var .Pa) ),
+	[ ':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)',
+	    'font-size', '1em' ],
 );
 for (@declarations) {
 	my ( $selector, $property, $want ) = @$_;
@@ -555,17 +563,15 @@ is_deeply( \@upright, [], 'no rule sets a bare i of zh upright' )
 # The language rules carry the face and the line height of WEB-STYLE-4,
 # WEB-STYLE-10 and WEB-STYLE-11. A rule of an element outranks a rule
 # in :where(), so a face or a line height in another rule hides them.
-# Five rules keep their own: the code face of WEB-STYLE-4, the code
-# face of an argument, a variable and a path of mandoc(1), the line
-# height of a heading and of a pre block of WEB-STYLE-4, and the title
-# face of twm of WEB-STYLE-8. The font
-# shorthand sets the face and the line height, so no rule takes it.
+# Four rules keep their own: the code face of WEB-STYLE-4, which also
+# takes a path of mandoc(1), the line height of a heading and of a pre
+# block of WEB-STYLE-4, and the title face of twm of WEB-STYLE-8. The
+# font shorthand sets the face and the line height, so no rule takes it.
 my %typeset = (
-	'code, pre, tt, kbd, samp, var' => 'font-family',
-	'.Ar, .Va, .Pa'                 => 'font-family',
-	'h1, h2, h3, h4, h5, h6'        => 'line-height',
-	'pre'                           => 'line-height',
-	'pre::before'                   => 'font-family',
+	'code, pre, tt, kbd, samp, var, .Pa' => 'font-family',
+	'h1, h2, h3, h4, h5, h6'             => 'line-height',
+	'pre'                                => 'line-height',
+	'pre::before'                        => 'font-family',
 );
 my @typeset;
 while ( $sheet =~ /([^{}]+)\{([^{}]*)\}/g ) {

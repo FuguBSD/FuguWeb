@@ -280,9 +280,19 @@ dd { margin-inline-start: 2em; }
 
 table { border-collapse: collapse; }
 
-code, pre, tt, kbd, samp, var {
+/* Courier is wider than Times, so at one size it looks larger. The
+   code face takes 13/16 of the text around it, as the default fixed
+   font of a browser does. mandoc(1) writes the Pa macro of mdoc(7) as
+   a span. A code element in another one keeps the size of its parent,
+   so the size does not shrink twice. */
+
+code, pre, tt, kbd, samp, var, .Pa {
 	font-family: var(--mono);
-	font-size: 0.92em;
+	font-size: 0.8125em;
+}
+
+:is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa) {
+	font-size: 1em;
 }
 
 /* An xterm in the default frame of twm(1), the window manager of
@@ -367,10 +377,6 @@ pre::after {
 	padding-inline-end: 26px;
 }
 
-pre code {
-	font-size: 1em;
-}
-
 /* xterm shows a selection in reverse video */
 
 pre::selection,
@@ -435,7 +441,6 @@ table.Nm td:first-child {
 }
 
 .Ar, .Va, .Pa {
-	font-family: var(--mono);
 	font-style: italic;
 }
 
