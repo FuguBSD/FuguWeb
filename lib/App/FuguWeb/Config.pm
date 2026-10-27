@@ -55,7 +55,7 @@ use constant {
 # inside the project and read inside it.
 my @PATH_SETTINGS = qw(out_dir source_dir module_root stylesheet footer);
 
-# The settings of the description, per WEB-SITE-4. fuguweb(1)
+# The settings of the description, per WEB-SITE-4. fuguwebrc(5)
 # documents each one. A setting that the list does not name is a
 # typo, and a typo that the parser swallows is a setting that
 # silently does not apply. An old setting fails the same way.
@@ -65,7 +65,8 @@ my %SETTING = map { $_ => 1 } qw(
 );
 
 # The block types of the description, and the settings of each
-# default block, per WEB-SITE-4. fuguweb(1) documents each one.
+# default block, per WEB-SITE-4. fuguwebrc(5) and fuguweb-keys(7)
+# document each one.
 my %BLOCK = (
 	language => [qw(name dir site footer)],
 	nav      => [qw(label)],
@@ -568,10 +569,10 @@ sub groups ($self)
 }
 
 # $self->_check_words($reason):
-#	Refuse each block type and each setting that fuguweb(1) does
-#	not document, per WEB-SITE-4. The message names the block and
-#	the word. A translation takes the settings of its own list, and
-#	_read_translations holds it to that list.
+#	Refuse each block type and each setting that fuguwebrc(5) and
+#	fuguweb-keys(7) do not document, per WEB-SITE-4. The message
+#	names the block and the word. A translation takes the settings
+#	of its own list, and _read_translations holds it to that list.
 sub _check_words ( $self, $reason )
 {
 	my $file = $self->{file};

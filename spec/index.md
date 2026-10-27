@@ -54,11 +54,15 @@ unit, and the unit ID is the anchor in upper case:
 ## Specification documents
 
 Each document specifies one area of work. The code of a document prefixes the
-IDs of its units.
+IDs of its units. The documents of the site renderer share the code WEB.
 
-| Code | Document         | Area              |
-| ---- | ---------------- | ----------------- |
-| WEB  | [web.md](web.md) | The site renderer |
+| Code | Document                       | Area                                    |
+| ---- | ------------------------------ | --------------------------------------- |
+| WEB  | [web.md](web.md)               | The description and the languages       |
+| WEB  | [web-pages.md](web-pages.md)   | The pages                               |
+| WEB  | [web-keys.md](web-keys.md)     | The key directory and the root of trust |
+| WEB  | [web-rotate.md](web-rotate.md) | The key rotation and the workflows      |
+| WEB  | [web-output.md](web-output.md) | The stylesheet and the output directory |
 
 ## Governance documents
 

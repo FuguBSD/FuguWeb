@@ -27,7 +27,7 @@ doas make install
 
 `make deps` installs the latest
 [Fugu release](https://github.com/FuguBSD/Fugu/releases/latest) and the renderer
-packages. `make install` copies `bin/fuguweb`, the modules, the manual, and the
+packages. `make install` copies `bin/fuguweb`, the modules, the manuals, and the
 stylesheet. `make uninstall` removes them.
 
 ## From CPAN
@@ -41,7 +41,7 @@ cpanm --notest Fugu App::FuguWeb
 ```
 
 The cpanm flow installs the modules, the binary, and the stylesheet. The mdoc(7)
-manual ships in the tarball but installs through the make flow. The `mandoc` and
+manuals ship in the tarball but install through the make flow. The `mandoc` and
 `lowdown` packages come from the OS package manager either way (on OpenBSD,
 `mandoc` is in the base system).
 
