@@ -59,7 +59,8 @@ html {
    height of that language, and its children inherit them. The html
    element names the language of the page. A rule in :where() has no
    weight, so the rule of an element wins: the code face, the face of
-   an xterm, and the line height of a heading and of a pre block. No
+   an xterm and of its title, and the line height of a heading and of
+   a pre block. A code element in another one inherits its face. No
    other rule sets a face or a line height. */
 
 :where([lang]) {
@@ -442,15 +443,18 @@ table.Nm td:first-child {
 	white-space: nowrap;
 }
 
-/* mandoc(1) writes the -offset indent of a display as the class
-   Bd-indent. The frame of an xterm marks a pre block, so its display
-   takes no indent, and a line of the block holds more columns. */
+/* mandoc(1) writes the -offset indent of a display of mdoc(7) as the
+   class Bd-indent, beside the class Bd. The frame of an xterm marks a
+   pre block, so its display takes no indent, and a line of the block
+   holds more columns. mandoc writes an RS region of man(7) as the
+   class Bd-indent alone. Its prose can hold a pre block, and keeps
+   its indent. */
 
 .Bd-indent {
 	margin-inline-start: 2em;
 }
 
-.Bd-indent:has(> pre) {
+.Bd.Bd-indent:has(> pre) {
 	margin-inline-start: 0;
 }
 

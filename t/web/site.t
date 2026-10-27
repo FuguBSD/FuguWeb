@@ -96,7 +96,7 @@ $sheet =~ s{/\*.*?\*/}{}gs;
 # The fit removes the head and the foot of a manual page, per D-07, so
 # the set holds none of their classes.
 my %mandoc = map { $_ => 1 } qw(
-    Sh Ss permalink manual-text Nm Bd-indent Bl-tag
+    Sh Ss permalink manual-text Nm Bd Bd-indent Bl-tag
     Cm Fl Ic Fn Dv Er Ev Ar Va Pa Em
 );
 my %seen;
@@ -104,6 +104,16 @@ my @foreign = grep { !$mandoc{$_} && !$seen{$_}++ }
     $sheet =~ /\.([A-Za-z_-][\w-]*)/g;
 is_deeply( \@foreign, [], 'no class selector outside the mandoc set' )
     or diag join ' ', @foreign;
+
+# WEB-STYLE-4 and WEB-STYLE-7 rely on two parts of the markup of
+# mandoc(1): the pre block of an indented display of mdoc(7) as a
+# child of the display, and the Pa macro as a span. The manual of
+# fuguweb(1) holds both, so its built page shows that each rule
+# matches.
+my $manual = Fugu::File->read("$out/en/fuguweb.1.html") // '';
+like( $manual, qr/<div class="Bd\b[^"]*\bBd-indent\b[^"]*">\s*<pre\b/,
+	'an indented display of mdoc holds its pre block as a child' );
+like( $manual, qr/<span class="Pa">/, 'and a path of mdoc is a span' );
 
 unlike( $sheet, qr/url\(/,    'the sheet loads no resource' );
 unlike( $sheet, qr/\@import/, 'and imports no sheet' );
@@ -272,7 +282,7 @@ my @declarations = (
 	    'font-size', '1em' ],
 	[ ':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)',
 	    'font-family', 'inherit' ],
-	[ '.Bd-indent:has(> pre)', 'margin-inline-start', '0' ],
+	[ '.Bd.Bd-indent:has(> pre)', 'margin-inline-start', '0' ],
 	[ 'pre', 'font-family',    'var(--term-face)' ],
 	[ 'pre', 'padding-block',  'calc(22px + 2px) 2px' ],
 	[ 'pre', 'padding-inline', '2px' ],
