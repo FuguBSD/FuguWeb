@@ -193,12 +193,20 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 # above the main part, the footer and each h2. A body fragment can
 # hold an hr, and it takes the same rule. A section heading of a
 # manual page is an h2, and it takes no rule. WEB-STYLE-6 gives a visited
-# link its own color, and WEB-STYLE-8 sets a pre block as a terminal
-# in a sunken well. The dark sides of the well are the start sides,
-# per WEB-STYLE-12. WEB-STYLE-9 sets each list of the chrome on one
-# line, draws the separator between two items, and shows the current
-# link with no underline. WEB-STYLE-4 gives a heading and a pre block
-# their own line height.
+# link its own color, a pressed link the red of Netscape 1.x, and the
+# focus a dotted ring. Its underline runs through the descenders, and
+# a linked image takes a frame. WEB-STYLE-4 takes the kerning and the
+# common ligatures away. WEB-STYLE-8 sets a pre block as an xterm in the
+# frame of twm, with the title hidden from a screen reader, and the
+# selection in reverse video. The title bar keeps the order of X11 on
+# a page of rtl. WEB-STYLE-9 sets each list of the chrome on one
+# line, and the list of the languages at the end of the banner line.
+# It draws the separator between two items, and puts the nav list in
+# a pair of brackets. Each separator and each bracket is text with
+# one word space. A space after a hex escape is part of the escape,
+# so \20 writes the space after the dot. The sheet shows the current
+# link with no underline and no bold. WEB-STYLE-4 gives a heading and
+# a pre block their own line height.
 my @declarations = (
 	[ 'main',   'border-block-start', '1px solid var(--shadow)' ],
 	[ 'main',   'box-shadow',         'inset 0 1px var(--highlight)' ],
@@ -208,29 +216,102 @@ my @declarations = (
 	[ 'hr',     'border-block-end',   '1px solid var(--highlight)' ],
 	[ 'h2',     'border-block-start', '1px solid var(--shadow)' ],
 	[ 'h2',     'box-shadow',         'inset 0 1px var(--highlight)' ],
+	[ 'body > header', 'display',         'flex' ],
+	[ 'body > header', 'justify-content', 'space-between' ],
 	[ 'body > header ul', 'list-style', 'none' ],
 	[ 'nav ul',           'list-style', 'none' ],
 	[ 'body > header li', 'display',    'inline' ],
 	[ 'nav li',           'display',    'inline' ],
-	[ 'body > header li + li::before', 'content', '"\\00b7"' ],
-	[ 'nav li + li::before',           'content', '"\\00b7"' ],
+	[ 'body > header li + li::before', 'content', '"\\00b7\\20"' ],
+	[ 'nav li + li::before',           'content', '"| "' ],
+	[ 'nav ul::before',                'content', '"[ "' ],
+	[ 'nav ul::after',                 'content', '" ]"' ],
 	[ 'a[aria-current="page"]:link',    'text-decoration', 'none' ],
 	[ 'a[aria-current="page"]:visited', 'text-decoration', 'none' ],
+	[ 'a[aria-current="page"]:link',    'font-weight',     'normal' ],
+	[ 'a[aria-current="page"]:visited', 'font-weight',     'normal' ],
 	[ 'h2.Sh',         'border',        '0' ],
 	[ 'h2.Sh',         'box-shadow',    'none' ],
 	[ 'a:visited',     'color',         'var(--visited)' ],
 	[ 'pre',           'background',    'var(--term-bg)' ],
 	[ 'pre',           'color',         'var(--term-fg)' ],
-	[ 'pre',           'border',        '2px solid' ],
-	[ 'pre', 'border-block-color',  'var(--shadow) var(--highlight)' ],
-	[ 'pre', 'border-inline-color', 'var(--shadow) var(--highlight)' ],
+	[ 'a:link',    'text-decoration-skip-ink', 'none' ],
+	[ 'a:visited', 'text-decoration-skip-ink', 'none' ],
+	[ 'a img',     'border',                   '2px solid' ],
+	[ 'body',      'font-kerning',             'none' ],
+	[ 'body',      'font-variant-ligatures',   'no-common-ligatures' ],
+	[ 'a:active',     'color',        'var(--active)' ],
+	[ ':focus-visible', 'outline',    '1px dotted' ],
+	[ 'pre',          'border',       '2px solid var(--wm-border)' ],
+	[ 'pre::before',  'content',      '"xterm" / ""' ],
+	[ 'pre::before',  'direction',    'ltr' ],
+	[ 'pre::before',  'color',        'var(--wm-title-fg)' ],
+	[ 'pre::before',  'font-family',  'var(--wm-face)' ],
+	[ 'pre::before',  'font-weight',  'bold' ],
+	[ 'pre',          'white-space',  'pre-wrap' ],
+	[ 'pre',          'overflow-wrap', 'anywhere' ],
+	[ 'pre',          'overflow-x',   undef ],
+	[ 'pre',          'overflow',     undef ],
+	[ 'pre::after',   'direction',    'ltr' ],
+	[ 'pre::selection',  'background-color', 'var(--term-fg)' ],
+	[ 'pre ::selection', 'color',            'var(--term-bg)' ],
 	( map { [ $_, 'line-height', '1.2' ] } qw(h1 h2 h3 h4 h5 h6) ),
 	[ 'pre', 'line-height', '1.4' ],
 );
 for (@declarations) {
 	my ( $selector, $property, $want ) = @$_;
 	is( value( $plain, $selector, $property ),
-	    $want, "$selector takes $property: $want" );
+	    $want, "$selector takes $property: " . ( $want // 'no value' ) );
+}
+
+# WEB-STYLE-8 takes the default colors of twm from its system.twmrc,
+# and the even stipple of its highlight area. WEB-STYLE-6 takes the
+# red of Netscape 1.x for a pressed link in the light scheme.
+my %twm = (
+	'--wm-border'   => '#708090',
+	'--wm-title-bg' => '#22aa99',
+	'--wm-title-fg' => '#d9d9d9',
+	'--active'      => '#ff0000',
+);
+for ( sort keys %twm ) {
+	is( lc( value( $plain, ':root', $_ ) // '' ),
+	    $twm{$_}, "$_ takes $twm{$_}" );
+}
+is( value( $plain, ':root', '--wm-face' ),
+	'Helvetica, Arial, sans-serif', 'the title face is Helvetica' );
+
+# The title bar takes the iconify dot in its box, then the title
+# ground. The bar under it takes the resize button, two nested corners
+# at the top left of a box, then the even stipple and the ground. The
+# first layer paints on top, so each background holds its layers in
+# this order, and in no other.
+my $fg = 'linear-gradient(var(--wm-title-fg), var(--wm-title-fg))';
+my $bg = 'linear-gradient(var(--wm-title-bg), var(--wm-title-bg))';
+my %bar = (
+	'pre::before' => [
+		'radial-gradient(circle, var(--wm-title-fg) 4.5px, transparent 4.5px)'
+		    . ' 4px 4px / 12px 12px no-repeat',
+		"$bg 4px 4px / 12px 12px no-repeat",
+		"$fg 3px 3px / 14px 14px no-repeat",
+		'var(--wm-title-bg)',
+	],
+	'pre::after' => [
+		"$fg right 11px top 4px / 1px 5px no-repeat",
+		"$fg right 11px top 8px / 5px 1px no-repeat",
+		"$fg right 7px top 4px / 1px 9px no-repeat",
+		"$fg right 7px top 12px / 9px 1px no-repeat",
+		"$bg right 4px top 4px / 12px 12px no-repeat",
+		"$fg right 3px top 3px / 14px 14px no-repeat",
+		'conic-gradient(var(--wm-title-fg) 25%, var(--wm-title-bg) 0 50%, '
+		    . 'var(--wm-title-fg) 0 75%, var(--wm-title-bg) 0)'
+		    . ' 0 0 / 2px 2px content-box',
+		"$bg padding-box",
+	],
+);
+for my $selector ( sort keys %bar ) {
+	is( value( $plain, $selector, 'background' ),
+		join( ', ', @{ $bar{$selector} } ),
+		"$selector draws the layers of twm, in order" );
 }
 
 # WEB-STYLE-10 and WEB-STYLE-11 give the face and the line height of
@@ -474,15 +555,17 @@ is_deeply( \@upright, [], 'no rule sets a bare i of zh upright' )
 # The language rules carry the face and the line height of WEB-STYLE-4,
 # WEB-STYLE-10 and WEB-STYLE-11. A rule of an element outranks a rule
 # in :where(), so a face or a line height in another rule hides them.
-# Four rules keep their own: the code face of WEB-STYLE-4, the code
-# face of an argument, a variable and a path of mandoc(1), and the line
-# height of a heading and of a pre block of WEB-STYLE-4. The font
+# Five rules keep their own: the code face of WEB-STYLE-4, the code
+# face of an argument, a variable and a path of mandoc(1), the line
+# height of a heading and of a pre block of WEB-STYLE-4, and the title
+# face of twm of WEB-STYLE-8. The font
 # shorthand sets the face and the line height, so no rule takes it.
 my %typeset = (
 	'code, pre, tt, kbd, samp, var' => 'font-family',
 	'.Ar, .Va, .Pa'                 => 'font-family',
 	'h1, h2, h3, h4, h5, h6'        => 'line-height',
 	'pre'                           => 'line-height',
+	'pre::before'                   => 'font-family',
 );
 my @typeset;
 while ( $sheet =~ /([^{}]+)\{([^{}]*)\}/g ) {
@@ -563,15 +646,18 @@ sub luminance ($color)
 }
 
 # WEB-STYLE-5 needs the dark line of the rule darker than its light
-# line, and WEB-STYLE-8 needs the ground of a terminal darker than its
-# text. The dark :root block overrides the light one, so each block
-# reads over the values of the blocks before it.
+# line. WEB-STYLE-8 needs the dark text of the default xterm on a light
+# ground in the light scheme, and light text on a dark ground in the
+# dark scheme. The light :root block comes first. The dark block
+# overrides it, so each block reads over the values of the blocks
+# before it.
+my @terminal = ( [qw(--term-fg --term-bg)], [qw(--term-bg --term-fg)] );
 my %scheme;
 $block = 0;
 for my $root ( $sheet =~ /:root\s*\{([^}]*)\}/g ) {
 	$block++;
 	%scheme = ( %scheme, "$root;" =~ /(--[\w-]+)\s*:\s*([^;]*?)\s*;/g );
-	for my $pair ( [qw(--shadow --highlight)], [qw(--term-bg --term-fg)] ) {
+	for my $pair ( [qw(--shadow --highlight)], $terminal[ $block - 1 ] ) {
 		my @color = map { $scheme{$_} // '' } @$pair;
 		s{^var\((--[\w-]+)\)$}{$scheme{$1} // ''}e for @color;
 		my @tone = map { scalar luminance($_) } @color;

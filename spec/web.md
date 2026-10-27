@@ -113,8 +113,9 @@ default language.
 - **WEB-LANGUAGE-12** — The renderer must write no prose of its own into a tree
   page or a top-level page. Each word that a reader sees there must come from
   the description, from a source or from a fragment. The human page of a key
-  directory is the one exception. Its page title, its heading and the labels of
-  the fields of WEB-KEYS-13 are in English.
+  directory is one exception. Its page title, its heading and the labels of the
+  fields of WEB-KEYS-13 are in English. The title `xterm` of WEB-STYLE-8 is the
+  second exception. It is the name of a program, so no language changes it.
 - **WEB-LANGUAGE-13** — The check must hold each tree page to the `lang` and the
   `dir` of its tree. It must walk the reachability of each tree from its own
   entry page, and the walk must not leave the tree. A page that takes `unlinked`
