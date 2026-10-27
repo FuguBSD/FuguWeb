@@ -31,6 +31,7 @@
 	--wm-title-fg: #d9d9d9;
 	--latin: "Times New Roman", Times;
 	--mono: Courier, "Courier New", monospace;
+	--term-face: Menlo, "Lucida Console", "DejaVu Sans Mono", monospace;
 	--wm-face: Helvetica, Arial, sans-serif;
 }
 
@@ -57,9 +58,10 @@ html {
 /* An element that names its language takes the face and the line
    height of that language, and its children inherit them. The html
    element names the language of the page. A rule in :where() has no
-   weight, so the rule of an element wins: the code face, and the line
-   height of a heading and of a pre block. No other rule sets a face or
-   a line height. */
+   weight, so the rule of an element wins: the code face, the face of
+   an xterm and of its title, and the line height of a heading and of
+   a pre block. A code element in another one inherits its face. No
+   other rule sets a face or a line height. */
 
 :where([lang]) {
 	font-family: var(--latin), serif;
@@ -280,9 +282,23 @@ dd { margin-inline-start: 2em; }
 
 table { border-collapse: collapse; }
 
-code, pre, tt, kbd, samp, var {
+/* Text looks as large as the area that its lowercase letters cover:
+   the x-height times the mean width of a letter. A monospace face is
+   wide, so each code face takes the size at which it covers the area
+   of Times New Roman. Courier takes 0.846em, and Menlo, the face of
+   an xterm below, takes 0.767em. mandoc(1) writes the Pa macro of
+   mdoc(7) as a span. A code element in another one keeps the face and
+   the size of its parent. A code element in an xterm then takes the
+   face of xterm, and the size does not shrink twice. */
+
+code, tt, kbd, samp, var, .Pa {
 	font-family: var(--mono);
-	font-size: 0.92em;
+	font-size: 0.846em;
+}
+
+:is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa) {
+	font-family: inherit;
+	font-size: 1em;
 }
 
 /* An xterm in the default frame of twm(1), the window manager of
@@ -291,16 +307,21 @@ code, pre, tt, kbd, samp, var {
    scheme shows the black on white of the default xterm. twm knows no
    rtl, so the title bar keeps the order of X11 on each page. A long
    line wraps at the edge, as in xterm, so the block never scrolls and
-   the title bar stays in view. */
+   the title bar stays in view. The text takes a sans-serif monospace
+   as the default font fixed of xterm, with little leading. It sits
+   2px inside the frame, as the default internal border of xterm. The
+   title bar and its border take 22px above it. */
 
 pre {
 	background: var(--term-bg);
 	border: 2px solid var(--wm-border);
 	color: var(--term-fg);
-	line-height: 1.4;
+	font-family: var(--term-face);
+	font-size: 0.767em;
+	line-height: 1.2;
 	overflow-wrap: anywhere;
-	padding-block: calc(22px + 0.7em) 0.7em;
-	padding-inline: 0.9em;
+	padding-block: calc(22px + 2px) 2px;
+	padding-inline: 2px;
 	position: relative;
 	white-space: pre-wrap;
 }
@@ -367,10 +388,6 @@ pre::after {
 	padding-inline-end: 26px;
 }
 
-pre code {
-	font-size: 1em;
-}
-
 /* xterm shows a selection in reverse video */
 
 pre::selection,
@@ -426,8 +443,19 @@ table.Nm td:first-child {
 	white-space: nowrap;
 }
 
+/* mandoc(1) writes the -offset indent of a display of mdoc(7) as the
+   class Bd-indent, beside the class Bd. The frame of an xterm marks a
+   pre block, so its display takes no indent, and a line of the block
+   holds more columns. mandoc writes an RS region of man(7) as the
+   class Bd-indent alone. Its prose can hold a pre block, and keeps
+   its indent. */
+
 .Bd-indent {
 	margin-inline-start: 2em;
+}
+
+.Bd.Bd-indent:has(> pre) {
+	margin-inline-start: 0;
 }
 
 .Nm, .Cm, .Fl, .Ic, .Fn, .Dv, .Er, .Ev {
@@ -435,7 +463,6 @@ table.Nm td:first-child {
 }
 
 .Ar, .Va, .Pa {
-	font-family: var(--mono);
 	font-style: italic;
 }
 

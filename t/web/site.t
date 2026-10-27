@@ -96,7 +96,7 @@ $sheet =~ s{/\*.*?\*/}{}gs;
 # The fit removes the head and the foot of a manual page, per D-07, so
 # the set holds none of their classes.
 my %mandoc = map { $_ => 1 } qw(
-    Sh Ss permalink manual-text Nm Bd-indent Bl-tag
+    Sh Ss permalink manual-text Nm Bd Bd-indent Bl-tag
     Cm Fl Ic Fn Dv Er Ev Ar Va Pa Em
 );
 my %seen;
@@ -104,6 +104,16 @@ my @foreign = grep { !$mandoc{$_} && !$seen{$_}++ }
     $sheet =~ /\.([A-Za-z_-][\w-]*)/g;
 is_deeply( \@foreign, [], 'no class selector outside the mandoc set' )
     or diag join ' ', @foreign;
+
+# WEB-STYLE-4 and WEB-STYLE-7 rely on two parts of the markup of
+# mandoc(1): the pre block of an indented display of mdoc(7) as a
+# child of the display, and the Pa macro as a span. The manual of
+# fuguweb(1) holds both, so its built page shows that each rule
+# matches.
+my $manual = Fugu::File->read("$out/en/fuguweb.1.html") // '';
+like( $manual, qr/<div class="Bd\b[^"]*\bBd-indent\b[^"]*">\s*<pre\b/,
+	'an indented display of mdoc holds its pre block as a child' );
+like( $manual, qr/<span class="Pa">/, 'and a path of mdoc is a span' );
 
 unlike( $sheet, qr/url\(/,    'the sheet loads no resource' );
 unlike( $sheet, qr/\@import/, 'and imports no sheet' );
@@ -158,14 +168,17 @@ ok( defined $offset && $offset > 0, 'and it sits below the baseline' )
 # declarations($text, $selector):
 #	The declarations of each rule in the text that has a selector the
 #	pattern matches, in the order of the sheet. A selector list splits
-#	at each comma.
+#	at each comma outside a pair of parentheses, so the list of an
+#	:is() stays whole.
 sub declarations ( $text, $selector )
 {
 	my $found = '';
 	while ( $text =~ /([^{}]+)\{([^{}]*)\}/g ) {
 		my ( $list, $body ) = ( $1, $2 );
+		$list =~ s/(\((?:[^()]++|(?1))*\))/$1 =~ tr{,}{\0}r/ge;
 		$found .= "$body;"
-		    if grep {/$selector/} map { s/^\s+|\s+$//gr } split /,/, $list;
+		    if grep {/$selector/}
+		    map { tr{\0}{,}r =~ s/^\s+|\s+$//gr } split /,/, $list;
 	}
 	return $found;
 }
@@ -206,7 +219,13 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 # one word space. A space after a hex escape is part of the escape,
 # so \20 writes the space after the dot. The sheet shows the current
 # link with no underline and no bold. WEB-STYLE-4 gives a heading and
-# a pre block their own line height.
+# a pre block their own line height. It gives each code face the size
+# at which its letters cover the area of Times New Roman: Courier
+# 0.846em, and the Menlo of a pre block 0.767em. A code element in a
+# code element keeps the face and the size of its parent, so the size
+# does not shrink twice. WEB-STYLE-7 gives a display of a pre block no indent.
+# WEB-STYLE-8 gives a pre block the face of xterm, and the internal
+# border of 2px of xterm under the title bar of 20px and its border.
 my @declarations = (
 	[ 'main',   'border-block-start', '1px solid var(--shadow)' ],
 	[ 'main',   'box-shadow',         'inset 0 1px var(--highlight)' ],
@@ -256,7 +275,17 @@ my @declarations = (
 	[ 'pre::selection',  'background-color', 'var(--term-fg)' ],
 	[ 'pre ::selection', 'color',            'var(--term-bg)' ],
 	( map { [ $_, 'line-height', '1.2' ] } qw(h1 h2 h3 h4 h5 h6) ),
-	[ 'pre', 'line-height', '1.4' ],
+	[ 'pre', 'line-height', '1.2' ],
+	( map { [ $_, 'font-size', '0.846em' ] } qw(code tt kbd samp var .Pa) ),
+	[ 'pre', 'font-size', '0.767em' ],
+	[ ':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)',
+	    'font-size', '1em' ],
+	[ ':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)',
+	    'font-family', 'inherit' ],
+	[ '.Bd.Bd-indent:has(> pre)', 'margin-inline-start', '0' ],
+	[ 'pre', 'font-family',    'var(--term-face)' ],
+	[ 'pre', 'padding-block',  'calc(22px + 2px) 2px' ],
+	[ 'pre', 'padding-inline', '2px' ],
 );
 for (@declarations) {
 	my ( $selector, $property, $want ) = @$_;
@@ -279,6 +308,9 @@ for ( sort keys %twm ) {
 }
 is( value( $plain, ':root', '--wm-face' ),
 	'Helvetica, Arial, sans-serif', 'the title face is Helvetica' );
+is( value( $plain, ':root', '--term-face' ),
+	'Menlo, "Lucida Console", "DejaVu Sans Mono", monospace',
+	'the face of xterm is a sans-serif monospace' );
 
 # The title bar takes the iconify dot in its box, then the title
 # ground. The bar under it takes the resize button, two nested corners
@@ -555,17 +587,18 @@ is_deeply( \@upright, [], 'no rule sets a bare i of zh upright' )
 # The language rules carry the face and the line height of WEB-STYLE-4,
 # WEB-STYLE-10 and WEB-STYLE-11. A rule of an element outranks a rule
 # in :where(), so a face or a line height in another rule hides them.
-# Five rules keep their own: the code face of WEB-STYLE-4, the code
-# face of an argument, a variable and a path of mandoc(1), the line
-# height of a heading and of a pre block of WEB-STYLE-4, and the title
-# face of twm of WEB-STYLE-8. The font
-# shorthand sets the face and the line height, so no rule takes it.
+# Five rules keep their own: the code face of WEB-STYLE-4, which also
+# takes a path of mandoc(1), the face of a code element in a code
+# element, the line height of a heading, the face of xterm and the line
+# height of a pre block, and the title face of twm of WEB-STYLE-8. The
+# font shorthand sets the face and the line height, so no rule takes it.
 my %typeset = (
-	'code, pre, tt, kbd, samp, var' => 'font-family',
-	'.Ar, .Va, .Pa'                 => 'font-family',
-	'h1, h2, h3, h4, h5, h6'        => 'line-height',
-	'pre'                           => 'line-height',
-	'pre::before'                   => 'font-family',
+	'code, tt, kbd, samp, var, .Pa' => ['font-family'],
+	':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)'
+	    => ['font-family'],
+	'h1, h2, h3, h4, h5, h6' => ['line-height'],
+	'pre'                    => [ 'font-family', 'line-height' ],
+	'pre::before'            => ['font-family'],
 );
 my @typeset;
 while ( $sheet =~ /([^{}]+)\{([^{}]*)\}/g ) {
@@ -576,7 +609,7 @@ while ( $sheet =~ /([^{}]+)\{([^{}]*)\}/g ) {
 		my ($property) = /^\s*([\w-]+)\s*:/ or next;
 		push @typeset, "$list { $property }"
 		    if $property =~ /^(?:font|font-family|line-height)$/
-		    && ( $typeset{$list} // '' ) ne $property;
+		    && !grep { $_ eq $property } @{ $typeset{$list} // [] };
 	}
 }
 is_deeply( \@typeset, [], 'no other rule sets a face or a line height' )
