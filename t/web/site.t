@@ -209,10 +209,11 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 # one word space. A space after a hex escape is part of the escape,
 # so \20 writes the space after the dot. The sheet shows the current
 # link with no underline and no bold. WEB-STYLE-4 gives a heading and
-# a pre block their own line height, and the code face 13/16 of the
-# size of the text around it. A code element in a code element keeps
-# the face and the size of its parent, so the size does not shrink
-# twice. WEB-STYLE-7 gives a display of a pre block no indent.
+# a pre block their own line height. It gives each code face the size
+# at which its letters cover the area of Times New Roman: Courier
+# 0.846em, and the Menlo of a pre block 0.767em. A code element in a
+# code element keeps the face and the size of its parent, so the size
+# does not shrink twice. WEB-STYLE-7 gives a display of a pre block no indent.
 # WEB-STYLE-8 gives a pre block the face of xterm, and the internal
 # border of 2px of xterm under the title bar of 20px and its border.
 my @declarations = (
@@ -265,7 +266,8 @@ my @declarations = (
 	[ 'pre ::selection', 'color',            'var(--term-bg)' ],
 	( map { [ $_, 'line-height', '1.2' ] } qw(h1 h2 h3 h4 h5 h6) ),
 	[ 'pre', 'line-height', '1.2' ],
-	( map { [ $_, 'font-size', '0.8125em' ] } qw(code pre tt kbd samp var .Pa) ),
+	( map { [ $_, 'font-size', '0.846em' ] } qw(code tt kbd samp var .Pa) ),
+	[ 'pre', 'font-size', '0.767em' ],
 	[ ':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)',
 	    'font-size', '1em' ],
 	[ ':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)',
@@ -581,7 +583,7 @@ is_deeply( \@upright, [], 'no rule sets a bare i of zh upright' )
 # height of a pre block, and the title face of twm of WEB-STYLE-8. The
 # font shorthand sets the face and the line height, so no rule takes it.
 my %typeset = (
-	'code, pre, tt, kbd, samp, var, .Pa' => ['font-family'],
+	'code, tt, kbd, samp, var, .Pa' => ['font-family'],
 	':is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa)'
 	    => ['font-family'],
 	'h1, h2, h3, h4, h5, h6' => ['line-height'],

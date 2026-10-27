@@ -29,15 +29,16 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   custom property. The light scheme must take the gray page ground of NCSA
   Mosaic.
 - **WEB-STYLE-4** — The Latin face must be Times, and the code face must be
-  Courier. A `pre` block takes the face of WEB-STYLE-8. Courier is wider than
-  Times, so at one size it looks larger. The code face must take 13/16 of the
-  size of the text around it, as the default fixed font of a browser does. A
-  code element in a code element must keep the face and the size of its parent.
-  The measure must not pass 42em. The line height of Latin text must sit between
-  1.5 and 1.6. A heading and a `pre` block must each take their own line height
-  of 1.2. The line height of the body text does not hold there. Text must take
-  no kerning and no common ligatures, as the bitmap fonts of X11. It must keep
-  its contextual forms, because some scripts need them.
+  Courier. A `pre` block takes the face of WEB-STYLE-8. Text looks as large as
+  the area that its lowercase letters cover: the x-height times the mean width
+  of a letter. Each code face must take the size at which it covers the area of
+  Times New Roman. Courier must take 0.846em, and the Menlo of an xterm must
+  take 0.767em. A code element in a code element must keep the face and the size
+  of its parent. The measure must not pass 42em. The line height of Latin text
+  must sit between 1.5 and 1.6. A heading and a `pre` block must each take their
+  own line height of 1.2. The line height of the body text does not hold there.
+  Text must take no kerning and no common ligatures, as the bitmap fonts of X11.
+  It must keep its contextual forms, because some scripts need them.
 - **WEB-STYLE-5** — The `main` and the `footer` must each show the rule of 1994
   above them: a dark 1px line over a light 1px line. Each second-level heading
   must show the same rule above it. A heading must carry no band, and no other

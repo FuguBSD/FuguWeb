@@ -281,17 +281,18 @@ dd { margin-inline-start: 2em; }
 
 table { border-collapse: collapse; }
 
-/* Courier is wider than Times, so at one size it looks larger. The
-   code face takes 13/16 of the text around it, as the default fixed
-   font of a browser does. A pre block takes this size, and the face of
-   an xterm below. mandoc(1) writes the Pa macro of mdoc(7) as a span.
-   A code element in another one keeps the face and the size
-   of its parent. A code element in an xterm then takes the face of
-   xterm, and the size does not shrink twice. */
+/* Text looks as large as the area that its lowercase letters cover:
+   the x-height times the mean width of a letter. A monospace face is
+   wide, so each code face takes the size at which it covers the area
+   of Times New Roman. Courier takes 0.846em, and Menlo, the face of
+   an xterm below, takes 0.767em. mandoc(1) writes the Pa macro of
+   mdoc(7) as a span. A code element in another one keeps the face and
+   the size of its parent. A code element in an xterm then takes the
+   face of xterm, and the size does not shrink twice. */
 
-code, pre, tt, kbd, samp, var, .Pa {
+code, tt, kbd, samp, var, .Pa {
 	font-family: var(--mono);
-	font-size: 0.8125em;
+	font-size: 0.846em;
 }
 
 :is(code, pre, tt, kbd, samp, var, .Pa) :is(code, tt, kbd, samp, var, .Pa) {
@@ -315,6 +316,7 @@ pre {
 	border: 2px solid var(--wm-border);
 	color: var(--term-fg);
 	font-family: var(--term-face);
+	font-size: 0.767em;
 	line-height: 1.2;
 	overflow-wrap: anywhere;
 	padding-block: calc(22px + 2px) 2px;
