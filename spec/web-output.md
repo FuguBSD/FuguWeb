@@ -10,8 +10,9 @@ holds the model of the site, and the conventions of [index.md](index.md) apply.
 The stylesheet gives each page that links it the look of a home page of 1994,
 set with care. The body face is a serif, the code face is a monospace, and the
 ground is the gray of NCSA Mosaic. A rule of two lines sits above each
-second-level heading, and a code block shows as an X11 terminal. The sheet
-changes the rhythm of the page, not its vocabulary.
+second-level heading, and a code block shows as an xterm window of X11. The
+sheet changes the rhythm of the page, not its vocabulary. Its one word is the
+program name `xterm`, per WEB-LANGUAGE-12.
 
 A body fragment comes from a hand, from `lowdown`, or from `pod2man`. None of
 them writes a class, and the sheet asks for none. A manual page is the one
@@ -31,26 +32,43 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   Courier. The measure must not pass 42em. The line height of Latin text must
   sit between 1.5 and 1.6. A heading must take its own line height of 1.2, and a
   `pre` block must take 1.4. The line height of the body text does not hold
-  there.
+  there. Text must take no kerning and no common ligatures, as the bitmap fonts
+  of X11. It must keep its contextual forms, because some scripts need them.
 - **WEB-STYLE-5** — The `main` and the `footer` must each show the rule of 1994
   above them: a dark 1px line over a light 1px line. Each second-level heading
   must show the same rule above it. A heading must carry no band, and no other
   decoration. A section heading of a manual page must take no rule.
 - **WEB-STYLE-6** — A link must take one color while unvisited, and a second
   color once visited. It must stay underlined. The underline must be one pixel,
-  below the baseline.
+  below the baseline. The underline must go through the descenders, as in X11. A
+  linked image must show a frame of 2px in the link color, as in Mosaic. A link
+  must show in red while the reader pushes it, as in Netscape 1.x. The keyboard
+  focus must show as a dotted ring of one pixel, as in Windows 3.1.
 - **WEB-STYLE-7** — A section heading of a manual page must sit flush with the
   banner, in bold. The section body must sit at an indent on a viewport wider
   than 40em. A narrower viewport can drop both the indent and the heading
   offset. An inline code element of the manual body must take no background.
   Bold alone marks what the reader types, and italic marks what the reader
   substitutes.
-- **WEB-STYLE-8** — A `pre` block must show as a 1994 terminal: light text on a
-  dark ground, in a sunken well.
+- **WEB-STYLE-8** — A `pre` block must show as an xterm in the default window
+  frame of twm, the window manager of X11R6. The light scheme must show the
+  black text on white of the default xterm. The dark scheme must show light text
+  on a dark ground. The frame must take the default colors of twm: a slategrey
+  border, and a teal title bar with gray85 text. The title bar must show the
+  iconify dot, the title `xterm` in Helvetica Bold, the even stipple, and the
+  resize button. A screen reader must not read the title. A selection in the
+  block must show in reverse video. A long line must wrap at the edge of the
+  window, as in xterm. The block then does not scroll, and the title bar stays
+  in view.
 - **WEB-STYLE-9** — The sheet must show the list of the languages and the nav
-  list each on one line. It must draw the separator between two items. The link
-  that carries `aria-current` must show as the current item, with no underline.
-  The sheet must reach each one by element name and attribute alone.
+  list each on one line. It must set the list of the languages at the end of the
+  line of the banner link. A narrow viewport can put the list below the link. It
+  must draw the separator between two items. It must enclose the nav list in a
+  pair of brackets. It must write each separator and each bracket as text, with
+  one word space between it and each item next to it. The link that carries
+  `aria-current` must show as the current item. It must show in the text color,
+  with no underline and no bold. The sheet must reach each one by element name
+  and attribute alone.
 - **WEB-STYLE-10** — Each script that the sheet supports must take a stack of
   system fonts after the Latin face, so Latin text keeps its face. The sheet
   must support Han text in its simplified and its traditional form. It must
@@ -74,7 +92,9 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   1.7 and 1.9. A heading and a `pre` block take their own line height, per
   WEB-STYLE-4.
 - **WEB-STYLE-12** — The sheet must use logical properties for each margin,
-  padding, border, float and alignment. A page of `dir="rtl"` then mirrors.
+  padding, border, float and alignment. A page of `dir="rtl"` then mirrors. The
+  title bar of a `pre` block must keep the left-to-right order of X11 on each
+  page, because twm has no right-to-left mode.
 
 <a id="web-output"></a>
 
