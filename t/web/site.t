@@ -277,33 +277,41 @@ for ( sort keys %twm ) {
 	is( lc( value( $plain, ':root', $_ ) // '' ),
 	    $twm{$_}, "$_ takes $twm{$_}" );
 }
-my $stipple = 'conic-gradient(var(--wm-title-fg) 25%, var(--wm-title-bg) 0 50%, '
-    . 'var(--wm-title-fg) 0 75%, var(--wm-title-bg) 0) 0 0 / 2px 2px';
-like( value( $plain, 'pre::after', 'background' ) // '',
-	qr/\Q$stipple\E/, 'the highlight area takes the even stipple of twm' );
+is( value( $plain, ':root', '--wm-face' ),
+	'Helvetica, Arial, sans-serif', 'the title face is Helvetica' );
 
-# The title bar takes the title ground, the iconify dot in its box,
-# and the resize button: two nested corners at the top left of a box.
-my $line = 'linear-gradient(var(--wm-title-fg), var(--wm-title-fg))';
-my %bar  = (
+# The title bar takes the iconify dot in its box, then the title
+# ground. The bar under it takes the resize button, two nested corners
+# at the top left of a box, then the even stipple and the ground. The
+# first layer paints on top, so each background holds its layers in
+# this order, and in no other.
+my $fg = 'linear-gradient(var(--wm-title-fg), var(--wm-title-fg))';
+my $bg = 'linear-gradient(var(--wm-title-bg), var(--wm-title-bg))';
+my %bar = (
 	'pre::before' => [
 		'radial-gradient(circle, var(--wm-title-fg) 4.5px, transparent 4.5px)'
-		    . ' 4px 4px / 12px 12px',
-		"$line 3px 3px / 14px 14px",
+		    . ' 4px 4px / 12px 12px no-repeat',
+		"$bg 4px 4px / 12px 12px no-repeat",
+		"$fg 3px 3px / 14px 14px no-repeat",
 		'var(--wm-title-bg)',
 	],
 	'pre::after' => [
-		"$line right 11px top 4px / 1px 5px",
-		"$line right 11px top 8px / 5px 1px",
-		"$line right 7px top 4px / 1px 9px",
-		"$line right 7px top 12px / 9px 1px",
-		"$line right 3px top 3px / 14px 14px",
+		"$fg right 11px top 4px / 1px 5px no-repeat",
+		"$fg right 11px top 8px / 5px 1px no-repeat",
+		"$fg right 7px top 4px / 1px 9px no-repeat",
+		"$fg right 7px top 12px / 9px 1px no-repeat",
+		"$bg right 4px top 4px / 12px 12px no-repeat",
+		"$fg right 3px top 3px / 14px 14px no-repeat",
+		'conic-gradient(var(--wm-title-fg) 25%, var(--wm-title-bg) 0 50%, '
+		    . 'var(--wm-title-fg) 0 75%, var(--wm-title-bg) 0)'
+		    . ' 0 0 / 2px 2px content-box',
+		"$bg padding-box",
 	],
 );
 for my $selector ( sort keys %bar ) {
-	my $background = value( $plain, $selector, 'background' ) // '';
-	like( $background, qr/\Q$_\E/, "$selector draws $_" )
-	    for @{ $bar{$selector} };
+	is( value( $plain, $selector, 'background' ),
+		join( ', ', @{ $bar{$selector} } ),
+		"$selector draws the layers of twm, in order" );
 }
 
 # WEB-STYLE-10 and WEB-STYLE-11 give the face and the line height of
