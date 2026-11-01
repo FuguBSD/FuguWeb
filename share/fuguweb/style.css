@@ -122,17 +122,22 @@ i:lang(zh):not(:lang(zh-Latn)) {
 	text-emphasis-position: under right;
 }
 
-/* The bitmap fonts of X11 had no kerning and no ligatures. The
-   contextual forms stay, because some scripts need them. */
+/* Mosaic for X set the body text in Times at 14 pixels, from the
+   75 dpi fonts of X11. A narrow viewport takes the 12 pixels of the
+   next font of that set, in the query at the end, so an xterm on a
+   phone holds the lines of a manual example. Each other size is
+   relative to the body text. The margin of 6px is half the text of a
+   phone. The bitmap fonts of X11 had no kerning and no
+   ligatures. The contextual forms stay, because some scripts need
+   them. */
 
 body {
 	background: var(--bg);
 	color: var(--fg);
 	font-kerning: none;
-	font-size: 17px;
+	font-size: 14px;
 	font-variant-ligatures: no-common-ligatures;
-	margin-block: 1.75em;
-	margin-inline: 1.5em;
+	margin: 6px;
 	max-width: 42em;
 }
 
@@ -309,8 +314,11 @@ code, tt, kbd, samp, var, .Pa {
    line wraps at the edge, as in xterm, so the block never scrolls and
    the title bar stays in view. The text takes a sans-serif monospace
    as the default font fixed of xterm, with little leading. It sits
-   2px inside the frame, as the default internal border of xterm. The
-   title bar and its border take 22px above it. */
+   1px inside the frame, 1px less than the default internal border of
+   xterm, so a line on a phone holds one more column. The cell of the
+   font fixed is narrow, so the cell of each letter here gives up
+   0.05em. The title keeps its own spacing. The title bar and its
+   border take 20px above it. */
 
 pre {
 	background: var(--term-bg);
@@ -318,10 +326,11 @@ pre {
 	color: var(--term-fg);
 	font-family: var(--term-face);
 	font-size: 0.767em;
+	letter-spacing: -0.05em;
 	line-height: 1.2;
 	overflow-wrap: anywhere;
-	padding-block: calc(22px + 2px) 2px;
-	padding-inline: 2px;
+	padding-block: calc(20px + 1px) 1px;
+	padding-inline: 1px;
 	position: relative;
 	white-space: pre-wrap;
 }
@@ -335,20 +344,25 @@ pre::after {
 	position: absolute;
 }
 
-/* The title, after the iconify button: a dot in a box with a border
-   of 1px. The second content hides the title from a screen reader. */
+/* twm sizes the title bar from its font, Helvetica Bold of 12 pixels
+   with a height of 14: the font and a frame padding of 2px above and
+   below. A button is 12px, 3px inside the bar, with a border of 1px.
+   The title starts 23px in, after the iconify button and a title
+   padding of 8px, and the stipple ends 23px before the edge. The
+   iconify dot is 7px. The second content hides the title from a
+   screen reader. */
 
 pre::before {
 	align-items: center;
 	background:
-	    radial-gradient(circle, var(--wm-title-fg) 4.5px, transparent 4.5px)
-	    4px 4px / 12px 12px no-repeat,
+	    radial-gradient(circle, var(--wm-title-fg) 3.5px, transparent 3.5px)
+	    4px 4px / 10px 10px no-repeat,
 	    linear-gradient(var(--wm-title-bg), var(--wm-title-bg))
-	    4px 4px / 12px 12px no-repeat,
+	    4px 4px / 10px 10px no-repeat,
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    3px 3px / 14px 14px no-repeat,
+	    3px 3px / 12px 12px no-repeat,
 	    var(--wm-title-bg);
-	block-size: 20px;
+	block-size: 18px;
 	color: var(--wm-title-fg);
 	content: "xterm";
 	content: "xterm" / "";
@@ -356,36 +370,39 @@ pre::before {
 	font-family: var(--wm-face);
 	font-size: 12px;
 	font-weight: bold;
-	padding-inline: 26px 8px;
+	letter-spacing: normal;
+	padding-inline: 23px 8px;
 	z-index: 1;
 }
 
-/* The bar under the title: the even stipple of twm, then the resize
-   button, two nested corners in a box with a border of 1px */
+/* The bar under the title: the even stipple of twm, 14px high, then
+   the resize button, two nested corners in a box with a border of
+   1px. The corners are 7px and 4px, as twm draws them for a button
+   of 12px. */
 
 pre::after {
 	background:
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    right 11px top 4px / 1px 5px no-repeat,
+	    right 10px top 4px / 1px 4px no-repeat,
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    right 11px top 8px / 5px 1px no-repeat,
+	    right 10px top 7px / 4px 1px no-repeat,
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    right 7px top 4px / 1px 9px no-repeat,
+	    right 7px top 4px / 1px 7px no-repeat,
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    right 7px top 12px / 9px 1px no-repeat,
+	    right 7px top 10px / 7px 1px no-repeat,
 	    linear-gradient(var(--wm-title-bg), var(--wm-title-bg))
-	    right 4px top 4px / 12px 12px no-repeat,
+	    right 4px top 4px / 10px 10px no-repeat,
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    right 3px top 3px / 14px 14px no-repeat,
+	    right 3px top 3px / 12px 12px no-repeat,
 	    conic-gradient(var(--wm-title-fg) 25%, var(--wm-title-bg) 0 50%,
 	    var(--wm-title-fg) 0 75%, var(--wm-title-bg) 0)
 	    0 0 / 2px 2px content-box,
 	    linear-gradient(var(--wm-title-bg), var(--wm-title-bg)) padding-box;
-	block-size: 16px;
+	block-size: 14px;
 	content: "";
 	inset-inline-end: 0;
 	padding-block: 2px;
-	padding-inline-end: 26px;
+	padding-inline-end: 23px;
 }
 
 /* xterm shows a selection in reverse video */
@@ -470,7 +487,10 @@ table.Nm td:first-child {
 	font-style: italic;
 }
 
+/* A viewport narrower than 640px, the width of a screen of VGA */
+
 @media (max-width: 40em) {
+	body { font-size: 12px; }
 	.manual-text { margin-inline-start: 0; }
 	h2.Sh, h3.Ss { margin-inline-start: 0; }
 }

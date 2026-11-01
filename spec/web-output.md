@@ -8,11 +8,12 @@ holds the model of the site, and the conventions of [index.md](index.md) apply.
 ## The stylesheet
 
 The stylesheet gives each page that links it the look of a home page of 1994,
-set with care. The body face is a serif, the code face is a monospace, and the
-ground is the gray of NCSA Mosaic. A rule of two lines sits above each
-second-level heading, and a code block shows as an xterm window of X11. The
-sheet changes the rhythm of the page, not its vocabulary. Its one word is the
-program name `xterm`, per WEB-LANGUAGE-12.
+set with care. The model is NCSA Mosaic for X on a Unix workstation. The display
+runs X11R6 with the 75 dpi fonts, and twm manages the windows. The body face is
+Times, the code face is Courier, and the ground is the gray of Mosaic. A rule of
+two lines sits above each second-level heading, and a code block shows as an
+xterm window in the frame of twm. The sheet changes the rhythm of the page, not
+its vocabulary. Its one word is the program name `xterm`, per WEB-LANGUAGE-12.
 
 A body fragment comes from a hand, from `lowdown`, or from `pod2man`. None of
 them writes a class, and the sheet asks for none. A manual page is the one
@@ -64,12 +65,17 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   on a dark ground. The frame must take the default colors of twm: a slategrey
   border, and a teal title bar with gray85 text. The title bar must show the
   iconify dot, the title `xterm` in Helvetica Bold, the even stipple, and the
-  resize button. A screen reader must not read the title. A selection in the
-  block must show in reverse video. A long line must wrap at the edge of the
-  window, as in xterm. The block then does not scroll, and the title bar stays
-  in view. The text must take Menlo, or another sans-serif monospace face, as
-  the default font `fixed` of xterm. The text must sit 2px inside the frame, as
-  the default internal border of xterm.
+  resize button. The bar must take the size that twm gives it for its title font
+  of 12 pixels: 18px high, with buttons of 12px. A screen reader must not read
+  the title. A selection in the block must show in reverse video. A long line
+  must wrap at the edge of the window, as in xterm. The block then does not
+  scroll, and the title bar stays in view. The text must take Menlo, or another
+  sans-serif monospace face, as the default font `fixed` of xterm. The text must
+  sit 1px inside the frame. This is 1px less than the default internal border of
+  xterm, so a line on a phone holds one more column. The default font `fixed` of
+  xterm has a narrow cell: 6 pixels for a font of 13 pixels. The text of the
+  block must take a letter spacing of -0.05em to narrow its cell. A line on a
+  phone then holds 73 columns. The title must keep the spacing of its face.
 - **WEB-STYLE-9** — The sheet must show the list of the languages and the nav
   list each on one line. It must set the list of the languages at the end of the
   line of the banner link. A narrow viewport can put the list below the link. It
@@ -105,6 +111,15 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   padding, border, float and alignment. A page of `dir="rtl"` then mirrors. The
   title bar of a `pre` block must keep the left-to-right order of X11 on each
   page, because twm has no right-to-left mode.
+- **WEB-STYLE-13** — The body text must take 14px, the size of the default body
+  font of Mosaic for X. That font is Times at 14 pixels, from the 75 dpi fonts
+  of X11. A viewport narrower than 40em must take 12px, the next smaller Times
+  of that set. The width of 40em is 640px, the width of a screen of VGA. At
+  12px, a `pre` block on a phone holds the lines of an example of a manual page
+  with no wrap. Each other size must stay relative to the body text. Each code
+  face then keeps its size per WEB-STYLE-4 at each width. The body must take a
+  margin of 6px, half the body text of a phone. A phone then gives its width to
+  the text.
 
 <a id="web-output"></a>
 

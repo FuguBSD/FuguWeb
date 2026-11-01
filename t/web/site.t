@@ -155,6 +155,14 @@ my ($measure) = ( $body // '' ) =~ /\bmax-width:\s*([\d.]+)em\b/;
 ok( defined $measure && $measure <= 42, 'the measure stops at 42em' )
     or diag 'max-width: ' . ( $measure // 'none' );
 
+# WEB-STYLE-13 sets the body text at the 14 pixels of Mosaic for X,
+# and at 12 pixels in the narrow query, with a margin of 6px.
+like( $body // '', qr/\bfont-size:\s*14px;/, 'the body text is 14px' );
+like( $body // '', qr/\bmargin:\s*6px;/, 'and a margin of 6px' );
+my ($narrow) = $sheet =~ /\@media\s*\(max-width:\s*40em\)\s*\{(.*?)\n\}/s;
+like( $narrow // '', qr/^\s*body\s*\{\s*font-size:\s*12px;\s*\}/m,
+    'and 12px on a viewport narrower than 40em' );
+
 # WEB-STYLE-6 draws the underline one pixel thick, below the baseline.
 # The chrome and the permalink carry a link rule of their own, so the
 # match reads the one that starts the line.
@@ -224,8 +232,8 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 # 0.846em, and the Menlo of a pre block 0.767em. A code element in a
 # code element keeps the face and the size of its parent, so the size
 # does not shrink twice. WEB-STYLE-7 gives a display of a pre block no indent.
-# WEB-STYLE-8 gives a pre block the face of xterm, and the internal
-# border of 2px of xterm under the title bar of 20px and its border.
+# WEB-STYLE-8 gives a pre block the face of xterm, and an internal
+# border of 1px under the title bar of 18px and its border.
 my @declarations = (
 	[ 'main',   'border-block-start', '1px solid var(--shadow)' ],
 	[ 'main',   'box-shadow',         'inset 0 1px var(--highlight)' ],
@@ -284,8 +292,10 @@ my @declarations = (
 	    'font-family', 'inherit' ],
 	[ '.Bd.Bd-indent:has(> pre)', 'margin-inline-start', '0' ],
 	[ 'pre', 'font-family',    'var(--term-face)' ],
-	[ 'pre', 'padding-block',  'calc(22px + 2px) 2px' ],
-	[ 'pre', 'padding-inline', '2px' ],
+	[ 'pre', 'padding-block',  'calc(20px + 1px) 1px' ],
+	[ 'pre', 'padding-inline', '1px' ],
+	[ 'pre',         'letter-spacing', '-0.05em' ],
+	[ 'pre::before', 'letter-spacing', 'normal' ],
 );
 for (@declarations) {
 	my ( $selector, $property, $want ) = @$_;
@@ -321,19 +331,19 @@ my $fg = 'linear-gradient(var(--wm-title-fg), var(--wm-title-fg))';
 my $bg = 'linear-gradient(var(--wm-title-bg), var(--wm-title-bg))';
 my %bar = (
 	'pre::before' => [
-		'radial-gradient(circle, var(--wm-title-fg) 4.5px, transparent 4.5px)'
-		    . ' 4px 4px / 12px 12px no-repeat',
-		"$bg 4px 4px / 12px 12px no-repeat",
-		"$fg 3px 3px / 14px 14px no-repeat",
+		'radial-gradient(circle, var(--wm-title-fg) 3.5px, transparent 3.5px)'
+		    . ' 4px 4px / 10px 10px no-repeat',
+		"$bg 4px 4px / 10px 10px no-repeat",
+		"$fg 3px 3px / 12px 12px no-repeat",
 		'var(--wm-title-bg)',
 	],
 	'pre::after' => [
-		"$fg right 11px top 4px / 1px 5px no-repeat",
-		"$fg right 11px top 8px / 5px 1px no-repeat",
-		"$fg right 7px top 4px / 1px 9px no-repeat",
-		"$fg right 7px top 12px / 9px 1px no-repeat",
-		"$bg right 4px top 4px / 12px 12px no-repeat",
-		"$fg right 3px top 3px / 14px 14px no-repeat",
+		"$fg right 10px top 4px / 1px 4px no-repeat",
+		"$fg right 10px top 7px / 4px 1px no-repeat",
+		"$fg right 7px top 4px / 1px 7px no-repeat",
+		"$fg right 7px top 10px / 7px 1px no-repeat",
+		"$bg right 4px top 4px / 10px 10px no-repeat",
+		"$fg right 3px top 3px / 12px 12px no-repeat",
 		'conic-gradient(var(--wm-title-fg) 25%, var(--wm-title-bg) 0 50%, '
 		    . 'var(--wm-title-fg) 0 75%, var(--wm-title-bg) 0)'
 		    . ' 0 0 / 2px 2px content-box',
