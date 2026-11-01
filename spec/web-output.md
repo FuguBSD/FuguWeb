@@ -133,14 +133,20 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   columns, so a line holds more words.
 - **WEB-STYLE-15** — The macros of a manual page must set each blank line, as in
   nroff. A block that `mandoc` marks with the class `Pp` must take one blank
-  line above it. A paragraph right after a heading must take none. Each item of
-  a list that `mandoc` does not mark with the class `Bl-compact` must take one
-  blank line above it. No other block of the manual body must take a gap. A `br`
-  that `mandoc` writes between two blocks must take no line. The lines of a
-  synopsis then follow each other with no gap, and each line must hang after the
-  name of the command. A tag must share the line of its body when it fits in the
-  indent of the body. A wider tag must take a line of its own, with its body
-  right below it.
+  line above it. Each item of a list that `mandoc` does not mark with the class
+  `Bl-compact` must take one blank line above it. This rule applies to each list
+  type of `mandoc`. A list of the class `Bl-column` is a table. Only its first
+  row must take the blank line, because nroff gives none between two rows. A
+  heading wins over each of these gaps. A paragraph or the first item of a list
+  right after a heading must take no blank line. The first item of a `dl` in a
+  block of the class `Bd-indent` keeps its blank line after a heading. An
+  `-offset` list of mdoc(7) and an `RS` region of man(7) give this markup. nroff
+  gives only the region a blank line. No other block of the manual body must
+  take a gap. A `br` that `mandoc` writes between two blocks must take no line.
+  The lines of a synopsis then follow each other with no gap, and each line must
+  hang after the name of the command. A tag must share the line of its body when
+  it fits in the indent of the body. A wider tag must take a line of its own,
+  with its body right below it.
 
 <a id="web-output"></a>
 

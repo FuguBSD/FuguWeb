@@ -451,19 +451,27 @@ a.permalink:visited {
 
 /* The macros set each blank line, as in nroff. mandoc(1) gives the
    class Pp to each block that takes a blank line above it, and the
-   class Bl-compact to a list with no blank line between two items. No
-   other block of a manual takes a gap. A paragraph right after a
-   heading takes none either. mandoc writes a br between two blocks:
-   at the start of a page of man(7), and between two lines of a
-   synopsis. It takes no line. */
+   class Bl-compact to a list with no blank line above an item. A list
+   takes the blank line of its first item, and each next item takes
+   its own. A Bl-column list is a table, and nroff gives no blank line
+   between two rows. No other block of a manual takes a gap. A
+   paragraph or a list right after a heading takes none, as in nroff.
+   A dl in a Bd-indent block keeps its gap there, as an RS region of
+   man(7) does in nroff. mandoc writes an -offset list of mdoc(7) with
+   the same markup. mandoc writes a br between two blocks: at the
+   start of a page of man(7), and between two lines of a synopsis. It
+   takes no line. */
 
 .manual-text :is(p, pre, ul, ol, dl) {
 	margin-block: 0;
 }
 
 .manual-text .Pp:not(h2 + *, h3 + *),
-:is(.Bl-bullet, .Bl-dash, .Bl-enum, .Bl-item):not(.Bl-compact) > li,
-.Bl-tag:not(.Bl-compact) > :is(dt, dd) {
+:is(.Bl-bullet, .Bl-column, .Bl-dash, .Bl-diag, .Bl-enum, .Bl-hang,
+    .Bl-inset, .Bl-item, .Bl-ohang, .Bl-tag):not(.Bl-compact, h2 + *, h3 + *),
+:is(.Bl-bullet, .Bl-dash, .Bl-enum, .Bl-item):not(.Bl-compact) > li + li,
+:is(.Bl-diag, .Bl-hang, .Bl-inset, .Bl-ohang):not(.Bl-compact) > dd + dt,
+.Bl-tag:not(.Bl-compact) > :is(dd + dt, dd + dt + dd) {
 	margin-block-start: 1rem;
 }
 
@@ -489,7 +497,7 @@ table.Nm td:first-child {
    body that starts a formatting context must not overlap the float of
    its tag. It has a fixed width, so it moves below a tag that leaves
    it too little room. The list starts a formatting context too, so
-   the gap of the first item stays inside it. */
+   it holds the float of each tag. */
 
 .Bl-tag {
 	display: flow-root;

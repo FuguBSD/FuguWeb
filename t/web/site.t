@@ -98,6 +98,7 @@ $sheet =~ s{/\*.*?\*/}{}gs;
 my %mandoc = map { $_ => 1 } qw(
     Sh Ss permalink manual-text Nm Bd Bd-indent Pp
     Bl-tag Bl-compact Bl-bullet Bl-dash Bl-enum Bl-item
+    Bl-column Bl-diag Bl-hang Bl-inset Bl-ohang
     Cm Fl Ic Fn Dv Er Ev Ar Va Pa Em
 );
 my %seen;
@@ -169,6 +170,13 @@ like( $small // '', qr/\bfont-size:\s*12px;/,
 like( $small // '', qr/--tag:\s*4ch;/,
     'where the body of a tag takes 4 columns' );
 
+# WEB-STYLE-7 drops the indent of a section and of a display, and the
+# offset of each heading, in the narrow query.
+for my $selector ( '.manual-text', '.Bd-indent', 'h2.Sh', 'h3.Ss' ) {
+	is( value( $narrow // '', $selector, 'margin-inline-start' ),
+	    '0', "and $selector takes no indent there" );
+}
+
 # WEB-STYLE-14 takes no blank line below a heading. The rule of a
 # block after a heading has the weight of the rule of pre and hr, so
 # it must come later to win.
@@ -190,7 +198,8 @@ ok( defined $offset && $offset > 0, 'and it sits below the baseline' )
 #	The declarations of each rule in the text that has a selector the
 #	pattern matches, in the order of the sheet. A selector list splits
 #	at each comma outside a pair of parentheses, so the list of an
-#	:is() stays whole.
+#	:is() stays whole. The whitespace of a selector folds to one space,
+#	so a selector can wrap in the sheet.
 sub declarations ( $text, $selector )
 {
 	my $found = '';
@@ -199,7 +208,8 @@ sub declarations ( $text, $selector )
 		$list =~ s/(\((?:[^()]++|(?1))*\))/$1 =~ tr{,}{\0}r/ge;
 		$found .= "$body;"
 		    if grep {/$selector/}
-		    map { tr{\0}{,}r =~ s/^\s+|\s+$//gr } split /,/, $list;
+		    map { tr{\0}{,}r =~ s/^\s+|\s+$//gr =~ s/\s+/ /gr } split /,/,
+		    $list;
 	}
 	return $found;
 }
@@ -247,10 +257,15 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 # does not shrink twice. WEB-STYLE-7 gives a display of a pre block no indent.
 # WEB-STYLE-8 gives a pre block the face of xterm, and an internal
 # border of 1px under the title bar of 18px and its border. WEB-STYLE-7
-# sets the columns of a manual page. WEB-STYLE-14 sets one blank line
-# of 1rem, and WEB-STYLE-15 lets the macros of a manual set each one.
-# A tag floats, and its body starts a formatting context of a fixed
-# width, so the body moves below a tag that is too wide.
+# sets the columns of a manual page, and a section heading at the size
+# of the text. WEB-STYLE-14 sets one blank line of 1rem, and
+# WEB-STYLE-15 lets the macros of a manual set each one. A list of each
+# type takes the blank line of its first item, and each next item takes
+# its own. A list right after a heading takes none. A tag floats, and
+# its body starts a formatting context of a fixed width, so the body
+# moves below a tag that is too wide.
+my $lists = join ', ',
+    map {".Bl-$_"} qw(bullet column dash diag enum hang inset item ohang tag);
 my @declarations = (
 	[ 'main',   'border-block-start', '1px solid var(--shadow)' ],
 	[ 'main',   'box-shadow',         'inset 0 1px var(--highlight)' ],
@@ -313,6 +328,7 @@ my @declarations = (
 	[ 'pre', 'padding-inline', '1px' ],
 	[ 'pre',         'letter-spacing', '-0.05em' ],
 	[ 'pre',          'margin-block',  '1rem' ],
+	[ 'hr',           'margin-block',  '1rem' ],
 	[ 'h1', 'margin-block', '1rem 0' ],
 	[ ':is(h1, h2, h3, h4, h5, h6) + *', 'margin-block-start', '0' ],
 	[ 'ul',           'padding-inline-start', '4ch' ],
@@ -321,10 +337,20 @@ my @declarations = (
 	[ '.manual-text', 'margin-inline-start',  '5ch' ],
 	[ 'h2.Sh',        'margin-inline-start',  '-5ch' ],
 	[ 'h3.Ss',        'margin-inline-start',  '-2ch' ],
+	[ 'h2.Sh',        'font-size',            '1em' ],
+	[ 'h3.Ss',        'font-size',            '1em' ],
 	[ '.Bd-indent',   'margin-inline-start',  '6ch' ],
 	[ '.manual-text :is(p, pre, ul, ol, dl)', 'margin-block', '0' ],
 	[ '.manual-text .Pp:not(h2 + *, h3 + *)', 'margin-block-start', '1rem' ],
-	[ '.Bl-tag:not(.Bl-compact) > :is(dt, dd)', 'margin-block-start', '1rem' ],
+	[ ":is($lists):not(.Bl-compact, h2 + *, h3 + *)",
+	    'margin-block-start', '1rem' ],
+	[ ':is(.Bl-bullet, .Bl-dash, .Bl-enum, .Bl-item):not(.Bl-compact) > li + li',
+	    'margin-block-start', '1rem' ],
+	[ ':is(.Bl-diag, .Bl-hang, .Bl-inset, .Bl-ohang):not(.Bl-compact) > dd + dt',
+	    'margin-block-start', '1rem' ],
+	[ '.Bl-tag:not(.Bl-compact) > :is(dd + dt, dd + dt + dd)',
+	    'margin-block-start', '1rem' ],
+	[ '.manual-text > br', 'display', 'none' ],
 	[ 'table.Nm + br', 'display',     'none' ],
 	[ '.Bl-tag > dt',  'float',       'inline-start' ],
 	[ '.Bl-tag > dd',  'display',     'flow-root' ],
