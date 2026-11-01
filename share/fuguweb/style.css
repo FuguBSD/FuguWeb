@@ -14,6 +14,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+/* The page of 1994: NCSA Mosaic for X on X11R6, with twm as the window
+   manager. Each color and each face is a custom property, and the
+   dark scheme swaps the colors. */
+
 :root {
 	color-scheme: light dark;
 	--bg: #bfbfbf;
@@ -50,7 +54,15 @@
 	}
 }
 
+/* Mosaic for X set the body text in Times at 14 pixels, from the
+   75 dpi fonts of X11. The size sits on the root, so 1rem is the body
+   text, and each other size is relative to it. The body of a tag sits
+   8 columns in, as in a manual page. The query at the end sets the
+   values of a phone. */
+
 html {
+	--tag: 8ch;
+	font-size: 14px;
 	-webkit-text-size-adjust: 100%;
 	text-size-adjust: 100%;
 }
@@ -123,57 +135,16 @@ i:lang(zh):not(:lang(zh-Latn)) {
 }
 
 /* The bitmap fonts of X11 had no kerning and no ligatures. The
-   contextual forms stay, because some scripts need them. */
+   contextual forms stay, because some scripts need them. The margin
+   of 6px is half the text of a phone. */
 
 body {
 	background: var(--bg);
 	color: var(--fg);
 	font-kerning: none;
-	font-size: 17px;
 	font-variant-ligatures: no-common-ligatures;
-	margin-block: 1.75em;
-	margin-inline: 1.5em;
+	margin: 6px;
 	max-width: 42em;
-}
-
-hr {
-	border: 0;
-	border-block-start: 1px solid var(--shadow);
-	border-block-end: 1px solid var(--highlight);
-	margin-block: 1.25em;
-	margin-inline: 0;
-}
-
-/* X11 drew an underline straight through the descenders */
-
-a:link,
-a:visited {
-	color: var(--link);
-	text-decoration: underline;
-	text-decoration-skip-ink: none;
-	text-decoration-thickness: 1px;
-	text-underline-offset: 0.15em;
-}
-
-/* Mosaic framed a linked image in the link color */
-
-a img {
-	border: 2px solid;
-}
-
-a:visited {
-	color: var(--visited);
-}
-
-/* Netscape 1.x showed a pressed link in red, and Windows 3.1 drew
-   the keyboard focus as a dotted box */
-
-a:active {
-	color: var(--active);
-}
-
-:focus-visible {
-	outline: 1px dotted;
 }
 
 /* The chrome carries no class, so the selector names the element. The
@@ -186,7 +157,6 @@ body > header {
 	display: flex;
 	flex-wrap: wrap;
 	justify-content: space-between;
-	margin-block-end: 0.2em;
 }
 
 body > header > a {
@@ -241,46 +211,96 @@ a[aria-current="page"]:visited {
 	text-decoration: none;
 }
 
-/* The rule of 1994 above the main part and above the footer */
+footer {
+	color: var(--muted);
+	font-size: 0.9em;
+	font-style: italic;
+}
+
+/* The rule of 1994, a dark line over a light line: above the main part
+   and the footer, above each h2 of a body fragment, and as an hr. A
+   section heading of a manual page takes none. The first block of the
+   main part and of the footer gives the gap under the rule. */
 
 main,
 footer {
 	border-block-start: 1px solid var(--shadow);
 	box-shadow: inset 0 1px var(--highlight);
-	margin-block-start: 1.25em;
-	padding-block-start: 0.6em;
+	margin-block-start: 1rem;
+}
+
+h2:not(.Sh) {
+	border-block-start: 1px solid var(--shadow);
+	box-shadow: inset 0 1px var(--highlight);
+	padding-block-start: 1rem;
+}
+
+hr {
+	border: 0;
+	border-block-start: 1px solid var(--shadow);
+	border-block-end: 1px solid var(--highlight);
+	margin-inline: 0;
+}
+
+/* One blank line is 1rem, the gap between two paragraphs of the
+   browser. A paragraph, a list and a dl take it from the browser, and
+   a pre block and an hr take it here. A heading takes a blank line
+   above it and none below it, as a section heading of a manual page.
+   A heading right after a heading keeps its blank line. The rule
+   after a heading refuses a heading in a :where(), which adds no
+   weight. That rule comes last, so it wins at equal weight. */
+
+pre, hr {
+	margin-block: 1rem;
 }
 
 h1, h2, h3, h4, h5, h6 {
 	font-weight: bold;
 	line-height: 1.2;
-	margin-block: 1.5em 0.6em;
+	margin-block: 1rem 0;
 }
 
-h1 {
-	font-size: 1.75em;
+:is(h1, h2, h3, h4, h5, h6) + :where(:not(h1, h2, h3, h4, h5, h6)) {
+	margin-block-start: 0;
 }
 
-/* The rule of a 1994 hr: a dark line over a light line */
-
-h2 {
-	border-block-start: 1px solid var(--shadow);
-	box-shadow: inset 0 1px var(--highlight);
-	font-size: 1.35em;
-	padding-block-start: 0.6em;
-}
-
+h1 { font-size: 1.75em; }
+h2 { font-size: 1.35em; }
 h3 { font-size: 1.1em; }
 h4 { font-size: 1em; }
 
-p, li, dd, dt {
-	margin-block: 0.5em;
-}
+/* A list indents its items by 4 columns, and the body of a tag by the
+   columns of --tag. 1ch is one column. */
 
-dt { font-weight: bold; }
-dd { margin-inline-start: 2em; }
+ul, ol { padding-inline-start: 4ch; }
+dd { margin-inline-start: var(--tag); }
 
 table { border-collapse: collapse; }
+
+/* X11 drew an underline straight through the descenders. Mosaic
+   framed a linked image in the link color, and Netscape 1.x showed a
+   pressed link in red. Windows 3.1 drew the keyboard focus as a
+   dotted box. */
+
+a:link,
+a:visited {
+	text-decoration: underline;
+	text-decoration-skip-ink: none;
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.15em;
+}
+
+a:link { color: var(--link); }
+a:visited { color: var(--visited); }
+a:active { color: var(--active); }
+
+a img {
+	border: 2px solid;
+}
+
+:focus-visible {
+	outline: 1px dotted;
+}
 
 /* Text looks as large as the area that its lowercase letters cover:
    the x-height times the mean width of a letter. A monospace face is
@@ -309,8 +329,11 @@ code, tt, kbd, samp, var, .Pa {
    line wraps at the edge, as in xterm, so the block never scrolls and
    the title bar stays in view. The text takes a sans-serif monospace
    as the default font fixed of xterm, with little leading. It sits
-   2px inside the frame, as the default internal border of xterm. The
-   title bar and its border take 22px above it. */
+   1px inside the frame, 1px less than the default internal border of
+   xterm, so a line on a phone holds one more column. The cell of the
+   font fixed is narrow, so the cell of each letter here gives up
+   0.05em. The title keeps its own spacing. The title bar and its
+   border take 20px above it. */
 
 pre {
 	background: var(--term-bg);
@@ -318,10 +341,11 @@ pre {
 	color: var(--term-fg);
 	font-family: var(--term-face);
 	font-size: 0.767em;
+	letter-spacing: -0.05em;
 	line-height: 1.2;
 	overflow-wrap: anywhere;
-	padding-block: calc(22px + 2px) 2px;
-	padding-inline: 2px;
+	padding-block: calc(20px + 1px) 1px;
+	padding-inline: 1px;
 	position: relative;
 	white-space: pre-wrap;
 }
@@ -335,20 +359,25 @@ pre::after {
 	position: absolute;
 }
 
-/* The title, after the iconify button: a dot in a box with a border
-   of 1px. The second content hides the title from a screen reader. */
+/* twm sizes the title bar from its font, Helvetica Bold of 12 pixels
+   with a height of 14: the font and a frame padding of 2px above and
+   below. A button is 12px, 3px inside the bar, with a border of 1px.
+   The title starts 23px in, after the iconify button and a title
+   padding of 8px, and the stipple ends 23px before the edge. The
+   iconify dot is 7px. The second content hides the title from a
+   screen reader. */
 
 pre::before {
 	align-items: center;
 	background:
-	    radial-gradient(circle, var(--wm-title-fg) 4.5px, transparent 4.5px)
-	    4px 4px / 12px 12px no-repeat,
+	    radial-gradient(circle, var(--wm-title-fg) 3.5px, transparent 3.5px)
+	    4px 4px / 10px 10px no-repeat,
 	    linear-gradient(var(--wm-title-bg), var(--wm-title-bg))
-	    4px 4px / 12px 12px no-repeat,
+	    4px 4px / 10px 10px no-repeat,
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    3px 3px / 14px 14px no-repeat,
+	    3px 3px / 12px 12px no-repeat,
 	    var(--wm-title-bg);
-	block-size: 20px;
+	block-size: 18px;
 	color: var(--wm-title-fg);
 	content: "xterm";
 	content: "xterm" / "";
@@ -356,36 +385,39 @@ pre::before {
 	font-family: var(--wm-face);
 	font-size: 12px;
 	font-weight: bold;
-	padding-inline: 26px 8px;
+	letter-spacing: normal;
+	padding-inline: 23px 8px;
 	z-index: 1;
 }
 
-/* The bar under the title: the even stipple of twm, then the resize
-   button, two nested corners in a box with a border of 1px */
+/* The bar under the title: the even stipple of twm, 14px high, then
+   the resize button, two nested corners in a box with a border of
+   1px. The corners are 7px and 4px, as twm draws them for a button
+   of 12px. */
 
 pre::after {
 	background:
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    right 11px top 4px / 1px 5px no-repeat,
+	    right 10px top 4px / 1px 4px no-repeat,
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    right 11px top 8px / 5px 1px no-repeat,
+	    right 10px top 7px / 4px 1px no-repeat,
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    right 7px top 4px / 1px 9px no-repeat,
+	    right 7px top 4px / 1px 7px no-repeat,
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    right 7px top 12px / 9px 1px no-repeat,
+	    right 7px top 10px / 7px 1px no-repeat,
 	    linear-gradient(var(--wm-title-bg), var(--wm-title-bg))
-	    right 4px top 4px / 12px 12px no-repeat,
+	    right 4px top 4px / 10px 10px no-repeat,
 	    linear-gradient(var(--wm-title-fg), var(--wm-title-fg))
-	    right 3px top 3px / 14px 14px no-repeat,
+	    right 3px top 3px / 12px 12px no-repeat,
 	    conic-gradient(var(--wm-title-fg) 25%, var(--wm-title-bg) 0 50%,
 	    var(--wm-title-fg) 0 75%, var(--wm-title-bg) 0)
 	    0 0 / 2px 2px content-box,
 	    linear-gradient(var(--wm-title-bg), var(--wm-title-bg)) padding-box;
-	block-size: 16px;
+	block-size: 14px;
 	content: "";
 	inset-inline-end: 0;
 	padding-block: 2px;
-	padding-inline-end: 26px;
+	padding-inline-end: 23px;
 }
 
 /* xterm shows a selection in reverse video */
@@ -396,29 +428,22 @@ pre ::selection {
 	color: var(--term-bg);
 }
 
-footer {
-	color: var(--muted);
-	font-size: 0.9em;
-	font-style: italic;
+/* Manual pages: mandoc(1) emits its own class names. A manual page
+   keeps the columns of a terminal: the body of a section sits 5
+   columns in, and a subsection heading 3. A section heading is bold
+   at the size of the text, as nroff set it. */
+
+.manual-text {
+	margin-inline-start: 5ch;
 }
 
-
-/* Manual pages: mandoc(1) emits its own class names. A section
-   heading takes no rule, and it sits flush with the banner. */
-
-h2.Sh {
-	border: 0;
-	box-shadow: none;
-	font-size: 1.2em;
-	margin-block-start: 1.6em;
-	margin-inline-start: calc(-3.5em / 1.2);
-	padding: 0;
-}
-
+h2.Sh,
 h3.Ss {
-	font-size: 1.05em;
-	margin-inline-start: calc(-1.75em / 1.05);
+	font-size: 1em;
 }
+
+h2.Sh { margin-inline-start: -5ch; }
+h3.Ss { margin-inline-start: -2ch; }
 
 a.permalink:link,
 a.permalink:visited {
@@ -426,32 +451,87 @@ a.permalink:visited {
 	text-decoration: none;
 }
 
-.manual-text {
-	margin-inline-start: 3.5em;
+/* The macros set each blank line, as in nroff. mandoc(1) gives the
+   class Pp to each block that takes a blank line above it, and the
+   class Bl-compact to a list with no blank line above an item. A list
+   takes the blank line of its first item, and each next item takes
+   its own. A Bl-column list is a table, and nroff gives no blank line
+   between two rows. No other block of a manual takes a gap. A
+   paragraph or a list right after a heading takes none, as in nroff.
+   A subsection heading right after its section heading takes none
+   either. mandoc writes each subsection in a section of its own, so
+   that heading is the first child of the section after the h2.
+   A dl in a Bd-indent block keeps its gap there, as an RS region of
+   man(7) does in nroff. mandoc writes an -offset list of mdoc(7) with
+   the same markup. mandoc writes a br between two blocks: at the
+   start of a page of man(7), and between two lines of a synopsis. It
+   takes no line. */
+
+.manual-text :is(p, pre, ul, ol, dl) {
+	margin-block: 0;
 }
 
-.manual-text > br:first-child {
+.manual-text .Pp:not(h2 + *, h3 + *),
+:is(.Bl-bullet, .Bl-column, .Bl-dash, .Bl-diag, .Bl-enum, .Bl-hang,
+    .Bl-inset, .Bl-item, .Bl-ohang, .Bl-tag):not(.Bl-compact, h2 + *, h3 + *),
+:is(.Bl-bullet, .Bl-dash, .Bl-enum, .Bl-item):not(.Bl-compact) > li + li,
+:is(.Bl-diag, .Bl-hang, .Bl-inset, .Bl-ohang):not(.Bl-compact) > dd + dt,
+.Bl-tag:not(.Bl-compact) > :is(dd + dt, dd + dt + dd) {
+	margin-block-start: 1rem;
+}
+
+h2.Sh + section.Ss > h3.Ss {
+	margin-block-start: 0;
+}
+
+.manual-text > br,
+table.Nm + br {
 	display: none;
 }
 
+/* A synopsis line hangs after the name of the command */
+
 table.Nm td {
+	padding: 0;
 	vertical-align: top;
 }
 
 table.Nm td:first-child {
-	padding-inline-end: 0.4em;
+	padding-inline-end: 1ch;
 	white-space: nowrap;
 }
 
+/* A tag that fits in the indent of its body shares its line, and a
+   wider tag takes a line of its own above it, as in a terminal. A
+   body that starts a formatting context must not overlap the float of
+   its tag. It has a fixed width, so it moves below a tag that leaves
+   it too little room. The list starts a formatting context too, so
+   it holds the float of each tag. */
+
+.Bl-tag {
+	display: flow-root;
+}
+
+.Bl-tag > dt {
+	clear: inline-start;
+	float: inline-start;
+	margin-inline-end: 1ch;
+}
+
+.Bl-tag > dd {
+	display: flow-root;
+	inline-size: calc(100% - var(--tag));
+}
+
 /* mandoc(1) writes the -offset indent of a display of mdoc(7) as the
-   class Bd-indent, beside the class Bd. The frame of an xterm marks a
-   pre block, so its display takes no indent, and a line of the block
+   class Bd-indent, 6 columns in. The frame of an xterm marks a pre
+   block, so its display takes no indent, and a line of the block
    holds more columns. mandoc writes an RS region of man(7) as the
    class Bd-indent alone. Its prose can hold a pre block, and keeps
    its indent. */
 
 .Bd-indent {
-	margin-inline-start: 2em;
+	margin-inline-start: 6ch;
 }
 
 .Bd.Bd-indent:has(> pre) {
@@ -462,15 +542,17 @@ table.Nm td:first-child {
 	font-weight: bold;
 }
 
-.Ar, .Va, .Pa {
+.Ar, .Va, .Pa, .Em {
 	font-style: italic;
 }
 
-.Em {
-	font-style: italic;
-}
+/* A viewport narrower than 640px, the width of a screen of VGA. The
+   text takes the 12 pixels of the next Times of the 75 dpi set, so an
+   xterm holds the lines of a manual example. A manual page drops the
+   indent of a section and of a display, and the body of a tag takes
+   the 4 columns of a list item, so a line holds more words. */
 
 @media (max-width: 40em) {
-	.manual-text { margin-inline-start: 0; }
-	h2.Sh, h3.Ss { margin-inline-start: 0; }
+	html { font-size: 12px; --tag: 4ch; }
+	.manual-text, .Bd-indent, h2.Sh, h3.Ss { margin-inline-start: 0; }
 }

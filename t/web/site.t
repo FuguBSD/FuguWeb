@@ -96,7 +96,9 @@ $sheet =~ s{/\*.*?\*/}{}gs;
 # The fit removes the head and the foot of a manual page, per D-07, so
 # the set holds none of their classes.
 my %mandoc = map { $_ => 1 } qw(
-    Sh Ss permalink manual-text Nm Bd Bd-indent Bl-tag
+    Sh Ss permalink manual-text Nm Bd Bd-indent Pp
+    Bl-tag Bl-compact Bl-bullet Bl-dash Bl-enum Bl-item
+    Bl-column Bl-diag Bl-hang Bl-inset Bl-ohang
     Cm Fl Ic Fn Dv Er Ev Ar Va Pa Em
 );
 my %seen;
@@ -114,6 +116,16 @@ my $manual = Fugu::File->read("$out/en/fuguweb.1.html") // '';
 like( $manual, qr/<div class="Bd\b[^"]*\bBd-indent\b[^"]*">\s*<pre\b/,
 	'an indented display of mdoc holds its pre block as a child' );
 like( $manual, qr/<span class="Pa">/, 'and a path of mdoc is a span' );
+
+# WEB-STYLE-15 relies on one more part: mandoc writes each subsection
+# in a section of its own. The manual of App::FuguWeb has a subsection
+# right after its section heading.
+my $module = Fugu::File->read("$out/en/App::FuguWeb.3p.html") // '';
+like(
+	$module,
+	qr{<h2 class="Sh"[^>]*>[^<]*</h2>\s*<section class="Ss">\s*<h3 class="Ss"},
+	'a subsection right after its section heading is a section of its own'
+);
 
 unlike( $sheet, qr/url\(/,    'the sheet loads no resource' );
 unlike( $sheet, qr/\@import/, 'and imports no sheet' );
@@ -155,6 +167,54 @@ my ($measure) = ( $body // '' ) =~ /\bmax-width:\s*([\d.]+)em\b/;
 ok( defined $measure && $measure <= 42, 'the measure stops at 42em' )
     or diag 'max-width: ' . ( $measure // 'none' );
 
+# WEB-STYLE-13 sets the body text at the 14 pixels of Mosaic for X,
+# and at 12 pixels in the narrow query, with a margin of 6px. The root
+# carries the size, so 1rem is the body text, per WEB-STYLE-14.
+my ($html) = $sheet =~ /^html\s*\{([^}]*)\}/m;
+like( $html // '', qr/\bfont-size:\s*14px;/, 'the body text is 14px' );
+like( $body // '', qr/\bmargin:\s*6px;/, 'and a margin of 6px' );
+my ($narrow) = $sheet =~ /\@media\s*\(max-width:\s*40em\)\s*\{(.*?)\n\}/s;
+my ($small) = ( $narrow // '' ) =~ /^\s*html\s*\{([^}]*)\}/m;
+like( $small // '', qr/\bfont-size:\s*12px;/,
+    'and 12px on a viewport narrower than 40em' );
+like( $small // '', qr/--tag:\s*4ch;/,
+    'where the body of a tag takes 4 columns' );
+
+# WEB-STYLE-7 drops the indent of a section and of a display, and the
+# offset of each heading, in the narrow query.
+for my $selector ( '.manual-text', '.Bd-indent', 'h2.Sh', 'h3.Ss' ) {
+	is( value( $narrow // '', $selector, 'margin-inline-start' ),
+	    '0', "and $selector takes no indent there" );
+}
+
+# WEB-STYLE-14 takes no blank line below a heading. The rule of a
+# block after a heading has the weight of the rule of pre and hr, so
+# it must come later to win. index() gives -1 for an absent rule, so
+# the check needs each rule in the sheet.
+my $after = index( $sheet,
+	':is(h1, h2, h3, h4, h5, h6) + :where(:not(h1, h2, h3, h4, h5, h6)) {' );
+my $before = index( $sheet, "\npre, hr {" );
+ok( $before >= 0 && $after > $before,
+	'the rule after a heading follows the blank line of pre and hr' );
+
+# WEB-STYLE-14 keeps the blank line above a heading right after a
+# heading. A rule that takes the blank line from the block right after
+# a heading must refuse a heading in that block. The subsection
+# heading of WEB-STYLE-15 is a child of that block, not the block.
+my @lost;
+while ( $sheet =~ /([^{}]+)\{([^{}]*)\}/g ) {
+	my ( $list, $body ) = ( $1, $2 );
+	next unless $body =~ /(?<![-\w])margin(?:-block(?:-start)?)?\s*:\s*0(?![.\w])/;
+	$list =~ s/(\((?:[^()]++|(?1))*\))/$1 =~ s{\s+}{}gr =~ tr{,}{\0}r/ge;
+	for ( map { tr{\0}{,}r =~ s/^\s+|\s+$//gr } split /,/, $list ) {
+		push @lost, $_
+		    if /(?:^|\s)(?:h[1-6][\w.-]*|:is\(h1,h2,h3,h4,h5,h6\))\s*\+\s*(\S+)$/
+		    && $1 !~ /:not\(h1,h2,h3,h4,h5,h6\)/;
+	}
+}
+is_deeply( \@lost, [], 'a heading right after a heading keeps its blank line' )
+    or diag join "\n", @lost;
+
 # WEB-STYLE-6 draws the underline one pixel thick, below the baseline.
 # The chrome and the permalink carry a link rule of their own, so the
 # match reads the one that starts the line.
@@ -169,7 +229,8 @@ ok( defined $offset && $offset > 0, 'and it sits below the baseline' )
 #	The declarations of each rule in the text that has a selector the
 #	pattern matches, in the order of the sheet. A selector list splits
 #	at each comma outside a pair of parentheses, so the list of an
-#	:is() stays whole.
+#	:is() stays whole. The whitespace of a selector folds to one space,
+#	so a selector can wrap in the sheet.
 sub declarations ( $text, $selector )
 {
 	my $found = '';
@@ -178,7 +239,8 @@ sub declarations ( $text, $selector )
 		$list =~ s/(\((?:[^()]++|(?1))*\))/$1 =~ tr{,}{\0}r/ge;
 		$found .= "$body;"
 		    if grep {/$selector/}
-		    map { tr{\0}{,}r =~ s/^\s+|\s+$//gr } split /,/, $list;
+		    map { tr{\0}{,}r =~ s/^\s+|\s+$//gr =~ s/\s+/ /gr } split /,/,
+		    $list;
 	}
 	return $found;
 }
@@ -224,8 +286,18 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 # 0.846em, and the Menlo of a pre block 0.767em. A code element in a
 # code element keeps the face and the size of its parent, so the size
 # does not shrink twice. WEB-STYLE-7 gives a display of a pre block no indent.
-# WEB-STYLE-8 gives a pre block the face of xterm, and the internal
-# border of 2px of xterm under the title bar of 20px and its border.
+# WEB-STYLE-8 gives a pre block the face of xterm, and an internal
+# border of 1px under the title bar of 18px and its border. WEB-STYLE-7
+# sets the columns of a manual page, and a section heading at the size
+# of the text. WEB-STYLE-14 sets one blank line of 1rem, and
+# WEB-STYLE-15 lets the macros of a manual set each one. A list of each
+# type takes the blank line of its first item, and each next item takes
+# its own. A list right after a heading takes none, and a subsection
+# heading right after its section heading takes none. A tag floats, and
+# its body starts a formatting context of a fixed width, so the body
+# moves below a tag that is too wide.
+my $lists = join ', ',
+    map {".Bl-$_"} qw(bullet column dash diag enum hang inset item ohang tag);
 my @declarations = (
 	[ 'main',   'border-block-start', '1px solid var(--shadow)' ],
 	[ 'main',   'box-shadow',         'inset 0 1px var(--highlight)' ],
@@ -233,8 +305,8 @@ my @declarations = (
 	[ 'footer', 'box-shadow',         'inset 0 1px var(--highlight)' ],
 	[ 'hr',     'border-block-start', '1px solid var(--shadow)' ],
 	[ 'hr',     'border-block-end',   '1px solid var(--highlight)' ],
-	[ 'h2',     'border-block-start', '1px solid var(--shadow)' ],
-	[ 'h2',     'box-shadow',         'inset 0 1px var(--highlight)' ],
+	[ 'h2:not(.Sh)', 'border-block-start', '1px solid var(--shadow)' ],
+	[ 'h2:not(.Sh)', 'box-shadow',         'inset 0 1px var(--highlight)' ],
 	[ 'body > header', 'display',         'flex' ],
 	[ 'body > header', 'justify-content', 'space-between' ],
 	[ 'body > header ul', 'list-style', 'none' ],
@@ -249,8 +321,8 @@ my @declarations = (
 	[ 'a[aria-current="page"]:visited', 'text-decoration', 'none' ],
 	[ 'a[aria-current="page"]:link',    'font-weight',     'normal' ],
 	[ 'a[aria-current="page"]:visited', 'font-weight',     'normal' ],
-	[ 'h2.Sh',         'border',        '0' ],
-	[ 'h2.Sh',         'box-shadow',    'none' ],
+	[ 'h2.Sh',         'border-block-start', undef ],
+	[ 'h2.Sh',         'box-shadow',         undef ],
 	[ 'a:visited',     'color',         'var(--visited)' ],
 	[ 'pre',           'background',    'var(--term-bg)' ],
 	[ 'pre',           'color',         'var(--term-fg)' ],
@@ -284,8 +356,40 @@ my @declarations = (
 	    'font-family', 'inherit' ],
 	[ '.Bd.Bd-indent:has(> pre)', 'margin-inline-start', '0' ],
 	[ 'pre', 'font-family',    'var(--term-face)' ],
-	[ 'pre', 'padding-block',  'calc(22px + 2px) 2px' ],
-	[ 'pre', 'padding-inline', '2px' ],
+	[ 'pre', 'padding-block',  'calc(20px + 1px) 1px' ],
+	[ 'pre', 'padding-inline', '1px' ],
+	[ 'pre',         'letter-spacing', '-0.05em' ],
+	[ 'pre',          'margin-block',  '1rem' ],
+	[ 'hr',           'margin-block',  '1rem' ],
+	[ 'h1', 'margin-block', '1rem 0' ],
+	[ ':is(h1, h2, h3, h4, h5, h6) + :where(:not(h1, h2, h3, h4, h5, h6))',
+	    'margin-block-start', '0' ],
+	[ 'ul',           'padding-inline-start', '4ch' ],
+	[ 'dd',           'margin-inline-start',  'var(--tag)' ],
+	[ 'html',         '--tag',                '8ch' ],
+	[ '.manual-text', 'margin-inline-start',  '5ch' ],
+	[ 'h2.Sh',        'margin-inline-start',  '-5ch' ],
+	[ 'h3.Ss',        'margin-inline-start',  '-2ch' ],
+	[ 'h2.Sh',        'font-size',            '1em' ],
+	[ 'h3.Ss',        'font-size',            '1em' ],
+	[ '.Bd-indent',   'margin-inline-start',  '6ch' ],
+	[ '.manual-text :is(p, pre, ul, ol, dl)', 'margin-block', '0' ],
+	[ '.manual-text .Pp:not(h2 + *, h3 + *)', 'margin-block-start', '1rem' ],
+	[ ":is($lists):not(.Bl-compact, h2 + *, h3 + *)",
+	    'margin-block-start', '1rem' ],
+	[ ':is(.Bl-bullet, .Bl-dash, .Bl-enum, .Bl-item):not(.Bl-compact) > li + li',
+	    'margin-block-start', '1rem' ],
+	[ ':is(.Bl-diag, .Bl-hang, .Bl-inset, .Bl-ohang):not(.Bl-compact) > dd + dt',
+	    'margin-block-start', '1rem' ],
+	[ '.Bl-tag:not(.Bl-compact) > :is(dd + dt, dd + dt + dd)',
+	    'margin-block-start', '1rem' ],
+	[ 'h2.Sh + section.Ss > h3.Ss', 'margin-block-start', '0' ],
+	[ '.manual-text > br', 'display', 'none' ],
+	[ 'table.Nm + br', 'display',     'none' ],
+	[ '.Bl-tag > dt',  'float',       'inline-start' ],
+	[ '.Bl-tag > dd',  'display',     'flow-root' ],
+	[ '.Bl-tag > dd',  'inline-size', 'calc(100% - var(--tag))' ],
+	[ 'pre::before', 'letter-spacing', 'normal' ],
 );
 for (@declarations) {
 	my ( $selector, $property, $want ) = @$_;
@@ -321,19 +425,19 @@ my $fg = 'linear-gradient(var(--wm-title-fg), var(--wm-title-fg))';
 my $bg = 'linear-gradient(var(--wm-title-bg), var(--wm-title-bg))';
 my %bar = (
 	'pre::before' => [
-		'radial-gradient(circle, var(--wm-title-fg) 4.5px, transparent 4.5px)'
-		    . ' 4px 4px / 12px 12px no-repeat',
-		"$bg 4px 4px / 12px 12px no-repeat",
-		"$fg 3px 3px / 14px 14px no-repeat",
+		'radial-gradient(circle, var(--wm-title-fg) 3.5px, transparent 3.5px)'
+		    . ' 4px 4px / 10px 10px no-repeat',
+		"$bg 4px 4px / 10px 10px no-repeat",
+		"$fg 3px 3px / 12px 12px no-repeat",
 		'var(--wm-title-bg)',
 	],
 	'pre::after' => [
-		"$fg right 11px top 4px / 1px 5px no-repeat",
-		"$fg right 11px top 8px / 5px 1px no-repeat",
-		"$fg right 7px top 4px / 1px 9px no-repeat",
-		"$fg right 7px top 12px / 9px 1px no-repeat",
-		"$bg right 4px top 4px / 12px 12px no-repeat",
-		"$fg right 3px top 3px / 14px 14px no-repeat",
+		"$fg right 10px top 4px / 1px 4px no-repeat",
+		"$fg right 10px top 7px / 4px 1px no-repeat",
+		"$fg right 7px top 4px / 1px 7px no-repeat",
+		"$fg right 7px top 10px / 7px 1px no-repeat",
+		"$bg right 4px top 4px / 10px 10px no-repeat",
+		"$fg right 3px top 3px / 12px 12px no-repeat",
 		'conic-gradient(var(--wm-title-fg) 25%, var(--wm-title-bg) 0 50%, '
 		    . 'var(--wm-title-fg) 0 75%, var(--wm-title-bg) 0)'
 		    . ' 0 0 / 2px 2px content-box',
