@@ -96,7 +96,8 @@ $sheet =~ s{/\*.*?\*/}{}gs;
 # The fit removes the head and the foot of a manual page, per D-07, so
 # the set holds none of their classes.
 my %mandoc = map { $_ => 1 } qw(
-    Sh Ss permalink manual-text Nm Bd Bd-indent Bl-tag
+    Sh Ss permalink manual-text Nm Bd Bd-indent Pp
+    Bl-tag Bl-compact Bl-bullet Bl-dash Bl-enum Bl-item
     Cm Fl Ic Fn Dv Er Ev Ar Va Pa Em
 );
 my %seen;
@@ -156,12 +157,24 @@ ok( defined $measure && $measure <= 42, 'the measure stops at 42em' )
     or diag 'max-width: ' . ( $measure // 'none' );
 
 # WEB-STYLE-13 sets the body text at the 14 pixels of Mosaic for X,
-# and at 12 pixels in the narrow query, with a margin of 6px.
-like( $body // '', qr/\bfont-size:\s*14px;/, 'the body text is 14px' );
+# and at 12 pixels in the narrow query, with a margin of 6px. The root
+# carries the size, so 1rem is the body text, per WEB-STYLE-14.
+my ($html) = $sheet =~ /^html\s*\{([^}]*)\}/m;
+like( $html // '', qr/\bfont-size:\s*14px;/, 'the body text is 14px' );
 like( $body // '', qr/\bmargin:\s*6px;/, 'and a margin of 6px' );
 my ($narrow) = $sheet =~ /\@media\s*\(max-width:\s*40em\)\s*\{(.*?)\n\}/s;
-like( $narrow // '', qr/^\s*body\s*\{\s*font-size:\s*12px;\s*\}/m,
+my ($small) = ( $narrow // '' ) =~ /^\s*html\s*\{([^}]*)\}/m;
+like( $small // '', qr/\bfont-size:\s*12px;/,
     'and 12px on a viewport narrower than 40em' );
+like( $small // '', qr/--tag:\s*4ch;/,
+    'where the body of a tag takes 4 columns' );
+
+# WEB-STYLE-14 takes no blank line below a heading. The rule of a
+# block after a heading has the weight of the rule of pre and hr, so
+# it must come later to win.
+ok( index( $sheet, ':is(h1, h2, h3, h4, h5, h6) + *' )
+	> index( $sheet, "\npre, hr {" ),
+	'the rule after a heading follows the blank line of pre and hr' );
 
 # WEB-STYLE-6 draws the underline one pixel thick, below the baseline.
 # The chrome and the permalink carry a link rule of their own, so the
@@ -233,7 +246,11 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 # code element keeps the face and the size of its parent, so the size
 # does not shrink twice. WEB-STYLE-7 gives a display of a pre block no indent.
 # WEB-STYLE-8 gives a pre block the face of xterm, and an internal
-# border of 1px under the title bar of 18px and its border.
+# border of 1px under the title bar of 18px and its border. WEB-STYLE-7
+# sets the columns of a manual page. WEB-STYLE-14 sets one blank line
+# of 1rem, and WEB-STYLE-15 lets the macros of a manual set each one.
+# A tag floats, and its body starts a formatting context of a fixed
+# width, so the body moves below a tag that is too wide.
 my @declarations = (
 	[ 'main',   'border-block-start', '1px solid var(--shadow)' ],
 	[ 'main',   'box-shadow',         'inset 0 1px var(--highlight)' ],
@@ -241,8 +258,8 @@ my @declarations = (
 	[ 'footer', 'box-shadow',         'inset 0 1px var(--highlight)' ],
 	[ 'hr',     'border-block-start', '1px solid var(--shadow)' ],
 	[ 'hr',     'border-block-end',   '1px solid var(--highlight)' ],
-	[ 'h2',     'border-block-start', '1px solid var(--shadow)' ],
-	[ 'h2',     'box-shadow',         'inset 0 1px var(--highlight)' ],
+	[ 'h2:not(.Sh)', 'border-block-start', '1px solid var(--shadow)' ],
+	[ 'h2:not(.Sh)', 'box-shadow',         'inset 0 1px var(--highlight)' ],
 	[ 'body > header', 'display',         'flex' ],
 	[ 'body > header', 'justify-content', 'space-between' ],
 	[ 'body > header ul', 'list-style', 'none' ],
@@ -257,8 +274,8 @@ my @declarations = (
 	[ 'a[aria-current="page"]:visited', 'text-decoration', 'none' ],
 	[ 'a[aria-current="page"]:link',    'font-weight',     'normal' ],
 	[ 'a[aria-current="page"]:visited', 'font-weight',     'normal' ],
-	[ 'h2.Sh',         'border',        '0' ],
-	[ 'h2.Sh',         'box-shadow',    'none' ],
+	[ 'h2.Sh',         'border-block-start', undef ],
+	[ 'h2.Sh',         'box-shadow',         undef ],
 	[ 'a:visited',     'color',         'var(--visited)' ],
 	[ 'pre',           'background',    'var(--term-bg)' ],
 	[ 'pre',           'color',         'var(--term-fg)' ],
@@ -295,6 +312,23 @@ my @declarations = (
 	[ 'pre', 'padding-block',  'calc(20px + 1px) 1px' ],
 	[ 'pre', 'padding-inline', '1px' ],
 	[ 'pre',         'letter-spacing', '-0.05em' ],
+	[ 'pre',          'margin-block',  '1rem' ],
+	[ 'h1', 'margin-block', '1rem 0' ],
+	[ ':is(h1, h2, h3, h4, h5, h6) + *', 'margin-block-start', '0' ],
+	[ 'ul',           'padding-inline-start', '4ch' ],
+	[ 'dd',           'margin-inline-start',  'var(--tag)' ],
+	[ 'html',         '--tag',                '8ch' ],
+	[ '.manual-text', 'margin-inline-start',  '5ch' ],
+	[ 'h2.Sh',        'margin-inline-start',  '-5ch' ],
+	[ 'h3.Ss',        'margin-inline-start',  '-2ch' ],
+	[ '.Bd-indent',   'margin-inline-start',  '6ch' ],
+	[ '.manual-text :is(p, pre, ul, ol, dl)', 'margin-block', '0' ],
+	[ '.manual-text .Pp:not(h2 + *, h3 + *)', 'margin-block-start', '1rem' ],
+	[ '.Bl-tag:not(.Bl-compact) > :is(dt, dd)', 'margin-block-start', '1rem' ],
+	[ 'table.Nm + br', 'display',     'none' ],
+	[ '.Bl-tag > dt',  'float',       'inline-start' ],
+	[ '.Bl-tag > dd',  'display',     'flow-root' ],
+	[ '.Bl-tag > dd',  'inline-size', 'calc(100% - var(--tag))' ],
 	[ 'pre::before', 'letter-spacing', 'normal' ],
 );
 for (@declarations) {

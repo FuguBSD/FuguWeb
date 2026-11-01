@@ -51,14 +51,16 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   linked image must show a frame of 2px in the link color, as in Mosaic. A link
   must show in red while the reader pushes it, as in Netscape 1.x. The keyboard
   focus must show as a dotted ring of one pixel, as in Windows 3.1.
-- **WEB-STYLE-7** — A section heading of a manual page must sit flush with the
-  banner, in bold. The section body must sit at an indent on a viewport wider
-  than 40em. A narrower viewport can drop both the indent and the heading
-  offset. An inline code element of the manual body must take no background.
-  Bold alone marks what the reader types, and italic marks what the reader
-  substitutes. A display of mdoc(7) that holds a `pre` block must take no
-  indent. The frame of the xterm marks the block, and a line of the block then
-  holds more columns.
+- **WEB-STYLE-7** — A manual page must keep the columns of a terminal, as nroff
+  set them. One column is 1ch. A section heading must sit flush with the banner,
+  in bold at the size of the text. The section body must sit 5 columns in, and a
+  subsection heading 3 columns in. A display of `-offset indent` must sit 6 more
+  columns in. A display that holds a `pre` block must take no indent. The frame
+  of the xterm marks the block, and a line of the block then holds more columns.
+  A viewport narrower than 40em must drop the indent of a section and of a
+  display, and the offset of each heading. An inline code element of the manual
+  body must take no background. Bold alone marks what the reader types, and
+  italic marks what the reader substitutes.
 - **WEB-STYLE-8** — A `pre` block must show as an xterm in the default window
   frame of twm, the window manager of X11R6. The light scheme must show the
   black text on white of the default xterm. The dark scheme must show light text
@@ -75,7 +77,8 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   xterm, so a line on a phone holds one more column. The default font `fixed` of
   xterm has a narrow cell: 6 pixels for a font of 13 pixels. The text of the
   block must take a letter spacing of -0.05em to narrow its cell. A line on a
-  phone then holds 73 columns. The title must keep the spacing of its face.
+  phone then holds about 73 columns. The title must keep the spacing of its
+  face.
 - **WEB-STYLE-9** — The sheet must show the list of the languages and the nav
   list each on one line. It must set the list of the languages at the end of the
   line of the banner link. A narrow viewport can put the list below the link. It
@@ -116,10 +119,28 @@ exception: `mandoc` emits its own class names, and the sheet adopts them.
   of X11. A viewport narrower than 40em must take 12px, the next smaller Times
   of that set. The width of 40em is 640px, the width of a screen of VGA. At
   12px, a `pre` block on a phone holds the lines of an example of a manual page
-  with no wrap. Each other size must stay relative to the body text. Each code
-  face then keeps its size per WEB-STYLE-4 at each width. The body must take a
-  margin of 6px, half the body text of a phone. A phone then gives its width to
-  the text.
+  with no wrap. The root must carry the size of the body text, and each other
+  size must stay relative to it. Each code face then keeps its size per
+  WEB-STYLE-4 at each width.
+- **WEB-STYLE-14** — One blank line must be 1rem, the gap between two paragraphs
+  in the browser. The root carries the size of the body text, per WEB-STYLE-13,
+  so 1rem is that size at each width. A paragraph, a list, a `pre` block and an
+  `hr` must each take one blank line above and below. A heading must take one
+  blank line above it and none below it, as a section heading of a manual page.
+  The body must take a margin of 6px, half the body text of a phone, so a phone
+  gives its width to the text. A list must indent its items by 4 columns, and a
+  `dd` by 8 columns. A viewport narrower than 40em must indent a `dd` by 4
+  columns, so a line holds more words.
+- **WEB-STYLE-15** — The macros of a manual page must set each blank line, as in
+  nroff. A block that `mandoc` marks with the class `Pp` must take one blank
+  line above it. A paragraph right after a heading must take none. Each item of
+  a list that `mandoc` does not mark with the class `Bl-compact` must take one
+  blank line above it. No other block of the manual body must take a gap. A `br`
+  that `mandoc` writes between two blocks must take no line. The lines of a
+  synopsis then follow each other with no gap, and each line must hang after the
+  name of the command. A tag must share the line of its body when it fits in the
+  indent of the body. A wider tag must take a line of its own, with its body
+  right below it.
 
 <a id="web-output"></a>
 
