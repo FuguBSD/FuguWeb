@@ -117,6 +117,16 @@ like( $manual, qr/<div class="Bd\b[^"]*\bBd-indent\b[^"]*">\s*<pre\b/,
 	'an indented display of mdoc holds its pre block as a child' );
 like( $manual, qr/<span class="Pa">/, 'and a path of mdoc is a span' );
 
+# WEB-STYLE-15 relies on one more part: mandoc writes each subsection
+# in a section of its own. The manual of App::FuguWeb has a subsection
+# right after its section heading.
+my $module = Fugu::File->read("$out/en/App::FuguWeb.3p.html") // '';
+like(
+	$module,
+	qr{<h2 class="Sh"[^>]*>[^<]*</h2>\s*<section class="Ss">\s*<h3 class="Ss"},
+	'a subsection right after its section heading is a section of its own'
+);
+
 unlike( $sheet, qr/url\(/,    'the sheet loads no resource' );
 unlike( $sheet, qr/\@import/, 'and imports no sheet' );
 
@@ -179,10 +189,31 @@ for my $selector ( '.manual-text', '.Bd-indent', 'h2.Sh', 'h3.Ss' ) {
 
 # WEB-STYLE-14 takes no blank line below a heading. The rule of a
 # block after a heading has the weight of the rule of pre and hr, so
-# it must come later to win.
-ok( index( $sheet, ':is(h1, h2, h3, h4, h5, h6) + *' )
-	> index( $sheet, "\npre, hr {" ),
+# it must come later to win. index() gives -1 for an absent rule, so
+# the check needs each rule in the sheet.
+my $after = index( $sheet,
+	':is(h1, h2, h3, h4, h5, h6) + :where(:not(h1, h2, h3, h4, h5, h6)) {' );
+my $before = index( $sheet, "\npre, hr {" );
+ok( $before >= 0 && $after > $before,
 	'the rule after a heading follows the blank line of pre and hr' );
+
+# WEB-STYLE-14 keeps the blank line above a heading right after a
+# heading. A rule that takes the blank line from the block right after
+# a heading must refuse a heading in that block. The subsection
+# heading of WEB-STYLE-15 is a child of that block, not the block.
+my @lost;
+while ( $sheet =~ /([^{}]+)\{([^{}]*)\}/g ) {
+	my ( $list, $body ) = ( $1, $2 );
+	next unless $body =~ /(?<![-\w])margin(?:-block(?:-start)?)?\s*:\s*0(?![.\w])/;
+	$list =~ s/(\((?:[^()]++|(?1))*\))/$1 =~ s{\s+}{}gr =~ tr{,}{\0}r/ge;
+	for ( map { tr{\0}{,}r =~ s/^\s+|\s+$//gr } split /,/, $list ) {
+		push @lost, $_
+		    if /(?:^|\s)(?:h[1-6][\w.-]*|:is\(h1,h2,h3,h4,h5,h6\))\s*\+\s*(\S+)$/
+		    && $1 !~ /:not\(h1,h2,h3,h4,h5,h6\)/;
+	}
+}
+is_deeply( \@lost, [], 'a heading right after a heading keeps its blank line' )
+    or diag join "\n", @lost;
 
 # WEB-STYLE-6 draws the underline one pixel thick, below the baseline.
 # The chrome and the permalink carry a link rule of their own, so the
@@ -261,7 +292,8 @@ is( lc( value( $plain, ':root', '--bg' ) // '' ), '#bfbfbf',
 # of the text. WEB-STYLE-14 sets one blank line of 1rem, and
 # WEB-STYLE-15 lets the macros of a manual set each one. A list of each
 # type takes the blank line of its first item, and each next item takes
-# its own. A list right after a heading takes none. A tag floats, and
+# its own. A list right after a heading takes none, and a subsection
+# heading right after its section heading takes none. A tag floats, and
 # its body starts a formatting context of a fixed width, so the body
 # moves below a tag that is too wide.
 my $lists = join ', ',
@@ -330,7 +362,8 @@ my @declarations = (
 	[ 'pre',          'margin-block',  '1rem' ],
 	[ 'hr',           'margin-block',  '1rem' ],
 	[ 'h1', 'margin-block', '1rem 0' ],
-	[ ':is(h1, h2, h3, h4, h5, h6) + *', 'margin-block-start', '0' ],
+	[ ':is(h1, h2, h3, h4, h5, h6) + :where(:not(h1, h2, h3, h4, h5, h6))',
+	    'margin-block-start', '0' ],
 	[ 'ul',           'padding-inline-start', '4ch' ],
 	[ 'dd',           'margin-inline-start',  'var(--tag)' ],
 	[ 'html',         '--tag',                '8ch' ],
@@ -350,6 +383,7 @@ my @declarations = (
 	    'margin-block-start', '1rem' ],
 	[ '.Bl-tag:not(.Bl-compact) > :is(dd + dt, dd + dt + dd)',
 	    'margin-block-start', '1rem' ],
+	[ 'h2.Sh + section.Ss > h3.Ss', 'margin-block-start', '0' ],
 	[ '.manual-text > br', 'display', 'none' ],
 	[ 'table.Nm + br', 'display',     'none' ],
 	[ '.Bl-tag > dt',  'float',       'inline-start' ],

@@ -246,7 +246,9 @@ hr {
    browser. A paragraph, a list and a dl take it from the browser, and
    a pre block and an hr take it here. A heading takes a blank line
    above it and none below it, as a section heading of a manual page.
-   The rule after a heading comes last, so it wins at equal weight. */
+   A heading right after a heading keeps its blank line. The rule
+   after a heading refuses a heading in a :where(), which adds no
+   weight. That rule comes last, so it wins at equal weight. */
 
 pre, hr {
 	margin-block: 1rem;
@@ -258,7 +260,7 @@ h1, h2, h3, h4, h5, h6 {
 	margin-block: 1rem 0;
 }
 
-:is(h1, h2, h3, h4, h5, h6) + * {
+:is(h1, h2, h3, h4, h5, h6) + :where(:not(h1, h2, h3, h4, h5, h6)) {
 	margin-block-start: 0;
 }
 
@@ -456,6 +458,9 @@ a.permalink:visited {
    its own. A Bl-column list is a table, and nroff gives no blank line
    between two rows. No other block of a manual takes a gap. A
    paragraph or a list right after a heading takes none, as in nroff.
+   A subsection heading right after its section heading takes none
+   either. mandoc writes each subsection in a section of its own, so
+   that heading is the first child of the section after the h2.
    A dl in a Bd-indent block keeps its gap there, as an RS region of
    man(7) does in nroff. mandoc writes an -offset list of mdoc(7) with
    the same markup. mandoc writes a br between two blocks: at the
@@ -473,6 +478,10 @@ a.permalink:visited {
 :is(.Bl-diag, .Bl-hang, .Bl-inset, .Bl-ohang):not(.Bl-compact) > dd + dt,
 .Bl-tag:not(.Bl-compact) > :is(dd + dt, dd + dt + dd) {
 	margin-block-start: 1rem;
+}
+
+h2.Sh + section.Ss > h3.Ss {
+	margin-block-start: 0;
 }
 
 .manual-text > br,
